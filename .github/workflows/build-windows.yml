@@ -265,40 +265,52 @@ jobs:
           # 运行时与数据库 _sqlx_migrations 表里的 checksum 比对。
           #
           # 官方在 Windows 上构建时，checkout 会把 .sql 转成 CRLF，
-          # 所以它的 checksum 是按 CRLF 算的（已实测 55/55 全部吻合）。
-          # 而 actions/checkout 不做换行转换，拿到 LF，
-          # 算出的 checksum 与数据库不符，启动就报
+          # 所以它的 checksum 是按 CRLF 算的。实测 6 个库共 69 个
+          # migration 文件全部如此，无一例外：
+          #   state_5.sqlite            migrations/            55
+          #   logs_2.sqlite             logs_migrations/        2
+          #   goals_1.sqlite            goals_migrations/       2
+          #   memories_1.sqlite         memory_migrations/      2
+          #   queue_1.sqlite            queue_migrations/       2
+          #   thread_history_1.sqlite   thread_history_migrations/ 6
+          #
+          # 而 actions/checkout 不做换行转换，拿到 LF，算出的 checksum
+          # 与数据库不符，启动就报
           # "migration 1 was previously applied but has been modified"。
           #
-          # 这里显式转成 CRLF，让编译结果与官方 exe 完全一致。
           # 用一次 python 处理全部文件；逐个 sed -i 在 Windows 上会因为
-          # 反复创建进程而慢上百倍（55 文件 × 2 次 sed 约 4 分钟）。
+          # 反复创建进程而慢上百倍。
           # 注意：Windows 上 python 默认 stdout 是 cp1252，输出中文会
           # UnicodeEncodeError，所以这里只打印 ASCII。
           python3 - <<'PY'
           import os, sys
 
-          mig_dir = "upstream/codex-rs/state/migrations"
-          files = sorted(f for f in os.listdir(mig_dir) if f.endswith(".sql"))
-          if not files:
-              print("::error::no migration files found")
+          root = "upstream/codex-rs/state"
+          # 递归找出所有 *_migrations 目录，官方将来新增目录也能自动覆盖
+          targets = sorted(
+              os.path.join(dirpath, name)
+              for dirpath, dirnames, _ in os.walk(root)
+              for name in dirnames
+              if name.endswith("migrations")
+          )
+          if not targets:
+              print("::error::no *_migrations directories found")
               sys.exit(1)
 
-          for name in files:
-              path = os.path.join(mig_dir, name)
-              data = open(path, "rb").read()
-              # 先统一成 LF 再转 CRLF，保证幂等（重复运行结果一致）
-              normalized = data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
-              if normalized != data:
-                  open(path, "wb").write(normalized)
+          total = 0
+          for mig_dir in targets:
+              files = sorted(f for f in os.listdir(mig_dir) if f.endswith(".sql"))
+              for name in files:
+                  path = os.path.join(mig_dir, name)
+                  data = open(path, "rb").read()
+                  # 先统一成 LF 再转 CRLF，保证幂等（重复运行结果一致）
+                  normalized = data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+                  if normalized != data:
+                      open(path, "wb").write(normalized)
+              total += len(files)
+              print(f"  {os.path.relpath(mig_dir, root)}: {len(files)} files")
 
-          # 抽查：确认确实是纯 CRLF
-          sample = open(os.path.join(mig_dir, files[0]), "rb").read()
-          crlf, lf = sample.count(b"\r\n"), sample.count(b"\n")
-          print(f"converted {len(files)} files; sample {files[0]}: CRLF={crlf} LF={lf}")
-          if crlf == 0 or crlf != lf:
-              print("::error::conversion result is not pure CRLF")
-              sys.exit(1)
+          print(f"converted {total} files in {len(targets)} directories")
           PY
 
       - name: 校验 migration 换行（编译前门禁）
@@ -314,28 +326,37 @@ jobs:
           python3 - <<'PY'
           import os, sys
 
-          mig_dir = "state/migrations"
-          files = sorted(f for f in os.listdir(mig_dir) if f.endswith(".sql"))
-          if not files:
-              print("::error::no migration files found")
+          root = "state"
+          targets = sorted(
+              os.path.join(dirpath, name)
+              for dirpath, dirnames, _ in os.walk(root)
+              for name in dirnames
+              if name.endswith("migrations")
+          )
+          if not targets:
+              print("::error::no *_migrations directories found")
               sys.exit(1)
 
           bad = []
-          for name in files:
-              data = open(os.path.join(mig_dir, name), "rb").read()
-              crlf = data.count(b"\r\n")
-              lf = data.count(b"\n")
-              if crlf == 0:
-                  bad.append((name, "no CRLF"))
-              elif crlf != lf:
-                  bad.append((name, f"mixed line endings CRLF={crlf} LF={lf}"))
+          total = 0
+          for mig_dir in targets:
+              for name in sorted(f for f in os.listdir(mig_dir) if f.endswith(".sql")):
+                  data = open(os.path.join(mig_dir, name), "rb").read()
+                  crlf = data.count(b"\r\n")
+                  lf = data.count(b"\n")
+                  rel = os.path.relpath(os.path.join(mig_dir, name), root)
+                  if crlf == 0:
+                      bad.append((rel, "no CRLF"))
+                  elif crlf != lf:
+                      bad.append((rel, f"mixed line endings CRLF={crlf} LF={lf}"))
+                  total += 1
 
-          print(f"checked {len(files)} migration files")
+          print(f"checked {total} migration files in {len(targets)} directories")
           if bad:
-              for name, why in bad:
-                  print(f"::error file={mig_dir}/{name}::{why}")
+              for rel, why in bad:
+                  print(f"::error file={rel}::{why}")
               sys.exit(1)
-          print("all files are pure CRLF; checksums will match the official exe")
+          print("all migration files are pure CRLF; checksums will match the official exe")
           PY
 
       - name: 编译 codex.exe
@@ -437,10 +458,13 @@ jobs:
           # 把基线版本补进说明
           sed -i "1s/^基于官方 tag/基于官方 ${TAG}/" notes.md
 
+          # 幂等：Release 已存在时更新（--clobber 覆盖同名附件），
+          # 否则重建同一个 tag 会因为重名直接失败。
           gh release create "${TAG}" \
             --repo "${GITHUB_REPOSITORY}" \
             --title "${TAG} + codex-cli patches" \
             --notes-file notes.md \
+            --clobber \
             dist/*
 
       - name: 记录已构建 tag
