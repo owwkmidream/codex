@@ -257,6 +257,69 @@ jobs:
           git add -A
           git commit -m "apply codex-cli patches"
 
+      - name: 把 migration SQL 转成 CRLF（对齐官方 Windows 构建）
+        shell: bash
+        run: |
+          set -euo pipefail
+          # sqlx 在编译期把每个 migration 的 sha384 嵌进二进制，
+          # 运行时与数据库 _sqlx_migrations 表里的 checksum 比对。
+          #
+          # 官方在 Windows 上构建时，checkout 会把 .sql 转成 CRLF，
+          # 所以它的 checksum 是按 CRLF 算的（已实测 55/55 全部吻合）。
+          # 而 actions/checkout 不做换行转换，拿到 LF，
+          # 算出的 checksum 与数据库不符，启动就报
+          # "migration 1 was previously applied but has been modified"。
+          #
+          # 这里显式转成 CRLF，让编译结果与官方 exe 完全一致。
+          cd upstream/codex-rs/state/migrations
+          count=0
+          for f in *.sql; do
+            # 先去掉可能存在的 CR，再统一加 CR，保证幂等
+            sed -i 's/\r$//' "$f"
+            sed -i 's/$/\r/' "$f"
+            count=$((count + 1))
+          done
+          echo "已转换 ${count} 个 migration 文件"
+          # 抽查第一个文件确认结果
+          f="$(ls *.sql | head -1)"
+          printf '抽查 %s: ' "$f"
+          if grep -qU $'\r' "$f"; then echo "CRLF ✅"; else echo "LF ❌"; exit 1; fi
+
+      - name: 校验 migration 换行（编译前门禁）
+        shell: bash
+        working-directory: upstream/codex-rs
+        run: |
+          set -euo pipefail
+          # 编译进二进制的 checksum 必须与官方 exe 一致，否则用户换上新 exe
+          # 会因数据库校验失败而无法启动（migration N was modified）。
+          # 必须在 cargo build 之前拦下，编完再查已经来不及。
+          python3 - <<'PY'
+          import os, sys
+
+          mig_dir = "state/migrations"
+          files = sorted(f for f in os.listdir(mig_dir) if f.endswith(".sql"))
+          if not files:
+              print("::error::未找到 migration 文件")
+              sys.exit(1)
+
+          bad = []
+          for name in files:
+              data = open(os.path.join(mig_dir, name), "rb").read()
+              crlf = data.count(b"\r\n")
+              lf = data.count(b"\n")
+              if crlf == 0:
+                  bad.append((name, "无 CRLF"))
+              elif crlf != lf:
+                  bad.append((name, f"混合换行 CRLF={crlf} LF={lf}"))
+
+          print(f"检查 {len(files)} 个 migration 文件")
+          if bad:
+              for name, why in bad:
+                  print(f"::error file={mig_dir}/{name}::{why}")
+              sys.exit(1)
+          print("✅ 全部为纯 CRLF，checksum 将与官方 exe 一致")
+          PY
+
       - name: 编译 codex.exe
         working-directory: upstream/codex-rs
         shell: bash
