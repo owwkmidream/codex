@@ -1,0 +1,3515 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index 52bb0e357..cc9ad063e 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -416,7 +416,7 @@ checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
+ 
+ [[package]]
+ name = "app_test_support"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -2050,7 +2050,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-agent-extension"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "codex-core",
+@@ -2062,7 +2062,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-agent-graph-store"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-protocol",
+  "codex-state",
+@@ -2077,7 +2077,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-agent-identity"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -2097,7 +2097,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-agent-message-board-extension"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "base64 0.22.1",
+  "caseless",
+@@ -2120,7 +2120,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-agent-roles"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-config",
+  "codex-file-system",
+@@ -2133,7 +2133,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-analytics"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-app-server-protocol",
+  "codex-git-utils",
+@@ -2154,7 +2154,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-ansi-escape"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "ansi-to-tui",
+  "ratatui",
+@@ -2163,7 +2163,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-api"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "assert_matches",
+@@ -2201,7 +2201,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-app-server"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "app_test_support",
+@@ -2309,7 +2309,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-app-server-client"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-app-server",
+  "codex-app-server-protocol",
+@@ -2336,7 +2336,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-app-server-daemon"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "blake3",
+@@ -2361,7 +2361,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-app-server-protocol"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "codex-app-server-protocol-noop-macros",
+@@ -2395,11 +2395,11 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-app-server-protocol-noop-macros"
+-version = "0.0.0"
++version = "0.156.1"
+ 
+ [[package]]
+ name = "codex-app-server-test-client"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -2421,7 +2421,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-app-server-transport"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "axum",
+@@ -2465,7 +2465,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-apply-patch"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "assert_cmd",
+@@ -2485,7 +2485,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-arg0"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "codex-apply-patch",
+@@ -2507,7 +2507,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-async-utils"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "pretty_assertions",
+  "rand 0.9.3",
+@@ -2517,7 +2517,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-attachment-store"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "pretty_assertions",
+  "serde",
+@@ -2527,7 +2527,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-aws-auth"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "aws-config",
+  "aws-credential-types",
+@@ -2542,7 +2542,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-backend-client"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "codex-api",
+@@ -2562,7 +2562,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-backend-openapi-models"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "serde",
+  "serde_json",
+@@ -2571,7 +2571,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-build-info"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-install-context",
+  "pretty_assertions",
+@@ -2584,7 +2584,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-bwrap"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "cc",
+  "libc",
+@@ -2593,7 +2593,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-chatgpt"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -2615,7 +2615,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-cli"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "app_test_support",
+@@ -2711,7 +2711,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-client"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-http-client",
+  "eventsource-stream",
+@@ -2724,7 +2724,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-cloud-config"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "base64 0.22.1",
+  "chrono",
+@@ -2750,7 +2750,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-cloud-tasks"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -2783,7 +2783,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-cloud-tasks-client"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -2798,7 +2798,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-cloud-tasks-mock-client"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "chrono",
+  "codex-cloud-tasks-client",
+@@ -2807,7 +2807,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-code-mode"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-code-mode-protocol",
+  "codex-http-client",
+@@ -2830,7 +2830,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-code-mode-host"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "axum",
+@@ -2858,7 +2858,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-code-mode-protocol"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-protocol",
+  "glob",
+@@ -2876,7 +2876,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-code-mode-runtime"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-code-mode-protocol",
+@@ -2894,11 +2894,11 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-collaboration-mode-templates"
+-version = "0.0.0"
++version = "0.156.1"
+ 
+ [[package]]
+ name = "codex-config"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -2948,7 +2948,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-config-schema"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -2957,7 +2957,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-connectors"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "arc-swap",
+@@ -2979,7 +2979,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-connectors-extension"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-connectors",
+  "codex-core-plugins",
+@@ -2993,7 +2993,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-context-fragments"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-protocol",
+  "codex-utils-string",
+@@ -3003,7 +3003,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-core"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "arc-swap",
+@@ -3140,7 +3140,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-core-api"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-analytics",
+  "codex-app-server-protocol",
+@@ -3163,7 +3163,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-core-plugins"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -3218,7 +3218,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-diagnostics"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "libc",
+  "pretty_assertions",
+@@ -3226,7 +3226,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-exec"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "assert_cmd",
+@@ -3278,7 +3278,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-exec-server"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "arc-swap",
+@@ -3339,7 +3339,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-exec-server-protocol"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-file-system",
+@@ -3355,7 +3355,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-exec-server-test-support"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "codex-exec-server",
+@@ -3370,7 +3370,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-execpolicy"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -3388,7 +3388,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-experimental-api-macros"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+@@ -3397,7 +3397,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-extension-api"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-config",
+  "codex-context-fragments",
+@@ -3416,7 +3416,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-extension-items"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-utils-absolute-path",
+  "pretty_assertions",
+@@ -3428,7 +3428,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-external-agent-migration"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "chrono",
+  "codex-analytics",
+@@ -3458,7 +3458,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-features"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-network-proxy",
+  "codex-otel",
+@@ -3472,7 +3472,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-feedback"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "bytes",
+@@ -3496,7 +3496,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-file-search"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -3512,7 +3512,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-file-system"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "bytes",
+  "codex-protocol",
+@@ -3524,7 +3524,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-file-watcher"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "notify",
+  "pretty_assertions",
+@@ -3535,7 +3535,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-git-attribution"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-backend-client",
+  "codex-extension-api",
+@@ -3548,7 +3548,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-git-utils"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -3574,7 +3574,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-goal-extension"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -3599,7 +3599,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-guardian-context"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-context-fragments",
+  "codex-history",
+@@ -3610,7 +3610,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-guardian-reviewer"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "codex-analytics",
+@@ -3635,7 +3635,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-guardian-v2"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "codex-analytics",
+@@ -3668,7 +3668,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-history"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "codex-protocol",
+@@ -3680,7 +3680,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-history-notes-extension"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-analytics",
+  "codex-api",
+@@ -3705,7 +3705,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-home"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-extension-api",
+  "codex-utils-absolute-path",
+@@ -3717,7 +3717,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-hooks"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "async-channel",
+@@ -3743,7 +3743,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-http-client"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "bytes",
+  "codex-utils-cargo-bin",
+@@ -3776,7 +3776,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-image-generation-extension"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-api",
+@@ -3803,7 +3803,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-install-context"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-utils-absolute-path",
+  "codex-utils-home-dir",
+@@ -3816,7 +3816,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-keyring-store"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "keyring",
+  "tracing",
+@@ -3824,7 +3824,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-linux-sandbox"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "clap",
+  "codex-core",
+@@ -3852,7 +3852,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-lmstudio"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-core",
+  "codex-http-client",
+@@ -3866,7 +3866,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-login"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -3909,7 +3909,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-mcp"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "arc-swap",
+@@ -3949,7 +3949,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-mcp-extension"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "axum",
+@@ -3982,7 +3982,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-memories-extension"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-core",
+  "codex-extension-api",
+@@ -4004,7 +4004,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-memories-read"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-protocol",
+  "codex-shell-command",
+@@ -4014,7 +4014,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-memories-write"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -4051,7 +4051,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-mermaid"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "insta",
+  "pretty_assertions",
+@@ -4060,7 +4060,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-message-history"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-config",
+  "memchr",
+@@ -4074,7 +4074,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-model-provider"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "base64 0.22.1",
+  "chrono",
+@@ -4106,7 +4106,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-model-provider-info"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-api",
+  "codex-protocol",
+@@ -4124,7 +4124,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-models-manager"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "chrono",
+  "codex-http-client",
+@@ -4143,7 +4143,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-mxc-sandbox"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "appcontainer_common",
+@@ -4165,7 +4165,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-network-proxy"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -4213,7 +4213,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-ollama"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "assert_matches",
+  "async-stream",
+@@ -4233,7 +4233,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-otel"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "chrono",
+  "codex-api",
+@@ -4266,7 +4266,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-otel-trace-websocket"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "axum",
+@@ -4277,7 +4277,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-plugin"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-config",
+  "codex-protocol",
+@@ -4291,7 +4291,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-process-hardening"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "libc",
+  "pretty_assertions",
+@@ -4299,7 +4299,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-prompts"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "codex-collaboration-mode-templates",
+@@ -4316,7 +4316,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-protocol"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "chardetng",
+@@ -4360,7 +4360,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-queue-extension"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "codex-core",
+@@ -4381,7 +4381,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-realtime-webrtc"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "codex-build-info",
+@@ -4399,7 +4399,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-response-debug-context"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-api",
+@@ -4410,7 +4410,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-responses-api-proxy"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -4427,7 +4427,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-rmcp-client"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "axum",
+@@ -4475,7 +4475,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-rollout"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -4502,7 +4502,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-rollout-trace"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "codex-code-mode",
+@@ -4518,7 +4518,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-sandboxing"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "codex-mxc-sandbox",
+@@ -4545,7 +4545,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-secrets"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "age",
+  "anyhow",
+@@ -4566,7 +4566,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-shell-command"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -4589,7 +4589,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-shell-escalation"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -4609,7 +4609,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-skills"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-protocol",
+  "codex-shell-command",
+@@ -4626,7 +4626,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-skills-extension"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "assert_matches",
+  "codex-analytics",
+@@ -4663,7 +4663,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-state"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -4687,7 +4687,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-stdio-to-uds"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "codex-uds",
+@@ -4699,7 +4699,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-tcp-tunnel"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "bytes",
+@@ -4720,7 +4720,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-terminal-detection"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "pretty_assertions",
+  "tracing",
+@@ -4728,7 +4728,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-test-binary-support"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-arg0",
+  "tempfile",
+@@ -4736,7 +4736,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-thread-manager-sample"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -4747,7 +4747,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-thread-store"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "chrono",
+  "codex-app-server-protocol",
+@@ -4777,7 +4777,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-tools"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "bitflags 2.13.1",
+  "codex-code-mode",
+@@ -4802,7 +4802,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-tui"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "app_test_support",
+@@ -4928,7 +4928,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-uds"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "async-io",
+  "libc",
+@@ -4942,7 +4942,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-user-verification"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "base64 0.22.1",
+  "core-foundation 0.10.1",
+@@ -4962,7 +4962,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-absolute-path"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "dirs",
+  "dunce",
+@@ -4976,14 +4976,14 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-approval-presets"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-protocol",
+ ]
+ 
+ [[package]]
+ name = "codex-utils-audio"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-protocol",
+@@ -4997,7 +4997,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-cache"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "lru",
+  "sha1 0.10.6",
+@@ -5006,7 +5006,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-cargo-bin"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "assert_cmd",
+  "runfiles",
+@@ -5015,7 +5015,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-cli"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "clap",
+  "codex-protocol",
+@@ -5027,15 +5027,15 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-elapsed"
+-version = "0.0.0"
++version = "0.156.1"
+ 
+ [[package]]
+ name = "codex-utils-fuzzy-match"
+-version = "0.0.0"
++version = "0.156.1"
+ 
+ [[package]]
+ name = "codex-utils-git-discovery"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-git-utils",
+  "codex-utils-absolute-path",
+@@ -5048,7 +5048,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-home-dir"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-utils-absolute-path",
+  "dirs",
+@@ -5058,7 +5058,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-image"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-utils-cache",
+@@ -5071,7 +5071,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-json-to-toml"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "pretty_assertions",
+  "serde_json",
+@@ -5080,7 +5080,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-oss"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-core",
+  "codex-lmstudio",
+@@ -5090,7 +5090,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-output-truncation"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-protocol",
+  "codex-utils-string",
+@@ -5099,7 +5099,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-path"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-utils-absolute-path",
+  "dunce",
+@@ -5110,7 +5110,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-path-uri"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-utils-absolute-path",
+@@ -5126,7 +5126,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-plugins"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-exec-server",
+  "codex-exec-server-protocol",
+@@ -5140,7 +5140,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-pty"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "filedescriptor",
+@@ -5157,7 +5157,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-readiness"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "assert_matches",
+  "thiserror 2.0.18",
+@@ -5167,7 +5167,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-redacted-string"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "schemars 0.8.22",
+  "serde",
+@@ -5175,14 +5175,14 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-rustls-provider"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "rustls",
+ ]
+ 
+ [[package]]
+ name = "codex-utils-sandbox-summary"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-protocol",
+  "codex-utils-absolute-path",
+@@ -5192,7 +5192,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-sleep-inhibitor"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "core-foundation 0.9.4",
+  "libc",
+@@ -5202,14 +5202,14 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-stream-parser"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "pretty_assertions",
+ ]
+ 
+ [[package]]
+ name = "codex-utils-string"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "pretty_assertions",
+  "regex-lite",
+@@ -5219,14 +5219,14 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-utils-template"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "pretty_assertions",
+ ]
+ 
+ [[package]]
+ name = "codex-v8-poc"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "pretty_assertions",
+  "v8",
+@@ -5234,7 +5234,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-voice-host"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "codex-install-context",
+@@ -5261,7 +5261,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-web-search-extension"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-api",
+  "codex-core",
+@@ -5282,7 +5282,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-websocket-client"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-http-client",
+  "codex-utils-rustls-provider",
+@@ -5298,7 +5298,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-windows-sandbox"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -5324,7 +5324,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-windows-sandbox-service"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "codex-cloud-config",
+@@ -5341,7 +5341,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-workload-identity"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "codex-http-client",
+  "pretty_assertions",
+@@ -5356,7 +5356,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "codex-worktree"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "codex-git-utils",
+@@ -5596,7 +5596,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "core_test_support"
+-version = "0.0.0"
++version = "0.156.1"
+ dependencies = [
+  "anyhow",
+  "assert_cmd",
+diff --git a/codex-rs/app-server-protocol/src/protocol/common.rs b/codex-rs/app-server-protocol/src/protocol/common.rs
+index 2174b1d78..c15b90daf 100644
+--- a/codex-rs/app-server-protocol/src/protocol/common.rs
++++ b/codex-rs/app-server-protocol/src/protocol/common.rs
+@@ -1935,6 +1935,8 @@ server_notification_definitions! {
+     ThreadSettingsUpdated => "thread/settings/updated" (v2::ThreadSettingsUpdatedNotification),
+     ThreadTokenUsageUpdated => "thread/tokenUsage/updated" (v2::ThreadTokenUsageUpdatedNotification),
+     TurnStarted => "turn/started" (v2::TurnStartedNotification),
++    /// Ephemeral byte progress for the active upstream model request.
++    ModelRequestProgress => "turn/modelRequestProgress" (v2::ModelRequestProgressNotification),
+     HookStarted => "hook/started" (v2::HookStartedNotification),
+     TurnCompleted => "turn/completed" (v2::TurnCompletedNotification),
+     HookCompleted => "hook/completed" (v2::HookCompletedNotification),
+diff --git a/codex-rs/app-server-protocol/src/protocol/v2/turn.rs b/codex-rs/app-server-protocol/src/protocol/v2/turn.rs
+index f938d179e..3a029d661 100644
+--- a/codex-rs/app-server-protocol/src/protocol/v2/turn.rs
++++ b/codex-rs/app-server-protocol/src/protocol/v2/turn.rs
+@@ -534,6 +534,31 @@ pub struct TurnStartedNotification {
+     pub turn: Turn,
+ }
+ 
++/// Direction of the byte counters in [`ModelRequestProgressNotification`].
++#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema, TS)]
++#[serde(rename_all = "camelCase")]
++#[ts(rename_all = "camelCase", export_to = "v2/")]
++pub enum ModelRequestProgressPhase {
++    Sending,
++    Receiving,
++}
++
++/// Ephemeral byte progress for the active upstream model request.
++///
++/// Not persisted and never replayed; clients render it as live transfer volume.
++#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
++#[serde(rename_all = "camelCase")]
++#[ts(export_to = "v2/")]
++pub struct ModelRequestProgressNotification {
++    pub thread_id: String,
++    pub turn_id: String,
++    pub phase: ModelRequestProgressPhase,
++    /// Cumulative request bytes sent for this request.
++    pub sent_bytes: u64,
++    /// Cumulative response bytes received for this request.
++    pub received_bytes: u64,
++}
++
+ #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+ #[serde(rename_all = "camelCase")]
+ #[ts(export_to = "v2/")]
+diff --git a/codex-rs/app-server/src/bespoke_event_handling.rs b/codex-rs/app-server/src/bespoke_event_handling.rs
+index c88258fa5..9e82891ff 100644
+--- a/codex-rs/app-server/src/bespoke_event_handling.rs
++++ b/codex-rs/app-server/src/bespoke_event_handling.rs
+@@ -38,6 +38,8 @@ use codex_app_server_protocol::McpServerElicitationRequestParams;
+ use codex_app_server_protocol::McpServerElicitationRequestResponse;
+ use codex_app_server_protocol::McpServerStartupState;
+ use codex_app_server_protocol::McpServerStatusUpdatedNotification;
++use codex_app_server_protocol::ModelRequestProgressNotification;
++use codex_app_server_protocol::ModelRequestProgressPhase;
+ use codex_app_server_protocol::ModelReroutedNotification;
+ use codex_app_server_protocol::ModelSafetyBufferingUpdatedNotification;
+ use codex_app_server_protocol::ModelVerificationNotification;
+@@ -182,6 +184,27 @@ pub(crate) async fn apply_bespoke_event_handling(
+                 .send_server_notification(ServerNotification::TurnStarted(notification))
+                 .await;
+         }
++        EventMsg::ModelRequestProgress(progress) => {
++            let phase = match progress.phase {
++                codex_protocol::protocol::ModelRequestProgressPhase::Sending => {
++                    ModelRequestProgressPhase::Sending
++                }
++                codex_protocol::protocol::ModelRequestProgressPhase::Receiving => {
++                    ModelRequestProgressPhase::Receiving
++                }
++            };
++            outgoing
++                .send_server_notification(ServerNotification::ModelRequestProgress(
++                    ModelRequestProgressNotification {
++                        thread_id: conversation_id.to_string(),
++                        turn_id: event_turn_id,
++                        phase,
++                        sent_bytes: progress.sent_bytes,
++                        received_bytes: progress.received_bytes,
++                    },
++                ))
++                .await;
++        }
+         EventMsg::TurnComplete(turn_complete_event) => {
+             // All per-thread requests are bound to a turn, so abort them.
+             outgoing.abort_pending_server_requests().await;
+diff --git a/codex-rs/app-server/src/notification_media.rs b/codex-rs/app-server/src/notification_media.rs
+index 04e57f8c5..ce910a621 100644
+--- a/codex-rs/app-server/src/notification_media.rs
++++ b/codex-rs/app-server/src/notification_media.rs
+@@ -75,6 +75,7 @@ pub(crate) fn without_notification_media(notification: ServerNotification) -> Se
+         | ServerNotification::ThreadSettingsUpdated(_)
+         | ServerNotification::ThreadTokenUsageUpdated(_)
+         | ServerNotification::TurnStarted(_)
++        | ServerNotification::ModelRequestProgress(_)
+         | ServerNotification::HookStarted(_)
+         | ServerNotification::TurnCompleted(_)
+         | ServerNotification::HookCompleted(_)
+diff --git a/codex-rs/codex-api/src/common.rs b/codex-rs/codex-api/src/common.rs
+index 18128c472..f4370a8d7 100644
+--- a/codex-rs/codex-api/src/common.rs
++++ b/codex-rs/codex-api/src/common.rs
+@@ -78,6 +78,10 @@ pub struct ResponseId(pub String);
+ 
+ #[derive(Debug)]
+ pub enum ResponseEvent {
++    /// Exact request body bytes sent upstream, reported once per request.
++    RequestBytesSent(u64),
++    /// Cumulative raw response bytes received from the upstream stream.
++    ResponseBytesReceived(u64),
+     Created {
+         /// Existing server response ID, when supplied by the stream.
+         response_id: Option<String>,
+diff --git a/codex-rs/codex-api/src/endpoint/responses.rs b/codex-rs/codex-api/src/endpoint/responses.rs
+index 9c41a802e..1d00f3cf5 100644
+--- a/codex-rs/codex-api/src/endpoint/responses.rs
++++ b/codex-rs/codex-api/src/endpoint/responses.rs
+@@ -132,6 +132,10 @@ impl<T: HttpTransport> ResponsesClient<T> {
+             Compression::Zstd => RequestCompression::Zstd,
+         };
+ 
++        // Measure the exact encoded body before it is moved into the request so the
++        // UI can report upload volume for the active model call.
++        let request_bytes = u64::try_from(body.as_bytes().len()).unwrap_or(u64::MAX);
++
+         let stream_response = self
+             .session
+             .stream_encoded_json_with(
+@@ -151,6 +155,7 @@ impl<T: HttpTransport> ResponsesClient<T> {
+ 
+         Ok(spawn_response_stream(
+             stream_response,
++            request_bytes,
+             self.session.provider().stream_idle_timeout,
+             self.sse_telemetry.clone(),
+             turn_state,
+diff --git a/codex-rs/codex-api/src/endpoint/responses_websocket.rs b/codex-rs/codex-api/src/endpoint/responses_websocket.rs
+index 48e99d010..d5bc708da 100644
+--- a/codex-rs/codex-api/src/endpoint/responses_websocket.rs
++++ b/codex-rs/codex-api/src/endpoint/responses_websocket.rs
+@@ -676,6 +676,8 @@ async fn run_websocket_response_stream(
+ ) -> Result<(), ApiError> {
+     let mut last_server_model: Option<String> = None;
+     let mut safety_buffering_treatment = SafetyBufferingTreatment::default();
++    // Measure the frame we are about to send so the UI can report upload volume.
++    let request_bytes = u64::try_from(request_text.len()).unwrap_or(u64::MAX);
+     send_websocket_request(
+         ws_stream,
+         request_text,
+@@ -684,6 +686,10 @@ async fn run_websocket_response_stream(
+         timing_log_context.connection_reused,
+     )
+     .await?;
++    let _ = tx_event
++        .send(Ok(ResponseEvent::RequestBytesSent(request_bytes)))
++        .await;
++    let mut received_bytes = 0_u64;
+ 
+     loop {
+         let poll_start = Instant::now();
+@@ -710,6 +716,11 @@ async fn run_websocket_response_stream(
+ 
+         match message {
+             Message::Text(text) => {
++                received_bytes =
++                    received_bytes.saturating_add(u64::try_from(text.len()).unwrap_or(u64::MAX));
++                let _ = tx_event
++                    .send(Ok(ResponseEvent::ResponseBytesReceived(received_bytes)))
++                    .await;
+                 if let Some(wrapped_error) = parse_wrapped_websocket_error_event(&text)
+                     && let Some(error) =
+                         map_wrapped_websocket_error_event(wrapped_error, text.to_string())
+diff --git a/codex-rs/codex-api/src/sse/responses.rs b/codex-rs/codex-api/src/sse/responses.rs
+index 3f867d5d0..933e88771 100644
+--- a/codex-rs/codex-api/src/sse/responses.rs
++++ b/codex-rs/codex-api/src/sse/responses.rs
+@@ -35,6 +35,7 @@ const TRUSTED_ACCESS_FOR_CYBER_VERIFICATION: &str = "trusted_access_for_cyber";
+ 
+ pub fn spawn_response_stream(
+     stream_response: StreamResponse,
++    request_bytes: u64,
+     idle_timeout: Duration,
+     telemetry: Option<Arc<dyn SseTelemetry>>,
+     turn_state: Option<Arc<OnceLock<String>>>,
+@@ -71,6 +72,9 @@ pub fn spawn_response_stream(
+     }
+     let (tx_event, rx_event) = mpsc::channel::<Result<ResponseEvent, ApiError>>(1600);
+     tokio::spawn(async move {
++        let _ = tx_event
++            .send(Ok(ResponseEvent::RequestBytesSent(request_bytes)))
++            .await;
+         if let Some(model) = server_model {
+             let _ = tx_event.send(Ok(ResponseEvent::ServerModel(model))).await;
+         }
+@@ -579,6 +583,17 @@ async fn process_sse_with_treatment(
+     telemetry: Option<Arc<dyn SseTelemetry>>,
+     safety_buffering_treatment: SafetyBufferingTreatment,
+ ) {
++    // Count raw upstream bytes before SSE decoding so the reported download volume
++    // reflects what actually crossed the wire, not the decoded event payloads.
++    let mut received_bytes = 0_u64;
++    let progress_tx = tx_event.clone();
++    let stream = stream.inspect(move |chunk| {
++        if let Ok(chunk) = chunk {
++            received_bytes =
++                received_bytes.saturating_add(u64::try_from(chunk.len()).unwrap_or(u64::MAX));
++            let _ = progress_tx.try_send(Ok(ResponseEvent::ResponseBytesReceived(received_bytes)));
++        }
++    });
+     let mut stream = stream.eventsource();
+     let mut response_error: Option<ApiError> = None;
+     let mut last_server_model: Option<String> = None;
+@@ -1550,6 +1565,7 @@ mod tests {
+ 
+         let mut stream = spawn_response_stream(
+             stream_response,
++            /*request_bytes*/ 0,
+             idle_timeout(),
+             /*telemetry*/ None,
+             /*turn_state*/ None,
+@@ -1590,6 +1606,7 @@ mod tests {
+ 
+         let mut stream = spawn_response_stream(
+             stream_response,
++            /*request_bytes*/ 0,
+             idle_timeout(),
+             /*telemetry*/ None,
+             /*turn_state*/ None,
+diff --git a/codex-rs/core/src/compact.rs b/codex-rs/core/src/compact.rs
+index e102da28b..e7cd568cd 100644
+--- a/codex-rs/core/src/compact.rs
++++ b/codex-rs/core/src/compact.rs
+@@ -20,7 +20,7 @@ use crate::session::step_context::StepContext;
+ use crate::session::turn::get_last_assistant_message_from_turn;
+ use crate::session::turn_context::TurnContext;
+ use crate::state::AutoCompactWindowIds;
+-use crate::util::backoff;
++use crate::util::FIXED_RETRY_DELAY;
+ use codex_analytics::CodexCompactionEvent;
+ use codex_analytics::CompactionImplementation;
+ use codex_analytics::CompactionPhase;
+@@ -330,7 +330,7 @@ async fn run_compact_task_inner_impl(
+             Err(e) => {
+                 if retries < max_retries {
+                     retries += 1;
+-                    let delay = backoff(retries);
++                    let delay = FIXED_RETRY_DELAY;
+                     sess.notify_stream_error(
+                         turn_context.as_ref(),
+                         format!("Reconnecting... {retries}/{max_retries}"),
+diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
+index a4b4ba003..b3b4573c4 100644
+--- a/codex-rs/core/src/session/mod.rs
++++ b/codex-rs/core/src/session/mod.rs
+@@ -2579,6 +2579,18 @@ impl Session {
+         }
+     }
+ 
++    /// Delivers high-frequency UI state without persisting it in the rollout.
++    ///
++    /// Use this for progress that is only meaningful while the turn is live; the
++    /// [`crate::rollout`] policy treats [`EventMsg::ModelRequestProgress`] as transient.
++    pub(crate) async fn send_transient_event(&self, turn_context: &TurnContext, msg: EventMsg) {
++        self.deliver_event_raw(Event {
++            id: turn_context.sub_id.clone(),
++            msg,
++        })
++        .await;
++    }
++
+     pub(crate) async fn emit_turn_item_started(&self, turn_context: &TurnContext, item: &TurnItem) {
+         let started_at_ms = turn_context
+             .turn_timing_state
+diff --git a/codex-rs/core/src/session/turn.rs b/codex-rs/core/src/session/turn.rs
+index 360607f3f..f5a4471fc 100644
+--- a/codex-rs/core/src/session/turn.rs
++++ b/codex-rs/core/src/session/turn.rs
+@@ -100,6 +100,8 @@ use codex_protocol::protocol::CodexErrorInfo;
+ use codex_protocol::protocol::ErrorEvent;
+ use codex_protocol::protocol::EventMsg;
+ use codex_protocol::protocol::InternalSessionSource;
++use codex_protocol::protocol::ModelRequestProgressEvent;
++use codex_protocol::protocol::ModelRequestProgressPhase;
+ use codex_protocol::protocol::PlanDeltaEvent;
+ use codex_protocol::protocol::ReasoningContentDeltaEvent;
+ use codex_protocol::protocol::ReasoningRawContentDeltaEvent;
+@@ -2034,6 +2036,7 @@ pub(super) fn realtime_text_for_event(msg: &EventMsg) -> Option<(String, Option<
+                 .map(|request| (format!("{message}\n\n{request}"), None))
+         }
+         EventMsg::Error(_)
++        | EventMsg::ModelRequestProgress(_)
+         | EventMsg::Warning(_)
+         | EventMsg::AuthRecoveryStarted(_)
+         | EventMsg::AuthRecoveryCompleted(_)
+@@ -2529,6 +2532,9 @@ async fn try_run_sampling_request(
+         !sess.services.extensions.turn_item_contributors().is_empty();
+     let mut active_item_is_streaming_to_client = false;
+     let receiving_span = trace_span!("receiving_stream");
++    // Byte counters for the active model request, reported to the UI as transient
++    // progress. `sent_bytes` is fixed once the request is issued.
++    let mut sent_bytes = 0_u64;
+     let outcome: CodexResult<SamplingRequestResult> = loop {
+         let handle_responses = trace_span!(
+             parent: &receiving_span,
+@@ -2567,12 +2573,46 @@ async fn try_run_sampling_request(
+             }
+         };
+ 
++        // Byte counters for the active model request, reported to the UI as
++        // transient progress. `sent_bytes` is fixed once the request is issued.
++        let event = match event {
++            ResponseEvent::RequestBytesSent(request_bytes) => {
++                sent_bytes = request_bytes;
++                sess.send_transient_event(
++                    &turn_context,
++                    EventMsg::ModelRequestProgress(ModelRequestProgressEvent {
++                        phase: ModelRequestProgressPhase::Receiving,
++                        sent_bytes,
++                        received_bytes: 0,
++                    }),
++                )
++                .await;
++                continue;
++            }
++            ResponseEvent::ResponseBytesReceived(received_bytes) => {
++                sess.send_transient_event(
++                    &turn_context,
++                    EventMsg::ModelRequestProgress(ModelRequestProgressEvent {
++                        phase: ModelRequestProgressPhase::Receiving,
++                        sent_bytes,
++                        received_bytes,
++                    }),
++                )
++                .await;
++                continue;
++            }
++            event => event,
++        };
++
+         sess.services
+             .session_telemetry
+             .record_responses(&handle_responses, &event);
+         record_turn_ttft_metric(&turn_context, &event).await;
+ 
+         match event {
++            ResponseEvent::RequestBytesSent(_) | ResponseEvent::ResponseBytesReceived(_) => {
++                unreachable!("model transfer progress is handled before response processing")
++            }
+             ResponseEvent::Created { response_id } => {
+                 if let Some(response_id) = response_id {
+                     turn_context
+diff --git a/codex-rs/core/src/turn_timing.rs b/codex-rs/core/src/turn_timing.rs
+index bc90f81a1..1d27d4d19 100644
+--- a/codex-rs/core/src/turn_timing.rs
++++ b/codex-rs/core/src/turn_timing.rs
+@@ -386,6 +386,8 @@ fn response_event_records_turn_ttft(event: &ResponseEvent) -> bool {
+         | ResponseEvent::ReasoningSummaryDone { .. }
+         | ResponseEvent::ReasoningContentDelta { .. } => true,
+         ResponseEvent::Created { .. }
++        | ResponseEvent::RequestBytesSent(_)
++        | ResponseEvent::ResponseBytesReceived(_)
+         | ResponseEvent::ServerModel(_)
+         | ResponseEvent::ModelVerifications(_)
+         | ResponseEvent::TurnModerationMetadata(_)
+diff --git a/codex-rs/core/src/util.rs b/codex-rs/core/src/util.rs
+index 8e445aee0..8f75d0894 100644
+--- a/codex-rs/core/src/util.rs
++++ b/codex-rs/core/src/util.rs
+@@ -1,6 +1,9 @@
+ pub use codex_async_utils::backoff;
+ use tracing::error;
+ 
++/// Delay between retries when the server does not advise a specific delay.
++pub(crate) const FIXED_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(10);
++
+ /// Emit structured feedback metadata as key/value pairs.
+ ///
+ /// This logs a tracing event with `target: "feedback_tags"`. If
+diff --git a/codex-rs/model-provider-info/src/lib.rs b/codex-rs/model-provider-info/src/lib.rs
+index 3be93a683..70906bf7b 100644
+--- a/codex-rs/model-provider-info/src/lib.rs
++++ b/codex-rs/model-provider-info/src/lib.rs
+@@ -67,9 +67,9 @@ const DEFAULT_AWS_CREDENTIAL_EXPORT_TIMEOUT_MS: u64 = 30_000;
+ const DEFAULT_AWS_AUTH_REFRESH_TIMEOUT_MS: u64 = 300_000;
+ pub const DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS: u64 = 15_000;
+ /// Hard cap for user-configured `stream_max_retries`.
+-const MAX_STREAM_MAX_RETRIES: u64 = 100;
++const MAX_STREAM_MAX_RETRIES: u64 = 1000;
+ /// Hard cap for user-configured `request_max_retries`.
+-const MAX_REQUEST_MAX_RETRIES: u64 = 100;
++const MAX_REQUEST_MAX_RETRIES: u64 = 1000;
+ 
+ const OPENAI_PROVIDER_NAME: &str = "OpenAI";
+ const OPENAI_ACTOR_AUTHORIZATION_HEADER: &str = "x-openai-actor-authorization";
+@@ -600,6 +600,16 @@ other non-default provider fields are not supported"
+         self.name == OPENAI_PROVIDER_NAME
+     }
+ 
++    /// Whether this provider supports remote context compaction.
++    ///
++    /// The OpenAI provider and Azure-hosted Responses deployments accept
++    /// `compaction_trigger` items over the Responses endpoint; every other
++    /// configured provider compacts locally.
++    pub fn supports_remote_compaction(&self) -> bool {
++        self.is_openai()
++            || codex_api::is_azure_responses_provider(&self.name, self.base_url.as_deref())
++    }
++
+     pub fn supports_codex_backend_routes(&self) -> bool {
+         self.is_openai()
+             && self.base_url.as_deref().is_none_or(|base_url| {
+diff --git a/codex-rs/model-provider/src/provider.rs b/codex-rs/model-provider/src/provider.rs
+index 08afa3e56..3b547dafd 100644
+--- a/codex-rs/model-provider/src/provider.rs
++++ b/codex-rs/model-provider/src/provider.rs
+@@ -8,7 +8,6 @@ use codex_api::ApiError;
+ use codex_api::Provider;
+ use codex_api::SharedAuthProvider;
+ use codex_api::TransportError;
+-use codex_api::is_azure_responses_provider;
+ use codex_login::AuthManager;
+ use codex_login::CodexAuth;
+ use codex_login::GatewayAuthManager;
+@@ -408,9 +407,7 @@ impl ModelProvider for ConfiguredModelProvider {
+     }
+ 
+     fn capabilities(&self) -> ProviderCapabilities {
+-        let remote_compaction = if self.info.is_openai()
+-            || is_azure_responses_provider(&self.info.name, self.info.base_url.as_deref())
+-        {
++        let remote_compaction = if self.info.supports_remote_compaction() {
+             RemoteCompactionSupport::V2
+         } else {
+             RemoteCompactionSupport::Unsupported
+diff --git a/codex-rs/models-manager/models.json b/codex-rs/models-manager/models.json
+index 0037bcd63..3d8710fd8 100644
+--- a/codex-rs/models-manager/models.json
++++ b/codex-rs/models-manager/models.json
+@@ -537,8 +537,8 @@
+       "node_repl_disabled": false,
+       "auto_review_model_override": null,
+       "model_specialty": null,
+-      "context_window": 272000,
+-      "max_context_window": 872000,
++      "context_window": 353000,
++      "max_context_window": 353000,
+       "auto_compact_token_limit": null,
+       "comp_hash": "3000",
+       "default_reasoning_summary": "none",
+@@ -671,8 +671,8 @@
+       "node_repl_disabled": false,
+       "auto_review_model_override": null,
+       "model_specialty": null,
+-      "context_window": 272000,
+-      "max_context_window": 872000,
++      "context_window": 353000,
++      "max_context_window": 353000,
+       "auto_compact_token_limit": null,
+       "comp_hash": "3000",
+       "default_reasoning_summary": "none",
+@@ -800,8 +800,8 @@
+       "node_repl_disabled": false,
+       "auto_review_model_override": null,
+       "model_specialty": null,
+-      "context_window": 272000,
+-      "max_context_window": 872000,
++      "context_window": 353000,
++      "max_context_window": 353000,
+       "auto_compact_token_limit": null,
+       "comp_hash": "3000",
+       "default_reasoning_summary": "none",
+diff --git a/codex-rs/otel/src/events/session_telemetry.rs b/codex-rs/otel/src/events/session_telemetry.rs
+index 5e8f7cebe..0793cc5dc 100644
+--- a/codex-rs/otel/src/events/session_telemetry.rs
++++ b/codex-rs/otel/src/events/session_telemetry.rs
+@@ -1293,6 +1293,8 @@ impl SessionTelemetry {
+ 
+     fn responses_type(event: &ResponseEvent) -> String {
+         match event {
++            ResponseEvent::RequestBytesSent(_) => "request_bytes_sent".into(),
++            ResponseEvent::ResponseBytesReceived(_) => "response_bytes_received".into(),
+             ResponseEvent::Created { .. } => "created".into(),
+             ResponseEvent::OutputItemDone(item) | ResponseEvent::OutputItemAdded(item) => {
+                 SessionTelemetry::responses_item_type(item)
+diff --git a/codex-rs/protocol/src/error.rs b/codex-rs/protocol/src/error.rs
+index 609cdcab9..b6a4e9748 100644
+--- a/codex-rs/protocol/src/error.rs
++++ b/codex-rs/protocol/src/error.rs
+@@ -16,7 +16,6 @@ use chrono::Datelike;
+ use chrono::Local;
+ use chrono::Utc;
+ use codex_async_utils::CancelErr;
+-use codex_async_utils::backoff;
+ use codex_http_client::HttpError;
+ use codex_utils_string::truncate_middle_chars;
+ use codex_utils_string::truncate_middle_with_token_budget;
+@@ -34,6 +33,9 @@ pub type Result<T> = std::result::Result<T, CodexErr>;
+ /// Limit UI error messages to a reasonable size while keeping useful context.
+ const ERROR_MESSAGE_UI_MAX_BYTES: usize = 2 * 1024;
+ 
++/// Delay between retries when the server does not advise a specific delay.
++const FIXED_RETRY_DELAY: Duration = Duration::from_secs(10);
++
+ #[derive(Error, Debug)]
+ pub enum SandboxErr {
+     /// Error from sandbox execution
+@@ -375,8 +377,8 @@ impl CodexErr {
+     /// Returns the delay before the given retry attempt, or `None` for a terminal error.
+     ///
+     /// The first retry is attempt one. Retryable errors use server advice when available and
+-    /// otherwise use exponential backoff with jitter. Callers enforce their own retry budgets.
+-    pub fn retry_delay(&self, retry_count: u64) -> Option<Duration> {
++    /// otherwise retry on a fixed interval. Callers enforce their own retry budgets.
++    pub fn retry_delay(&self, _retry_count: u64) -> Option<Duration> {
+         match self.details() {
+             CodexErrorDetails::TurnAborted
+             | CodexErrorDetails::SessionBudgetExceeded
+@@ -392,18 +394,17 @@ impl CodexErr {
+             | CodexErrorDetails::UnsupportedOperation(_)
+             | CodexErrorDetails::Sandbox(_)
+             | CodexErrorDetails::LandlockSandboxExecutableNotProvided
+-            | CodexErrorDetails::RetryLimit(_)
+             | CodexErrorDetails::ContextWindowExceeded
+             | CodexErrorDetails::ThreadNotFound(_)
+             | CodexErrorDetails::AgentLimitReached { .. }
+             | CodexErrorDetails::Spawn
+             | CodexErrorDetails::SessionConfiguredNotFirstEvent
+             | CodexErrorDetails::UsageLimitReached(_)
+-            | CodexErrorDetails::ServerOverloaded
+             | CodexErrorDetails::CyberPolicy { .. }
+             | CodexErrorDetails::BioPolicy { .. }
+             | CodexErrorDetails::MisalignmentPolicyViolation { .. } => None,
+             CodexErrorDetails::Stream(..)
++            | CodexErrorDetails::RetryLimit(_)
+             | CodexErrorDetails::RateLimitExceeded(_)
+             | CodexErrorDetails::Timeout
+             | CodexErrorDetails::RequestTimeout
+@@ -412,12 +413,12 @@ impl CodexErr {
+             | CodexErrorDetails::ConnectionFailed(_)
+             | CodexErrorDetails::InternalServerError
+             | CodexErrorDetails::InternalAgentDied
++            | CodexErrorDetails::ServerOverloaded
+             | CodexErrorDetails::Io(_)
+             | CodexErrorDetails::Json(_)
+-            | CodexErrorDetails::TokioJoin(_) => Some(
+-                self.server_retry_delay
+-                    .unwrap_or_else(|| backoff(retry_count)),
+-            ),
++            | CodexErrorDetails::TokioJoin(_) => {
++                Some(self.server_retry_delay.unwrap_or(FIXED_RETRY_DELAY))
++            }
+             #[cfg(target_os = "linux")]
+             CodexErrorDetails::LandlockRuleset(_) | CodexErrorDetails::LandlockPathFd(_) => None,
+         }
+diff --git a/codex-rs/protocol/src/protocol.rs b/codex-rs/protocol/src/protocol.rs
+index 787d3e48a..90d934098 100644
+--- a/codex-rs/protocol/src/protocol.rs
++++ b/codex-rs/protocol/src/protocol.rs
+@@ -1408,6 +1408,10 @@ pub enum EventMsg {
+     #[serde(rename = "task_started", alias = "turn_started")]
+     TurnStarted(TurnStartedEvent),
+ 
++    /// Ephemeral byte progress for the active upstream model request. Never persisted
++    /// to the rollout; consumed by the UI to render transfer volume.
++    ModelRequestProgress(ModelRequestProgressEvent),
++
+     /// Persistent thread-settings overrides from the correlated submission have
+     /// been applied to the session configuration.
+     ThreadSettingsApplied(ThreadSettingsAppliedEvent),
+@@ -2169,6 +2173,25 @@ pub struct TurnCompleteEvent {
+     pub time_to_first_token_ms: Option<i64>,
+ }
+ 
++/// Direction of the byte counters reported by [`ModelRequestProgressEvent`].
++#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema, TS)]
++#[serde(rename_all = "snake_case")]
++#[ts(rename_all = "snake_case")]
++pub enum ModelRequestProgressPhase {
++    Sending,
++    Receiving,
++}
++
++/// Ephemeral byte counters for the active upstream model request.
++#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]
++pub struct ModelRequestProgressEvent {
++    pub phase: ModelRequestProgressPhase,
++    /// Cumulative request bytes sent for this request.
++    pub sent_bytes: u64,
++    /// Cumulative response bytes received for this request.
++    pub received_bytes: u64,
++}
++
+ #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]
+ pub struct TurnStartedEvent {
+     pub turn_id: String,
+diff --git a/codex-rs/rollout-trace/src/protocol_event.rs b/codex-rs/rollout-trace/src/protocol_event.rs
+index dadc4bb0a..0897abb85 100644
+--- a/codex-rs/rollout-trace/src/protocol_event.rs
++++ b/codex-rs/rollout-trace/src/protocol_event.rs
+@@ -362,6 +362,7 @@ pub(crate) fn tool_runtime_trace_event(event: &EventMsg) -> Option<ToolRuntimeTr
+         }
+         EventMsg::SubAgentActivity(_) => None,
+         EventMsg::Error(_)
++        | EventMsg::ModelRequestProgress(_)
+         | EventMsg::Warning(_)
+         | EventMsg::AuthRecoveryStarted(_)
+         | EventMsg::AuthRecoveryCompleted(_)
+@@ -442,6 +443,7 @@ pub(crate) fn wrapped_protocol_event_type(event: &EventMsg) -> Option<&'static s
+         EventMsg::TurnAborted(_) => Some("turn_aborted"),
+         EventMsg::ThreadRolledBack(_) => Some("thread_rolled_back"),
+         EventMsg::Error(_) => Some("error"),
++        EventMsg::ModelRequestProgress(_) => Some("model_request_progress"),
+         EventMsg::Warning(_) => Some("warning"),
+         EventMsg::ShutdownComplete => Some("shutdown_complete"),
+         EventMsg::AuthRecoveryStarted(_)
+diff --git a/codex-rs/rollout/src/policy.rs b/codex-rs/rollout/src/policy.rs
+index c82b5ce95..e607f8f97 100644
+--- a/codex-rs/rollout/src/policy.rs
++++ b/codex-rs/rollout/src/policy.rs
+@@ -140,6 +140,7 @@ pub fn should_persist_event_msg(ev: &EventMsg, history_mode: ThreadHistoryMode)
+ 
+         // Transient, non-durable events.
+         EventMsg::Error(_)
++        | EventMsg::ModelRequestProgress(_)
+         | EventMsg::ThreadQueueChanged(_)
+         | EventMsg::GuardianAssessment(_)
+         | EventMsg::ExecCommandEnd(_)
+diff --git a/codex-rs/state/src/log_db.rs b/codex-rs/state/src/log_db.rs
+index 06387efc4..48c38bdbe 100644
+--- a/codex-rs/state/src/log_db.rs
++++ b/codex-rs/state/src/log_db.rs
+@@ -56,7 +56,7 @@ const SQLX_LOG_TARGETS: [&str; 3] = ["sqlx", "sqlx_core", "sqlx_sqlite"];
+ 
+ pub fn default_filter() -> Targets {
+     Targets::new()
+-        .with_default(LevelFilter::TRACE)
++        .with_default(LevelFilter::INFO)
+         .with_target("h2", LevelFilter::WARN)
+         .with_target("hyper_util", LevelFilter::WARN)
+         .with_target("log", LevelFilter::OFF)
+diff --git a/codex-rs/tui/src/app/app_server_event_targets.rs b/codex-rs/tui/src/app/app_server_event_targets.rs
+index 4753a2afd..365c932a7 100644
+--- a/codex-rs/tui/src/app/app_server_event_targets.rs
++++ b/codex-rs/tui/src/app/app_server_event_targets.rs
+@@ -81,6 +81,9 @@ pub(super) fn server_notification_thread_target(
+             Some(notification.thread_id.as_str())
+         }
+         ServerNotification::TurnStarted(notification) => Some(notification.thread_id.as_str()),
++        ServerNotification::ModelRequestProgress(notification) => {
++            Some(notification.thread_id.as_str())
++        }
+         ServerNotification::HookStarted(notification) => Some(notification.thread_id.as_str()),
+         ServerNotification::TurnCompleted(notification) => Some(notification.thread_id.as_str()),
+         ServerNotification::HookCompleted(notification) => Some(notification.thread_id.as_str()),
+diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
+index 62266f834..c271bb21b 100644
+--- a/codex-rs/tui/src/app/event_dispatch.rs
++++ b/codex-rs/tui/src/app/event_dispatch.rs
+@@ -88,6 +88,7 @@ impl App {
+                         ..
+                     }
+                     | AppEvent::RevertSessionForPromptEdit { .. }
++                    | AppEvent::RollbackOutputFreeTurnForPromptRestore { .. }
+                     | AppEvent::SetThreadGoalDraft { .. }
+                     | AppEvent::SetThreadGoalStatus {
+                         status: ThreadGoalStatus::Active,
+@@ -560,6 +561,29 @@ impl App {
+                 self.chat_widget.maybe_send_next_queued_input();
+                 tui.frame_requester().schedule_frame();
+             }
++            AppEvent::RollbackOutputFreeTurnForPromptRestore { thread_id, prompt } => {
++                if self.chat_widget.thread_id() != Some(thread_id) {
++                    return Ok(AppRunControl::Continue);
++                }
++                // Roll back the turn that produced no model output, then reopen its prompt.
++                // The last user cell in the transcript is that turn's prompt.
++                let last_user = crate::app_backtrack::user_count(&self.transcript_cells)
++                    .checked_sub(1)
++                    .and_then(|nth| {
++                        crate::app_backtrack::nth_user_position(&self.transcript_cells, nth)
++                    });
++                let Some(index) = last_user else {
++                    self.chat_widget.restore_user_message_to_composer(prompt);
++                    tui.frame_requester().schedule_frame();
++                    return Ok(AppRunControl::Continue);
++                };
++                let selected_cell = Arc::clone(&self.transcript_cells[index]);
++                self.app_event_tx.send(AppEvent::RevertSessionForPromptEdit {
++                    thread_id,
++                    selected_cell,
++                    prompt,
++                });
++            }
+             AppEvent::RevertSessionForPromptEdit {
+                 thread_id,
+                 selected_cell,
+diff --git a/codex-rs/tui/src/app/thread_events.rs b/codex-rs/tui/src/app/thread_events.rs
+index b7d34f637..bce05a58f 100644
+--- a/codex-rs/tui/src/app/thread_events.rs
++++ b/codex-rs/tui/src/app/thread_events.rs
+@@ -279,6 +279,7 @@ impl ThreadEventStore {
+         if matches!(
+             notification.as_ref(),
+             ServerNotification::RawResponseItemCompleted(_)
++                | ServerNotification::ModelRequestProgress(_)
+                 | ServerNotification::FileChangePatchUpdated(_)
+                 | ServerNotification::ServerRequestResolved(_)
+                 | ServerNotification::McpToolCallProgress(_)
+diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
+index 1129bbec2..93b8b8e8c 100644
+--- a/codex-rs/tui/src/app_event.rs
++++ b/codex-rs/tui/src/app_event.rs
+@@ -584,6 +584,12 @@ pub(crate) enum AppEvent {
+         selected_cell: Arc<dyn HistoryCell>,
+         prompt: UserMessage,
+     },
++    /// Roll back a turn that was interrupted before producing model output and
++    /// restore its prompt in the composer for editing.
++    RollbackOutputFreeTurnForPromptRestore {
++        thread_id: ThreadId,
++        prompt: UserMessage,
++    },
+     FinishPromptRevert {
+         thread_id: ThreadId,
+         nth_user_message: usize,
+diff --git a/codex-rs/tui/src/bottom_pane/mod.rs b/codex-rs/tui/src/bottom_pane/mod.rs
+index 8e9680a58..7751147e6 100644
+--- a/codex-rs/tui/src/bottom_pane/mod.rs
++++ b/codex-rs/tui/src/bottom_pane/mod.rs
+@@ -296,6 +296,8 @@ pub(crate) struct BottomPane {
+ 
+     /// Inline status indicator shown above the composer while a task is running.
+     status: Option<StatusIndicatorWidget>,
++    /// Live byte counters kept across status-row rebuilds.
++    model_transfer: Option<crate::status_indicator_widget::ModelTransferStatus>,
+     /// Running-hook summary supplied by the lifecycle owner after its reveal delay.
+     hook_status_message: Option<String>,
+     inline_banner: Option<actionable_banner::InlineBanner>,
+@@ -375,6 +377,7 @@ impl BottomPane {
+             disable_paste_burst,
+             is_task_running: false,
+             status: None,
++            model_transfer: None,
+             hook_status_message: None,
+             inline_banner: None,
+             status_timer: crate::status_indicator_widget::StatusTimer::default(),
+@@ -1333,6 +1336,7 @@ impl BottomPane {
+                     self.keymap
+                         .primary_hint(KeymapContext::Chat, "interrupt_turn"),
+                 );
++                status.update_model_transfer(self.model_transfer);
+             }
+             self.sync_status_inline_message();
+             self.request_redraw();
+@@ -1650,6 +1654,18 @@ impl BottomPane {
+         }
+     }
+ 
++    /// Set or clear the live model-request byte counters in the status row.
++    pub(crate) fn update_model_transfer(
++        &mut self,
++        status: Option<crate::status_indicator_widget::ModelTransferStatus>,
++    ) {
++        self.model_transfer = status;
++        if let Some(widget) = self.status.as_mut() {
++            widget.update_model_transfer(status);
++            self.request_redraw();
++        }
++    }
++
+     pub(crate) fn composer_is_empty(&self) -> bool {
+         self.composer.is_empty()
+     }
+diff --git a/codex-rs/tui/src/chatwidget.rs b/codex-rs/tui/src/chatwidget.rs
+index 57591c401..3522d2215 100644
+--- a/codex-rs/tui/src/chatwidget.rs
++++ b/codex-rs/tui/src/chatwidget.rs
+@@ -95,6 +95,7 @@ use codex_app_server_protocol::ItemStartedNotification;
+ use codex_app_server_protocol::McpServerElicitationRequest;
+ use codex_app_server_protocol::McpServerElicitationRequestParams;
+ use codex_app_server_protocol::McpServerStatusDetail;
++use codex_app_server_protocol::ModelRequestProgressPhase as AppServerModelRequestProgressPhase;
+ use codex_app_server_protocol::ModelVerification as AppServerModelVerification;
+ use codex_app_server_protocol::RateLimitReachedType;
+ use codex_app_server_protocol::RateLimitSnapshot;
+@@ -311,6 +312,7 @@ use crate::render::renderable::RenderableItem;
+ use crate::slash_command::SlashCommand;
+ use crate::status::RateLimitSnapshotDisplay;
+ use crate::status::remote_connection::RemoteConnectionStatus;
++use crate::status_indicator_widget::ModelTransferPhase;
+ use crate::status_indicator_widget::STATUS_DETAILS_DEFAULT_MAX_LINES;
+ use crate::status_indicator_widget::StatusDetailsCapitalization;
+ use crate::text_formatting::truncate_text;
+@@ -827,6 +829,9 @@ pub(crate) struct ChatWidget {
+     last_rendered_user_message_display: Option<UserMessageDisplay>,
+     last_rendered_user_message_client_id: Option<String>,
+     last_non_retry_error: Option<(String, String)>,
++    /// Set when the active turn was interrupted before producing any model output, so the
++    /// submitted prompt can be rolled back out of the transcript and restored for editing.
++    restore_prompt_after_output_free_interrupt: bool,
+ }
+ 
+ #[cfg_attr(not(test), allow(dead_code))]
+diff --git a/codex-rs/tui/src/chatwidget/compaction.rs b/codex-rs/tui/src/chatwidget/compaction.rs
+index e05180a9e..1d965399f 100644
+--- a/codex-rs/tui/src/chatwidget/compaction.rs
++++ b/codex-rs/tui/src/chatwidget/compaction.rs
+@@ -3,13 +3,42 @@
+ 
+ use super::*;
+ 
+-pub(super) const COMPACTION_HEADER: &str = "Compacting context";
+ pub(super) const COMPACTION_DETAILS: &str = "Making room to continue.";
+ 
++/// Which compaction implementation is producing the current status banner.
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub(super) enum CompactionStatusKind {
++    Local,
++    RemoteV2,
++}
++
++impl CompactionStatusKind {
++    pub(super) fn header(self) -> &'static str {
++        match self {
++            Self::Local => "Compacting locally",
++            Self::RemoteV2 => "Compacting remotely",
++        }
++    }
++
++    /// Resolve the implementation from the same inputs the core turn path uses:
++    /// token-budget compaction and providers without remote support both compact locally.
++    pub(super) fn resolve(
++        features: &crate::legacy_core::config::ManagedFeatures,
++        provider: &codex_model_provider_info::ModelProviderInfo,
++    ) -> Self {
++        if features.enabled(Feature::TokenBudget) || !provider.supports_remote_compaction() {
++            Self::Local
++        } else {
++            Self::RemoteV2
++        }
++    }
++}
++
+ #[derive(Debug)]
+ pub(super) struct ActiveCompaction {
+     pub(super) id: String,
+     pub(super) started_at: Instant,
++    pub(super) kind: CompactionStatusKind,
+ }
+ 
+ impl ChatWidget {
+@@ -25,10 +54,16 @@ impl ChatWidget {
+         self.flush_answer_stream_with_separator();
+         let now = Instant::now();
+         let started_at = now.checked_sub(elapsed).unwrap_or(now);
+-        self.status_state.compaction = Some(ActiveCompaction { id, started_at });
++        let kind =
++            CompactionStatusKind::resolve(&self.config.features, &self.config.model_provider);
++        self.status_state.compaction = Some(ActiveCompaction {
++            id,
++            started_at,
++            kind,
++        });
+         self.bottom_pane.set_status_timer_origin(Some(started_at));
+         self.bottom_pane.ensure_status_indicator();
+-        self.set_status_header(COMPACTION_HEADER.to_string());
++        self.set_status_header(kind.header().to_string());
+     }
+ 
+     pub(super) fn clear_context_compaction(&mut self) {
+diff --git a/codex-rs/tui/src/chatwidget/constructor.rs b/codex-rs/tui/src/chatwidget/constructor.rs
+index 00d6329db..fd9d300d0 100644
+--- a/codex-rs/tui/src/chatwidget/constructor.rs
++++ b/codex-rs/tui/src/chatwidget/constructor.rs
+@@ -280,6 +280,7 @@ impl ChatWidget {
+             last_rendered_user_message_display: None,
+             last_rendered_user_message_client_id: None,
+             last_non_retry_error: None,
++            restore_prompt_after_output_free_interrupt: false,
+         };
+ 
+         widget.prefetch_rate_limits();
+diff --git a/codex-rs/tui/src/chatwidget/input_restore.rs b/codex-rs/tui/src/chatwidget/input_restore.rs
+index 114118f71..893f3ea5e 100644
+--- a/codex-rs/tui/src/chatwidget/input_restore.rs
++++ b/codex-rs/tui/src/chatwidget/input_restore.rs
+@@ -311,12 +311,22 @@ impl ChatWidget {
+     /// separated by newlines rather than auto-submitting the next one.
+     pub(super) fn on_interrupted_turn(&mut self, reason: TurnAbortReason) {
+         self.requeue_image_submission();
++        // An Esc interrupt before any model output should hand the prompt back for editing
++        // rather than leaving it stranded in the transcript.
++        let prompt_to_rollback = (self.restore_prompt_after_output_free_interrupt
++            && reason == TurnAbortReason::Interrupted
++            && !self.current_turn_has_model_output())
++        .then(|| self.safety_buffering_prompt.clone())
++        .flatten();
++        self.restore_prompt_after_output_free_interrupt = false;
+         // Finalize, log a gentle prompt, and clear running state.
+         self.finalize_turn();
+         let send_pending_steers_immediately =
+             self.input_queue.submit_pending_steers_after_interrupt;
+         self.input_queue.submit_pending_steers_after_interrupt = false;
+-        if self.interrupted_turn_notice_mode != InterruptedTurnNoticeMode::Suppress {
++        if self.interrupted_turn_notice_mode != InterruptedTurnNoticeMode::Suppress
++            && prompt_to_rollback.is_none()
++        {
+             if send_pending_steers_immediately {
+                 self.add_to_history(history_cell::new_info_event(
+                     "Model interrupted to submit steer instructions.".to_owned(),
+@@ -382,6 +392,10 @@ impl ChatWidget {
+         } else if let Some(combined) = self.drain_pending_messages_for_restore() {
+             self.restore_composer_state(combined);
+         }
++        if let (Some(thread_id), Some(prompt)) = (self.thread_id, prompt_to_rollback) {
++            self.app_event_tx
++                .send(AppEvent::RollbackOutputFreeTurnForPromptRestore { thread_id, prompt });
++        }
+         self.refresh_pending_input_preview();
+         self.request_redraw();
+     }
+diff --git a/codex-rs/tui/src/chatwidget/interaction.rs b/codex-rs/tui/src/chatwidget/interaction.rs
+index 1de138222..0be039d97 100644
+--- a/codex-rs/tui/src/chatwidget/interaction.rs
++++ b/codex-rs/tui/src/chatwidget/interaction.rs
+@@ -245,6 +245,15 @@ impl ChatWidget {
+                 let had_modal_or_popup = !self.bottom_pane.no_modal_or_popup_active();
+                 let should_pause_active_goal =
+                     self.bottom_pane.should_interrupt_running_task(key_event);
++                // Interrupting a turn that has produced no model output yet should hand the
++                // prompt back for editing instead of leaving it stranded in the transcript.
++                if should_pause_active_goal
++                    && key_event.code == KeyCode::Esc
++                    && !self.side_conversation_active()
++                    && !self.current_turn_has_model_output()
++                {
++                    self.restore_prompt_after_output_free_interrupt = true;
++                }
+                 let input_result = self.bottom_pane.handle_key_event(key_event);
+                 if matches!(
+                     input_result,
+diff --git a/codex-rs/tui/src/chatwidget/protocol.rs b/codex-rs/tui/src/chatwidget/protocol.rs
+index c5a887a95..b37c70f8f 100644
+--- a/codex-rs/tui/src/chatwidget/protocol.rs
++++ b/codex-rs/tui/src/chatwidget/protocol.rs
+@@ -91,6 +91,18 @@ impl ChatWidget {
+                     self.on_task_started();
+                 }
+             }
++            ServerNotification::ModelRequestProgress(notification) => {
++                let phase = match notification.phase {
++                    AppServerModelRequestProgressPhase::Sending => ModelTransferPhase::Sending,
++                    AppServerModelRequestProgressPhase::Receiving => ModelTransferPhase::Receiving,
++                };
++                let status = self.status_state.update_model_transfer(
++                    phase,
++                    notification.sent_bytes,
++                    notification.received_bytes,
++                );
++                self.bottom_pane.update_model_transfer(Some(status));
++            }
+             ServerNotification::TurnCompleted(notification) => {
+                 self.restore_realtime_transcripts_before_turn(&notification.turn.id);
+                 self.handle_turn_completed_notification(notification, replay_kind);
+diff --git a/codex-rs/tui/src/chatwidget/slash_dispatch.rs b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
+index 50081a03f..cfef9f236 100644
+--- a/codex-rs/tui/src/chatwidget/slash_dispatch.rs
++++ b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
+@@ -301,8 +301,12 @@ impl ChatWidget {
+                     self.bottom_pane.set_task_running(/*running*/ true);
+                 }
+                 self.bottom_pane.ensure_status_indicator();
++                let compaction_kind = compaction::CompactionStatusKind::resolve(
++                    &self.config.features,
++                    &self.config.model_provider,
++                );
+                 self.set_status(
+-                    compaction::COMPACTION_HEADER.to_string(),
++                    compaction_kind.header().to_string(),
+                     Some(compaction::COMPACTION_DETAILS.to_string()),
+                     StatusDetailsCapitalization::Preserve,
+                     STATUS_DETAILS_DEFAULT_MAX_LINES,
+diff --git a/codex-rs/tui/src/chatwidget/status_controls.rs b/codex-rs/tui/src/chatwidget/status_controls.rs
+index 6dc0ab907..4e5a3a1a7 100644
+--- a/codex-rs/tui/src/chatwidget/status_controls.rs
++++ b/codex-rs/tui/src/chatwidget/status_controls.rs
+@@ -20,11 +20,14 @@ impl ChatWidget {
+     ) -> bool {
+         // Follow-up input and background activity must not obscure compaction.
+         // Retry errors still get their own status until the next notification.
+-        let (header, details, details_max_lines) = if self.status_state.compaction.is_some()
+-            && self.status_state.retry_status_header.is_none()
++        let (header, details, details_max_lines) = if let Some(active) = self
++            .status_state
++            .compaction
++            .as_ref()
++            .filter(|_| self.status_state.retry_status_header.is_none())
+         {
+             (
+-                compaction::COMPACTION_HEADER.to_string(),
++                active.kind.header().to_string(),
+                 Some(compaction::COMPACTION_DETAILS.to_string()),
+                 STATUS_DETAILS_DEFAULT_MAX_LINES,
+             )
+diff --git a/codex-rs/tui/src/chatwidget/status_state.rs b/codex-rs/tui/src/chatwidget/status_state.rs
+index 5fe1eba3d..d5136fe71 100644
+--- a/codex-rs/tui/src/chatwidget/status_state.rs
++++ b/codex-rs/tui/src/chatwidget/status_state.rs
+@@ -1,5 +1,7 @@
+ //! Status indicator and terminal-title state for `ChatWidget`.
+ 
++use crate::status_indicator_widget::ModelTransferPhase;
++use crate::status_indicator_widget::ModelTransferStatus;
+ use crate::status_indicator_widget::STATUS_DETAILS_DEFAULT_MAX_LINES;
+ 
+ #[derive(Clone, Debug, PartialEq, Eq)]
+@@ -123,6 +125,61 @@ pub(super) struct StatusState {
+     pub(super) retry_status_header: Option<String>,
+     pub(super) pending_status_indicator_restore: bool,
+     pub(super) thread_title_generation_pending: bool,
++    /// Accumulates byte counters across the consecutive model requests in a turn.
++    model_transfer: ModelTransferAccumulator,
++}
++
++/// Sums per-request byte counters so the status row reports whole-turn volume.
++///
++/// A single sampling turn issues several upstream requests (tool calls loop back
++/// through the model). Bytes from finished requests are folded into `completed_*`
++/// when the next `Sending` phase starts.
++#[derive(Debug, Default)]
++struct ModelTransferAccumulator {
++    phase: Option<ModelTransferPhase>,
++    completed_sent_bytes: u64,
++    completed_received_bytes: u64,
++    request_sent_bytes: u64,
++    request_received_bytes: u64,
++}
++
++impl ModelTransferAccumulator {
++    fn update(
++        &mut self,
++        phase: ModelTransferPhase,
++        request_sent_bytes: u64,
++        request_received_bytes: u64,
++    ) -> ModelTransferStatus {
++        match phase {
++            ModelTransferPhase::Sending => {
++                // A fresh request is starting: bank whatever the previous one used.
++                if self.phase.is_some() {
++                    self.completed_sent_bytes = self
++                        .completed_sent_bytes
++                        .saturating_add(self.request_sent_bytes);
++                    self.completed_received_bytes = self
++                        .completed_received_bytes
++                        .saturating_add(self.request_received_bytes);
++                }
++                self.request_sent_bytes = 0;
++                self.request_received_bytes = 0;
++            }
++            ModelTransferPhase::Receiving => {
++                self.request_sent_bytes = request_sent_bytes;
++                self.request_received_bytes = request_received_bytes;
++            }
++        }
++        self.phase = Some(phase);
++        ModelTransferStatus {
++            phase,
++            sent_bytes: self
++                .completed_sent_bytes
++                .saturating_add(self.request_sent_bytes),
++            received_bytes: self
++                .completed_received_bytes
++                .saturating_add(self.request_received_bytes),
++        }
++    }
+ }
+ 
+ impl Default for StatusState {
+@@ -138,6 +195,7 @@ impl Default for StatusState {
+             retry_status_header: None,
+             pending_status_indicator_restore: false,
+             thread_title_generation_pending: false,
++            model_transfer: ModelTransferAccumulator::default(),
+         }
+     }
+ }
+@@ -147,6 +205,22 @@ impl StatusState {
+         self.current_status = status;
+     }
+ 
++    /// Clear accumulated transfer counters at the start of a new turn.
++    pub(super) fn reset_model_transfer(&mut self) {
++        self.model_transfer = ModelTransferAccumulator::default();
++    }
++
++    /// Fold a progress notification into the turn's running byte totals.
++    pub(super) fn update_model_transfer(
++        &mut self,
++        phase: ModelTransferPhase,
++        request_sent_bytes: u64,
++        request_received_bytes: u64,
++    ) -> ModelTransferStatus {
++        self.model_transfer
++            .update(phase, request_sent_bytes, request_received_bytes)
++    }
++
+     pub(super) fn take_retry_status_header(&mut self) -> Option<String> {
+         self.retry_status_header.take()
+     }
+@@ -193,4 +267,72 @@ mod tests {
+         );
+         assert_eq!(state.take_retry_status_header(), None);
+     }
++
++    #[test]
++    fn model_transfer_accumulates_across_requests() {
++        let mut state = ModelTransferAccumulator::default();
++        state.update(
++            ModelTransferPhase::Sending,
++            /*request_sent_bytes*/ 0,
++            /*request_received_bytes*/ 0,
++        );
++        state.update(
++            ModelTransferPhase::Receiving,
++            /*request_sent_bytes*/ 100,
++            /*request_received_bytes*/ 50,
++        );
++        // A second request in the same turn banks the first request's bytes.
++        let between_requests = state.update(
++            ModelTransferPhase::Sending,
++            /*request_sent_bytes*/ 0,
++            /*request_received_bytes*/ 0,
++        );
++        let second_request = state.update(
++            ModelTransferPhase::Receiving,
++            /*request_sent_bytes*/ 25,
++            /*request_received_bytes*/ 10,
++        );
++
++        assert_eq!(
++            between_requests,
++            ModelTransferStatus {
++                phase: ModelTransferPhase::Sending,
++                sent_bytes: 100,
++                received_bytes: 50,
++            }
++        );
++        assert_eq!(
++            second_request,
++            ModelTransferStatus {
++                phase: ModelTransferPhase::Receiving,
++                sent_bytes: 125,
++                received_bytes: 60,
++            }
++        );
++    }
++
++    #[test]
++    fn reset_model_transfer_drops_accumulated_bytes() {
++        let mut state = StatusState::default();
++        state.update_model_transfer(
++            ModelTransferPhase::Receiving,
++            /*request_sent_bytes*/ 10,
++            /*request_received_bytes*/ 20,
++        );
++
++        state.reset_model_transfer();
++
++        assert_eq!(
++            state.update_model_transfer(
++                ModelTransferPhase::Receiving,
++                /*request_sent_bytes*/ 1,
++                /*request_received_bytes*/ 2,
++            ),
++            ModelTransferStatus {
++                phase: ModelTransferPhase::Receiving,
++                sent_bytes: 1,
++                received_bytes: 2,
++            }
++        );
++    }
+ }
+diff --git a/codex-rs/tui/src/chatwidget/turn_runtime.rs b/codex-rs/tui/src/chatwidget/turn_runtime.rs
+index d473394ef..7510c2502 100644
+--- a/codex-rs/tui/src/chatwidget/turn_runtime.rs
++++ b/codex-rs/tui/src/chatwidget/turn_runtime.rs
+@@ -77,6 +77,11 @@ impl ChatWidget {
+         self.bottom_pane.dismiss_composer_sparkle();
+         self.clear_context_compaction();
+         self.input_queue.user_turn_pending_start = false;
++        // A new turn clears any pending output-free interrupt rollback.
++        self.restore_prompt_after_output_free_interrupt = false;
++        // Byte counters are per-turn; start the accumulator fresh.
++        self.status_state.reset_model_transfer();
++        self.bottom_pane.update_model_transfer(None);
+         self.reset_safety_buffering_for_turn_start();
+         self.turn_lifecycle.start(Instant::now());
+         self.transcript.reset_turn_flags();
+@@ -323,6 +328,9 @@ impl ChatWidget {
+         self.reasoning_header = None;
+         self.clear_context_compaction();
+         self.clear_safety_buffering();
++        // Live transfer counters belong to the finished turn.
++        self.status_state.reset_model_transfer();
++        self.bottom_pane.update_model_transfer(None);
+         // Drop preview-only stream tail content on any termination path before
+         // failed-cell finalization, so transient tail cells are never persisted.
+         self.clear_active_stream_tail();
+@@ -391,8 +399,8 @@ impl ChatWidget {
+     }
+ 
+     pub(super) fn on_cyber_policy_error(&mut self) {
+-        self.input_queue.submit_pending_steers_after_interrupt = false;
+-        self.finalize_turn();
++        // Cybersecurity refusals only surface as a warning: the turn is not force-ended
++        // here, and no extra follow-up prompt is forced on the user.
+         let notice = if self.config.model_provider_id == "openai" {
+             self.cyber_policy_notice
+                 .get()
+@@ -404,9 +412,21 @@ impl ChatWidget {
+         };
+         self.add_to_history(history_cell::new_cyber_policy_error_event(notice));
+         self.request_redraw();
++    }
+ 
+-        // After an error ends the turn, try sending the next queued input.
+-        self.maybe_send_next_queued_input();
++    /// Whether the active turn has surfaced any model-authored output yet.
++    ///
++    /// Used to decide if an interrupt can safely roll the prompt back out of the
++    /// transcript: once any answer, reasoning, plan, or tool activity is visible,
++    /// discarding it would lose work the user can see.
++    pub(super) fn current_turn_has_model_output(&self) -> bool {
++        self.stream_controller.is_some()
++            || self.plan_stream_controller.is_some()
++            || !self.reasoning_buffer.is_empty()
++            || !self.reasoning_summary_parts.is_empty()
++            || self.transcript.saw_copy_source_this_turn
++            || self.transcript.saw_plan_update_this_turn
++            || self.transcript.saw_plan_item_this_turn
+     }
+ 
+     pub(super) fn on_rate_limit_error(&mut self, error_kind: RateLimitErrorKind, message: String) {
+diff --git a/codex-rs/tui/src/history_cell/notices.rs b/codex-rs/tui/src/history_cell/notices.rs
+index a78634037..f4afd32d7 100644
+--- a/codex-rs/tui/src/history_cell/notices.rs
++++ b/codex-rs/tui/src/history_cell/notices.rs
+@@ -165,35 +165,18 @@ pub(crate) fn new_safety_access_block_event() -> SafetyAccessBlockCell {
+     }
+ }
+ 
+-pub(crate) fn new_cyber_policy_error_event(
+-    notice: crate::daybreak::Notice,
+-) -> SafetyAccessBlockCell {
++pub(crate) fn new_cyber_policy_error_event(notice: crate::daybreak::Notice) -> WarningHistoryCell {
+     use crate::daybreak::Notice;
+-    let (body, actions): (_, &'static [(&str, &str)]) = match notice {
+-        Notice::Apply => (
+-            "We take extra care with some cybersecurity requests. If you’re doing authorized security work, apply for Daybreak to get broader access.",
+-            &[
+-                ("Learn more", SAFETY_ACCESS_BLOCK_LEARN_MORE_URL),
+-                (
+-                    "Apply for Daybreak",
+-                    "https://openai.com/form/enterprise-trusted-access-for-cyber/",
+-                ),
+-            ],
+-        ),
+-        Notice::Astra => (
+-            "Daybreak isn’t available for Astra. Some cybersecurity requests may still be limited.",
+-            &[("Learn more", SAFETY_ACCESS_BLOCK_LEARN_MORE_URL)],
+-        ),
+-        Notice::Limited => (
+-            "We take extra care with some cybersecurity requests.",
+-            &[("Learn more", SAFETY_ACCESS_BLOCK_LEARN_MORE_URL)],
+-        ),
++    let message = match notice {
++        Notice::Apply => {
++            "We take extra precaution with cybersecurity requests. If you’re doing authorized security work, you may be able to apply for Trusted Access: https://openai.com/form/enterprise-trusted-access-for-cyber/"
++        }
++        Notice::Astra => {
++            "Daybreak isn’t available for Astra. Some cybersecurity requests may still be limited."
++        }
++        Notice::Limited => "We take extra precaution with cybersecurity requests.",
+     };
+-    SafetyAccessBlockCell {
+-        title: "This content can’t be shown",
+-        body,
+-        actions,
+-    }
++    new_warning_event(message.to_string())
+ }
+ 
+ impl HistoryCell for SafetyAccessBlockCell {
+diff --git a/codex-rs/tui/src/resume_picker.rs b/codex-rs/tui/src/resume_picker.rs
+index 43778a085..9a7034fb5 100644
+--- a/codex-rs/tui/src/resume_picker.rs
++++ b/codex-rs/tui/src/resume_picker.rs
+@@ -197,7 +197,6 @@ enum PickerLoadRequest {
+ #[derive(Clone)]
+ enum ProviderFilter {
+     Any,
+-    MatchDefault(String),
+ }
+ 
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+@@ -652,12 +651,11 @@ fn local_picker_cwd_filter(
+     }
+ }
+ 
+-fn picker_provider_filter(config: &Config, uses_remote_workspace: bool) -> ProviderFilter {
+-    if uses_remote_workspace {
+-        ProviderFilter::Any
+-    } else {
+-        ProviderFilter::MatchDefault(config.model_provider_id.to_string())
+-    }
++fn picker_provider_filter(_config: &Config, _uses_remote_workspace: bool) -> ProviderFilter {
++    // Resuming a session must ignore the model provider: the provider recorded in a
++    // rollout is not a reliable filter for what the user wants to resume. Only the
++    // working directory filter is applied.
++    ProviderFilter::Any
+ }
+ 
+ fn picker_runtime_keymap(config: &crate::local_settings::LocalSettings) -> Result<RuntimeKeymap> {
+@@ -2058,7 +2056,6 @@ fn thread_list_params(
+         sort_direction: None,
+         model_providers: match provider_filter {
+             ProviderFilter::Any => None,
+-            ProviderFilter::MatchDefault(default_provider) => Some(vec![default_provider]),
+         },
+         source_kinds: Some(crate::resume_source_kinds(include_non_interactive)),
+         archived: Some(status == SessionStatus::Archived),
+@@ -3626,7 +3623,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -3720,7 +3717,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             page_only_loader(|_| {}),
+-            ProviderFilter::MatchDefault("openai".to_string()),
++            ProviderFilter::Any,
+             /*show_all*/ false,
+             Some(primary.clone()),
+             SessionPickerAction::Resume,
+@@ -3813,7 +3810,7 @@ mod tests {
+         let mut live_picker = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(config.model_provider_id.clone()),
++            ProviderFilter::Any,
+             /*show_all*/ false,
+             Some(primary.clone()),
+             SessionPickerAction::Resume,
+@@ -3903,7 +3900,7 @@ mod tests {
+             Some(String::from("cursor-1")),
+             cwd_filter.map(|cwd| ThreadListCwdFilter::One(cwd.to_string_lossy().into_owned())),
+             SessionStatus::Active,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             ThreadSortKey::UpdatedAt,
+             /*include_non_interactive*/ false,
+             /*use_state_db_only*/ true,
+@@ -4128,7 +4125,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -4394,7 +4391,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -4453,7 +4450,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -4485,7 +4482,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -4504,7 +4501,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -4532,7 +4529,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -4563,7 +4560,7 @@ mod tests {
+         let state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -4586,7 +4583,7 @@ mod tests {
+         let state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -4604,7 +4601,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -4624,7 +4621,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -4652,7 +4649,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -4672,7 +4669,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -4700,7 +4697,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -4728,7 +4725,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -4756,7 +4753,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -4791,7 +4788,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -4813,7 +4810,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -4842,7 +4839,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -4879,7 +4876,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -4939,7 +4936,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -4987,7 +4984,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -5011,7 +5008,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -5079,7 +5076,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -5109,7 +5106,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -5145,7 +5142,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -5250,7 +5247,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -5294,7 +5291,7 @@ mod tests {
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -5328,7 +5325,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -5359,7 +5356,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -5381,7 +5378,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -5414,7 +5411,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -5453,7 +5450,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -5486,7 +5483,7 @@ session_picker_view = "dense"
+         let state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ false,
+             Some(PathBuf::from("/tmp/project")),
+             SessionPickerAction::Resume,
+@@ -5516,7 +5513,7 @@ session_picker_view = "dense"
+         let state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ false,
+             Some(PathBuf::from("/tmp/project")),
+             SessionPickerAction::Resume,
+@@ -5562,7 +5559,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             show_all,
+             filter_cwd,
+             SessionPickerAction::Resume,
+@@ -5651,7 +5648,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -5713,7 +5710,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -5754,7 +5751,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ false,
+             Some(PathBuf::from(
+                 "/Users/felipe.coury/code/codex.fcoury-session-picker/codex-rs",
+@@ -5806,7 +5803,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -5877,7 +5874,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -5915,7 +5912,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -5967,7 +5964,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -6022,7 +6019,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -6082,7 +6079,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -6116,7 +6113,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -6151,7 +6148,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -6193,7 +6190,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -6235,7 +6232,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ false,
+             Some(PathBuf::from("/tmp/project")),
+             SessionPickerAction::Resume,
+@@ -6269,7 +6266,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             Some(PathBuf::from("/tmp/project")),
+             SessionPickerAction::Resume,
+@@ -6345,7 +6342,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -6404,7 +6401,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -6466,7 +6463,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -6491,7 +6488,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -6535,7 +6532,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -6574,7 +6571,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -6892,7 +6889,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -6934,7 +6931,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -6976,7 +6973,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -7014,7 +7011,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -7055,7 +7052,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -7171,7 +7168,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -7189,7 +7186,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -7212,7 +7209,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -7244,7 +7241,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+@@ -7264,7 +7261,7 @@ session_picker_view = "dense"
+         let mut state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ true,
+             /*filter_cwd*/ None,
+             SessionPickerAction::Resume,
+diff --git a/codex-rs/tui/src/status_indicator_widget.rs b/codex-rs/tui/src/status_indicator_widget.rs
+index b3e5edec9..e34272af3 100644
+--- a/codex-rs/tui/src/status_indicator_widget.rs
++++ b/codex-rs/tui/src/status_indicator_widget.rs
+@@ -60,6 +60,8 @@ pub(crate) struct StatusIndicatorWidget {
+     details_max_lines: usize,
+     /// Optional suffix rendered after the elapsed/interrupt segment.
+     inline_message: Option<String>,
++    /// Live byte counters for the active model request, when known.
++    model_transfer: Option<ModelTransferStatus>,
+     /// Hook activity may move below the status row when it cannot fit in full.
+     hook_status_message: Option<String>,
+     show_interrupt_hint: bool,
+@@ -71,6 +73,21 @@ pub(crate) struct StatusIndicatorWidget {
+     effects: codex_config::types::TuiEffects,
+ }
+ 
++/// Direction of the transfer counters shown in the status line.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub(crate) enum ModelTransferPhase {
++    Sending,
++    Receiving,
++}
++
++/// Cumulative byte counters for the active model request.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub(crate) struct ModelTransferStatus {
++    pub(crate) phase: ModelTransferPhase,
++    pub(crate) sent_bytes: u64,
++    pub(crate) received_bytes: u64,
++}
++
+ // Format elapsed seconds into a compact human-friendly form used by the status line.
+ // Examples: 0s, 59s, 1m 00s, 59m 59s, 1h 00m 00s, 2h 03m 09s
+ pub fn fmt_elapsed_compact(elapsed_secs: u64) -> String {
+@@ -101,6 +118,7 @@ impl StatusIndicatorWidget {
+             details: None,
+             details_max_lines: STATUS_DETAILS_DEFAULT_MAX_LINES,
+             inline_message: None,
++            model_transfer: None,
+             hook_status_message: None,
+             show_interrupt_hint: true,
+             interrupt_binding: Some(key_hint::plain(KeyCode::Esc).into()),
+@@ -157,6 +175,11 @@ impl StatusIndicatorWidget {
+         self.hook_status_message = message;
+     }
+ 
++    /// Set or clear the live byte counters rendered inside the elapsed segment.
++    pub(crate) fn update_model_transfer(&mut self, status: Option<ModelTransferStatus>) {
++        self.model_transfer = status;
++    }
++
+     pub(crate) fn header(&self) -> &str {
+         &self.header
+     }
+@@ -254,10 +277,30 @@ impl StatusIndicator<'_> {
+         {
+             spans.push(format!("({pretty_elapsed} • ").dim());
+             spans.extend(interrupt_binding.spans());
+-            spans.push(" to interrupt)".dim());
++            spans.push(" to interrupt".dim());
+         } else {
+-            spans.push(format!("({pretty_elapsed})").dim());
++            spans.push(format!("({pretty_elapsed}").dim());
+         }
++        if let Some(transfer) = row.model_transfer {
++            // Show live upstream/downstream volume inside the elapsed segment.
++            // The active direction is bold so it is readable at a glance.
++            spans.push(" • ".dim());
++            let sent = fmt_bytes(transfer.sent_bytes);
++            let received = fmt_bytes(transfer.received_bytes);
++            let sent_arrow = match transfer.phase {
++                ModelTransferPhase::Sending => "↑".bold(),
++                ModelTransferPhase::Receiving => "↑".dim(),
++            };
++            spans.push(sent_arrow);
++            spans.push(format!(" {sent} ").dim());
++            let received_arrow = match transfer.phase {
++                ModelTransferPhase::Sending => "↓".dim(),
++                ModelTransferPhase::Receiving => "↓".bold(),
++            };
++            spans.push(received_arrow);
++            spans.push(format!(" {received}").dim());
++        }
++        spans.push(")".dim());
+         if let Some(message) = &row.inline_message {
+             // Keep optional context after elapsed/interrupt text so that core
+             // interrupt affordances stay in a fixed visual location.
+@@ -315,6 +358,23 @@ impl Renderable for StatusIndicator<'_> {
+     }
+ }
+ 
++/// Render a byte count compactly, e.g. `512 B`, `2.00 KiB`, `1.25 MiB`.
++fn fmt_bytes(bytes: u64) -> String {
++    const KIB: u64 = 1024;
++    const MIB: u64 = KIB * 1024;
++
++    let (divisor, unit) = if bytes >= MIB {
++        (MIB, "MiB")
++    } else if bytes >= KIB {
++        (KIB, "KiB")
++    } else {
++        return format!("{bytes} B");
++    };
++    let whole = bytes / divisor;
++    let hundredths = bytes % divisor * 100 / divisor;
++    format!("{whole}.{hundredths:02} {unit}")
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -427,6 +487,67 @@ mod tests {
+         insta::assert_snapshot!(terminal.backend());
+     }
+ 
++    #[test]
++    fn fmt_bytes_scales_units() {
++        assert_eq!(fmt_bytes(0), "0 B");
++        assert_eq!(fmt_bytes(512), "512 B");
++        assert_eq!(fmt_bytes(1024), "1.00 KiB");
++        assert_eq!(fmt_bytes(2048), "2.00 KiB");
++        assert_eq!(fmt_bytes(1024 * 1024), "1.00 MiB");
++        assert_eq!(fmt_bytes(1024 * 1024 + 256 * 1024), "1.25 MiB");
++    }
++
++    #[test]
++    fn renders_receiving_transfer_progress() {
++        let (tx_raw, _rx) = unbounded_channel::<AppEvent>();
++        let tx = AppEventSender::new(tx_raw);
++        let mut w = StatusIndicatorWidget::new(
++            tx,
++            crate::tui::FrameRequester::test_dummy(),
++            /*animations_enabled*/ false,
++            Default::default(),
++        );
++        w.update_model_transfer(Some(ModelTransferStatus {
++            phase: ModelTransferPhase::Receiving,
++            sent_bytes: 2048,
++            received_bytes: 1024 * 1024,
++        }));
++
++        let mut timer = StatusTimer::default();
++        timer.pause_at(timer.last_resume_at);
++
++        let mut terminal = Terminal::new(TestBackend::new(80, 1)).expect("terminal");
++        terminal
++            .draw(|f| w.with_timer(&timer).render(f.area(), f.buffer_mut()))
++            .expect("draw");
++        insta::assert_snapshot!(terminal.backend());
++    }
++
++    #[test]
++    fn renders_without_transfer_counters_by_default() {
++        let (tx_raw, _rx) = unbounded_channel::<AppEvent>();
++        let tx = AppEventSender::new(tx_raw);
++        let w = StatusIndicatorWidget::new(
++            tx,
++            crate::tui::FrameRequester::test_dummy(),
++            /*animations_enabled*/ false,
++            Default::default(),
++        );
++
++        let mut timer = StatusTimer::default();
++        timer.pause_at(timer.last_resume_at);
++
++        let mut terminal = Terminal::new(TestBackend::new(80, 1)).expect("terminal");
++        terminal
++            .draw(|f| w.with_timer(&timer).render(f.area(), f.buffer_mut()))
++            .expect("draw");
++        let rendered = terminal.backend().to_string();
++        assert!(
++            !rendered.contains("↑") && !rendered.contains("↓"),
++            "status row should not show transfer arrows without progress: {rendered:?}"
++        );
++    }
++
+     #[test]
+     fn renders_without_spinner_when_animations_disabled() {
+         let (tx_raw, _rx) = unbounded_channel::<AppEvent>();

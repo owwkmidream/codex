@@ -1,0 +1,374 @@
+name: build-windows-codex
+
+# 目的：官方每次发新 release 时，自动拉取官方源码、应用我们的补丁、
+# 编译出打了补丁的 codex.exe，并作为 Release 附件发布。
+#
+# 产物用途：替换本机 npm 包里的 vendor exe
+#   node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/
+#     vendor/x86_64-pc-windows-msvc/bin/codex.exe
+
+on:
+  schedule:
+    # 每天 06:00 UTC 检查一次官方有没有新 release
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "指定官方 tag（留空则用最新非预发布 release）"
+        required: false
+        type: string
+      force:
+        description: "强制重建（忽略已构建记录）"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write # 发 Release + 提交 built-tags.txt
+  issues: write # 补丁冲突时开 Issue
+
+env:
+  UPSTREAM_REPO: openai/codex
+  PATCH_FILE: patches/codex-cli.patch
+  # 补丁的基线版本：补丁是按这个 tag 写的，冲突时要改的就是这个值
+  PATCH_BASELINE: rust-v0.156.1
+  BINARY: codex
+
+jobs:
+  # ── 阶段 1：确定目标 tag，并检查是否已构建过 ────────────────────────
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.pick.outputs.tag }}
+      skip: ${{ steps.pick.outputs.skip }}
+      reason: ${{ steps.pick.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: 选择目标 tag
+        id: pick
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ inputs.tag }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+
+          if [[ -n "${INPUT_TAG}" ]]; then
+            tag="${INPUT_TAG}"
+            echo "使用手动指定的 tag: ${tag}"
+          else
+            # 取最新的正式 release（排除 alpha/beta 等预发布）
+            tag="$(gh release list --repo "${UPSTREAM_REPO}" \
+              --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName')"
+            echo "官方最新正式 release: ${tag}"
+          fi
+
+          if [[ -z "${tag}" || "${tag}" == "null" ]]; then
+            echo "::error::无法确定官方最新 release"
+            exit 1
+          fi
+
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+          if [[ "${FORCE}" == "true" ]]; then
+            echo "force=true，跳过已构建检查"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # 已经构建过的 tag 不再重复构建
+          if grep -qxF "${tag}" built-tags.txt; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "reason=${tag} 已构建过" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "reason=新 tag，需要构建" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 结果
+        run: |
+          echo "tag    = ${{ steps.pick.outputs.tag }}"
+          echo "skip   = ${{ steps.pick.outputs.skip }}"
+          echo "reason = ${{ steps.pick.outputs.reason }}"
+
+  # ── 阶段 2：拉官方源码 + 应用补丁 ──────────────────────────────────
+  # 补丁冲突时不算「构建失败」，而是开 Issue 通知，所以用 continue-on-error
+  # 把结果透给下游判断，避免每天收失败邮件。
+  prepare:
+    needs: resolve
+    if: needs.resolve.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      applied: ${{ steps.apply.outputs.applied }}
+      strategy: ${{ steps.apply.outputs.strategy }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: 拉取官方源码
+        run: |
+          set -euo pipefail
+          tag="${{ needs.resolve.outputs.tag }}"
+          git clone --depth 1 --branch "${tag}" \
+            "https://github.com/${UPSTREAM_REPO}.git" upstream
+          echo "官方 tag ${tag} 已拉取"
+          git -C upstream log --oneline -1
+
+      - name: 尝试应用补丁
+        id: apply
+        run: |
+          set -euo pipefail
+          cd upstream
+
+          echo "::group::尝试 1：直接 git apply"
+          if git apply --verbose "${GITHUB_WORKSPACE}/${PATCH_FILE}"; then
+            echo "strategy=git apply" >> "$GITHUB_OUTPUT"
+            echo "applied=true" >> "$GITHUB_OUTPUT"
+            echo "::endgroup::"
+            echo "✅ 补丁直接应用成功"
+            exit 0
+          fi
+          echo "::endgroup::"
+
+          # 直接失败说明上下文有偏移，尝试三方合并
+          # 注意：--3way 需要 pre-image blob 在对象库中，浅克隆拿不到，
+          # 所以要先补全历史。这一步较慢但只在直接失败时才走。
+          echo "::group::尝试 2：git apply --3way（需补全历史）"
+          git fetch --unshallow 2>/dev/null || git fetch --all
+          if git apply --3way "${GITHUB_WORKSPACE}/${PATCH_FILE}"; then
+            echo "strategy=git apply --3way" >> "$GITHUB_OUTPUT"
+            echo "applied=true" >> "$GITHUB_OUTPUT"
+            echo "::endgroup::"
+            echo "✅ 补丁三方合并成功"
+            exit 0
+          fi
+          echo "::endgroup::"
+
+          echo "❌ 两种方式都失败"
+          echo "applied=false" >> "$GITHUB_OUTPUT"
+          echo "strategy=none" >> "$GITHUB_OUTPUT"
+
+          # 留一份冲突详情给 Issue 用
+          git apply --verbose "${GITHUB_WORKSPACE}/${PATCH_FILE}" \
+            > "${GITHUB_WORKSPACE}/conflict.log" 2>&1 || true
+          exit 0 # 不失败，交给下游判断
+
+      - name: 上传应用了补丁的源码
+        if: steps.apply.outputs.applied == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: patched-source
+          path: upstream
+          retention-days: 1
+
+      - name: 补丁失败时开 Issue
+        if: steps.apply.outputs.applied != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${{ needs.resolve.outputs.tag }}"
+
+          # 同日同 tag 只开一个 Issue
+          existing="$(gh issue list --repo "${GITHUB_REPOSITORY}" \
+            --state open --search "补丁冲突 ${tag} in:title" \
+            --json number --jq 'length')"
+          if [[ "${existing}" != "0" ]]; then
+            echo "已存在该 tag 的冲突 Issue，跳过"
+            exit 0
+          fi
+
+          {
+            echo "补丁无法应用到官方 tag \`${tag}\`。"
+            echo
+            echo "- 补丁基线：\`${PATCH_BASELINE}\`"
+            echo "- 目标版本：\`${tag}\`"
+            echo
+            echo "官方改动破坏了补丁的上下文，需要人工更新 \`${PATCH_FILE}\`。"
+            echo
+            echo "### 冲突详情"
+            echo
+            echo '```'
+            tail -c 8000 "${GITHUB_WORKSPACE}/conflict.log" 2>/dev/null || echo "(无日志)"
+            echo '```'
+            echo
+            echo "### 处理方式"
+            echo
+            echo "1. 本地 \`git clone --depth 1 -b ${tag} https://github.com/${UPSTREAM_REPO}.git\`"
+            echo "2. \`git apply --3way ${PATCH_FILE}\` 看冲突"
+            echo "3. 按新代码结构重写补丁，更新 \`PATCH_BASELINE\` 与 \`built-tags.txt\`"
+          } > body.md
+
+          gh issue create --repo "${GITHUB_REPOSITORY}" \
+            --title "补丁冲突：${tag} 无法应用" \
+            --body-file body.md
+
+  # ── 阶段 3：编译 codex.exe ────────────────────────────────────────
+  build:
+    needs: [resolve, prepare]
+    if: needs.prepare.outputs.applied == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: patched-source
+          path: upstream
+
+      # 官方 codex-rs/rust-toolchain.toml 锁定 1.95.0。
+      # 用具体版本而非 stable：新版本 Rust 可能引入新 lint 或依赖解析变化，
+      # 导致同一个官方 tag 反而编不过。
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: 固定 Rust 版本
+        shell: bash
+        run: |
+          # dtolnay/rust-toolchain 安装后已激活 1.95.0，但 rustup 进入
+          # upstream/codex-rs 时会读 rust-toolchain.toml 并尝试再下载一次。
+          # 显式覆盖，避免网络抖动或版本漂移。
+          rustup override set 1.95.0 --path upstream/codex-rs
+          rustc --version
+          cargo --version
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: upstream/codex-rs
+          # 每个官方 tag 一份缓存，避免不同版本互相污染
+          key: ${{ needs.resolve.outputs.tag }}
+
+      - name: 固化补丁后的改动为提交
+        working-directory: upstream
+        run: |
+          git config user.email "ci@localhost"
+          git config user.name "ci"
+          git add -A
+          git commit -m "apply codex-cli patches"
+
+      - name: 编译 codex.exe
+        working-directory: upstream/codex-rs
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 只编 codex 这一个 bin。不编 code-mode-host 就不会拉 V8 产物。
+          export STABLE_GIT_COMMIT="$(git rev-parse HEAD)"
+          # 官方在 x86_64-pc-windows-msvc 上用这个开关规避 sqlite 内联汇编问题
+          export LIBSQLITE3_FLAGS=SQLITE_DISABLE_INTRINSIC
+          cargo build --locked --release \
+            --target x86_64-pc-windows-msvc \
+            --bin "${BINARY}"
+
+      - name: 校验产物
+        shell: bash
+        working-directory: upstream/codex-rs
+        run: |
+          set -euo pipefail
+          exe="target/x86_64-pc-windows-msvc/release/${BINARY}.exe"
+          if [[ ! -f "${exe}" ]]; then
+            echo "::error::未找到 ${exe}"
+            exit 1
+          fi
+          ls -la "${exe}"
+          "${exe}" --version
+
+      - name: 打包
+        shell: bash
+        working-directory: upstream/codex-rs
+        run: |
+          set -euo pipefail
+          tag="${{ needs.resolve.outputs.tag }}"
+          exe="target/x86_64-pc-windows-msvc/release/${BINARY}.exe"
+          mkdir -p dist
+          cp "${exe}" "dist/codex.exe"
+          # 一起带上版本信息，方便替换前核对
+          {
+            echo "upstream_tag: ${tag}"
+            echo "patch_baseline: ${PATCH_BASELINE}"
+            echo "built_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > dist/BUILD-INFO.txt
+          cp "${GITHUB_WORKSPACE}/patches/codex-cli.patch" dist/codex-cli.patch
+          cd dist && 7z a -tzip "../codex-${tag}-windows-x64.zip" ./
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex-windows-x64
+          path: upstream/codex-rs/codex-*.zip
+
+  # ── 阶段 4：发 Release 并记录已构建 tag ───────────────────────────
+  release:
+    needs: [resolve, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: codex-windows-x64
+          path: dist
+
+      - name: 发 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          cat > notes.md <<'EOF'
+          基于官方 tag，应用了 `patches/codex-cli.patch` 后编译的 Windows x64 版 codex.exe。
+
+          ### 替换方法
+
+          解压后把 `codex.exe` 覆盖到 npm 包的 vendor 目录：
+
+          ```
+          node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe
+          ```
+
+          替换前建议备份原文件。用 `codex --version` 验证。
+
+          ### 补丁内容
+
+          - 模型请求进度用数据包体积代替 token 估算
+          - 压缩横幅区分本地压缩 / 远程压缩
+          - 重试上限 1000 次、固定 10 秒间隔
+          - ServerOverloaded 等允许重试
+          - cyber 警告降为 Warning
+          - resume 忽略 provider 过滤
+          - GPT-5.6 上下文 353k
+          - 无输出时 Esc 快速改提示词
+          - 日志等级 INFO
+          EOF
+
+          # 把基线版本补进说明
+          sed -i "1s/^基于官方 tag/基于官方 ${TAG}/" notes.md
+
+          gh release create "${TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${TAG} + codex-cli patches" \
+            --notes-file notes.md \
+            dist/*
+
+      - name: 记录已构建 tag
+        env:
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! grep -qxF "${TAG}" built-tags.txt; then
+            echo "${TAG}" >> built-tags.txt
+            git config user.email "ci@localhost"
+            git config user.name "ci"
+            git add built-tags.txt
+            git commit -m "Record built tag ${TAG}"
+            git push
+          fi
