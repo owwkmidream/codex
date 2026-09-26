@@ -243,15 +243,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: upstream/codex-rs
-          # 依赖树没变时复用 ~/.cargo/registry，省掉依赖下载。
-          #
-          # 注意：这里省不掉编译时间。实测缓存约 1.46 GB，而 release
-          # 构建的 target/ 有 20-40 GB，超出 GitHub 单缓存 10 GB 上限，
-          # 编译产物基本存不下来。所以每次仍是 50-60 分钟的冷编译。
-          # 想真正提速需要 sccache 之类的按 crate 缓存方案。
-          #
-          # 不要按 tag 分桶：相邻官方版本的依赖几乎不变，
-          # 分桶只会让每个版本都重新下载依赖。
+          # 只缓存依赖源码（registry），不缓存编译产物。
+          # 编译产物存不存得下由「诊断」步骤实测，不靠猜。
+          # 不要按 tag 分桶：相邻官方版本的依赖几乎不变。
           cache-targets: false
           cache-on-failure: true
 
@@ -365,24 +359,127 @@ jobs:
           print("all migration files are pure CRLF; checksums will match the official exe")
           PY
 
-      - name: 诊断缓存恢复效果（编译前）
+      # ── 诊断：编译前 ───────────────────────────────────────────────
+      # 一次性采集全部可能影响耗时的信息，避免反复重跑。
+      # 官方基线（自建 runner，无缓存，从零编译）：
+      #   16 逻辑核 / 64 GiB / 1053 个 crate / 44 分 48 秒
+      - name: 诊断（编译前）
         shell: bash
         run: |
-          # 目的：用实测数据判断 rust-cache 到底帮上了多少忙。
-          # 之前的解释都是猜测，这里把真实数字打出来：
-          #   - target/ 里已有多少编译产物（缓存是否真的恢复了产物）
-          #   - cargo registry 有多大（依赖源码是否恢复了）
-          echo "=== 缓存恢复后的磁盘状态 ==="
-          echo "--- target 目录大小 ---"
-          du -sh upstream/codex-rs/target 2>/dev/null || echo "(target 目录不存在)"
-          echo "--- target/release 内的文件数 ---"
-          find upstream/codex-rs/target -maxdepth 3 -type d 2>/dev/null | head -20
-          echo "--- .cargo registry 大小 ---"
-          du -sh "${CARGO_HOME:-$HOME/.cargo}/registry" 2>/dev/null || echo "(registry 不存在)"
-          echo "--- .cargo git 大小 ---"
-          du -sh "${CARGO_HOME:-$HOME/.cargo}/git" 2>/dev/null || echo "(git 不存在)"
-          echo "--- 磁盘剩余空间 ---"
-          df -h . 2>/dev/null | tail -2
+          set -uo pipefail
+          line() { printf '\n===== %s =====\n' "$1"; }
+
+          line "1. Runner 硬件"
+          echo "RUNNER_NAME       : ${RUNNER_NAME:-unknown}"
+          echo "RUNNER_OS         : ${RUNNER_OS:-unknown}"
+          echo "RUNNER_ARCH       : ${RUNNER_ARCH:-unknown}"
+          echo "IMAGE_OS          : ${ImageOS:-unknown}"
+          echo "IMAGE_VERSION     : ${ImageVersion:-unknown}"
+          powershell -NoProfile -Command "
+            \$c = Get-CimInstance Win32_ComputerSystem
+            \$p = Get-CimInstance Win32_Processor | Select-Object -First 1
+            Write-Host ('CPU               : ' + \$p.Name)
+            Write-Host ('Physical cores    : ' + \$p.NumberOfCores)
+            Write-Host ('Logical CPUs      : ' + \$p.NumberOfLogicalProcessors)
+            Write-Host ('Total RAM GiB     : ' + [math]::Round(\$c.TotalPhysicalMemory/1GB,1))
+            Write-Host ('MaxClock MHz      : ' + \$p.MaxClockSpeed)
+          " 2>&1 || echo "(powershell 查询失败)"
+          echo "nproc (bash 视角) : $(nproc 2>/dev/null || echo '?')"
+
+          line "2. 磁盘"
+          df -h . 2>/dev/null || true
+          echo "--- 各盘符 ---"
+          powershell -NoProfile -Command "Get-PSDrive -PSProvider FileSystem | Select-Object Name,@{n='UsedGB';e={[math]::Round(\$_.Used/1GB,1)}},@{n='FreeGB';e={[math]::Round(\$_.Free/1GB,1)}} | Format-Table -AutoSize" 2>&1 || true
+
+          line "3. 工具链"
+          rustc --version 2>&1 || true
+          cargo --version 2>&1 || true
+          rustup toolchain list 2>&1 || true
+          rustup target list --installed 2>&1 || true
+          echo "CARGO_HOME        : ${CARGO_HOME:-unset}"
+          echo "CARGO_TARGET_DIR  : ${CARGO_TARGET_DIR:-unset}"
+          echo "CARGO_INCREMENTAL : ${CARGO_INCREMENTAL:-unset}"
+          echo "RUSTFLAGS         : ${RUSTFLAGS:-unset}"
+          echo "CC / CXX          : ${CC:-unset} / ${CXX:-unset}"
+
+          line "4. 源码规模"
+          echo "仓库文件总数      : $(git -C upstream ls-files 2>/dev/null | wc -l)"
+          echo "workspace 成员数  : $(grep -c '^\s*"' upstream/codex-rs/Cargo.toml 2>/dev/null || echo '?')"
+          echo "Cargo.lock 大小   : $(wc -c < upstream/codex-rs/Cargo.lock 2>/dev/null || echo '?') 字节"
+          echo "Cargo.lock 包数   : $(grep -c '^name = ' upstream/codex-rs/Cargo.lock 2>/dev/null || echo '?')"
+          echo "--- 补丁应用情况 ---"
+          git -C upstream show --stat --oneline HEAD 2>/dev/null | tail -5
+
+          line "5. 缓存恢复了什么（关键）"
+          CH="${CARGO_HOME:-$HOME/.cargo}"
+          echo "--- target 是否存在 ---"
+          if [[ -d upstream/codex-rs/target ]]; then
+            echo "target 目录: 存在"
+            du -sh upstream/codex-rs/target 2>/dev/null || true
+            echo "--- target 一级子目录 ---"
+            du -sh upstream/codex-rs/target/* 2>/dev/null | sort -rh | head -10 || true
+            echo "--- target 内目录数 / 文件数 ---"
+            find upstream/codex-rs/target -type d 2>/dev/null | wc -l
+            find upstream/codex-rs/target -type f 2>/dev/null | wc -l
+            echo "--- release 目录内容统计 ---"
+            REL="upstream/codex-rs/target/x86_64-pc-windows-msvc/release"
+            if [[ -d "$REL" ]]; then
+              du -sh "$REL" 2>/dev/null || true
+              echo "rlib 数   : $(find "$REL" -maxdepth 1 -name '*.rlib' 2>/dev/null | wc -l)"
+              echo "rmeta 数  : $(find "$REL" -maxdepth 1 -name '*.rmeta' 2>/dev/null | wc -l)"
+              echo "d 目录数  : $(find "$REL" -maxdepth 1 -name '*.d' 2>/dev/null | wc -l)"
+              echo "exe 数    : $(find "$REL" -maxdepth 1 -name '*.exe' 2>/dev/null | wc -l)"
+              echo "--- 前 10 个 rlib（判断缓存到底存了什么）---"
+              find "$REL" -maxdepth 1 -name '*.rlib' 2>/dev/null | head -10
+            else
+              echo "release 目录不存在 -> 缓存没有恢复任何编译产物"
+            fi
+            echo "--- deps 目录 ---"
+            DEPS="$REL/deps"
+            if [[ -d "$DEPS" ]]; then
+              du -sh "$DEPS" 2>/dev/null || true
+              echo "deps 文件数: $(find "$DEPS" -type f 2>/dev/null | wc -l)"
+            else
+              echo "deps 目录不存在"
+            fi
+          else
+            echo "target 目录: 不存在 -> 完全冷启动"
+          fi
+
+          line "6. cargo 缓存目录"
+          du -sh "$CH" 2>/dev/null || echo "($CH 不存在)"
+          du -sh "$CH/registry" 2>/dev/null || echo "(registry 不存在)"
+          du -sh "$CH/registry/cache" 2>/dev/null || echo "(registry/cache 不存在)"
+          du -sh "$CH/registry/src" 2>/dev/null || echo "(registry/src 不存在)"
+          du -sh "$CH/git" 2>/dev/null || echo "(git 不存在)"
+          echo "registry crate 数: $(find "$CH/registry/cache" -name '*.crate' 2>/dev/null | wc -l)"
+          echo "解包源码数       : $(find "$CH/registry/src" -maxdepth 2 -mindepth 2 -type d 2>/dev/null | wc -l)"
+
+          line "7. cargo 配置"
+          for f in "$CH/config.toml" "$CH/config" "upstream/codex-rs/.cargo/config.toml"; do
+            if [[ -f "$f" ]]; then
+              echo "--- $f ---"
+              cat "$f" || true
+            fi
+          done
+          echo "--- 环境变量中的 CARGO_* ---"
+          env | grep -i '^CARGO' | sort || echo "(无)"
+
+          line "8. 网络（影响依赖下载）"
+          github_ping=$( { curl -sS -o /dev/null -w '%{time_total}s http=%{http_code}' \
+            --max-time 15 https://github.com 2>&1; } || echo "失败" )
+          echo "github.com        : $github_ping"
+          crates_ping=$( { curl -sS -o /dev/null -w '%{time_total}s http=%{http_code}' \
+            --max-time 15 https://static.crates.io 2>&1; } || echo "失败" )
+          echo "static.crates.io  : $crates_ping"
+
+          line "9. 进程与资源基线"
+          powershell -NoProfile -Command "Get-Process | Sort-Object WS -Descending | Select-Object -First 5 Name,@{n='MemMB';e={[math]::Round(\$_.WS/1MB)}} | Format-Table -AutoSize" 2>&1 || true
+          echo "--- 环境变量样本（可能影响构建的）---"
+          env | grep -iE '^(CI|GITHUB_|RUNNER_|VCPKG|LIBSQLITE|AWS_LC|MSVC|VSCMD|INCLUDE|LIB)=' | sort | head -30 || true
+
+          echo
+          echo "===== 诊断（编译前）结束 ====="
 
       - name: 编译 codex.exe
         working-directory: upstream/codex-rs
@@ -393,29 +490,123 @@ jobs:
           export STABLE_GIT_COMMIT="$(git rev-parse HEAD)"
           # 官方在 x86_64-pc-windows-msvc 上用这个开关规避 sqlite 内联汇编问题
           export LIBSQLITE3_FLAGS=SQLITE_DISABLE_INTRINSIC
+
+          # 记录编译前状态，用于事后判断 cargo 实际重编了多少
+          target_dir="target/x86_64-pc-windows-msvc/release"
+          before_rlib=0
+          before_fingerprint=0
+          if [[ -d "$target_dir" ]]; then
+            before_rlib=$(find "$target_dir" -maxdepth 1 -name '*.rlib' 2>/dev/null | wc -l)
+          fi
+          if [[ -d target/release/.fingerprint ]]; then
+            before_fingerprint=$(find target/release/.fingerprint -maxdepth 1 -type d 2>/dev/null | wc -l)
+          fi
+          echo "编译前 rlib 数: ${before_rlib}"
+          echo "编译前 fingerprint 数: ${before_fingerprint}"
+          echo "::notice::编译前 rlib=${before_rlib} fingerprint=${before_fingerprint}"
+
           start=$(date +%s)
+          # 日志落到 RUNNER_TEMP（Windows 上必定可写），供后面统计
+          build_log="${RUNNER_TEMP:-/tmp}/cargo-build.log"
           cargo build --locked --release \
             --target x86_64-pc-windows-msvc \
-            --bin "${BINARY}"
+            --bin "${BINARY}" 2>&1 | tee "$build_log"
           end=$(date +%s)
-          echo "编译耗时: $((end - start)) 秒"
+          elapsed=$((end - start))
 
-      - name: 诊断缓存恢复效果（编译后）
+          # ── 编译统计 ──
+          # 用 wc -l 而非 grep -c：grep -c 无匹配时返回退出码 1，
+          # 在 $() 里配 "|| echo 0" 会输出两行，污染结果。
+          n() { wc -l < "$1" 2>/dev/null | tr -d ' \n'; }
+          grep 'Compiling ' "$build_log" > "${RUNNER_TEMP:-/tmp}/c.txt" 2>/dev/null || true
+          grep 'Building \[' "$build_log" > "${RUNNER_TEMP:-/tmp}/b.txt" 2>/dev/null || true
+          grep 'Downloading ' "$build_log" > "${RUNNER_TEMP:-/tmp}/d.txt" 2>/dev/null || true
+          grep '^warning' "$build_log" > "${RUNNER_TEMP:-/tmp}/w.txt" 2>/dev/null || true
+          compiling=$(n "${RUNNER_TEMP:-/tmp}/c.txt"); compiling=${compiling:-0}
+          building=$(n "${RUNNER_TEMP:-/tmp}/b.txt"); building=${building:-0}
+          downloading=$(n "${RUNNER_TEMP:-/tmp}/d.txt"); downloading=${downloading:-0}
+          warnings=$(n "${RUNNER_TEMP:-/tmp}/w.txt"); warnings=${warnings:-0}
+
+          echo
+          echo "===== 编译统计 ====="
+          echo "耗时(秒)          : ${elapsed}"
+          echo "耗时(分秒)        : $((elapsed / 60))m$((elapsed % 60))s"
+          echo "Compiling 行数    : ${compiling}"
+          echo "Building 行数     : ${building}"
+          echo "Downloading 行数  : ${downloading}"
+          echo "warning 数        : ${warnings}"
+          echo "--- Finished 行 ---"
+          grep -E 'Finished|Compiling codex-cli' "$build_log" 2>/dev/null | tail -3 || true
+          echo "--- 最后 10 个 Compiling（关键路径末尾）---"
+          grep 'Compiling ' "$build_log" 2>/dev/null | tail -10 || true
+          echo "::notice::编译耗时 ${elapsed} 秒, Compiling 行数 ${compiling}"
+
+      # ── 诊断：编译后 ───────────────────────────────────────────────
+      - name: 诊断（编译后）
+        if: always()
         shell: bash
         run: |
-          # 编译完成后的 target/ 真实大小，用来判断：
-          # 如果远超 GitHub 单缓存 10 GB 上限，说明编译产物根本存不下，
-          # rust-cache 这条路在托管 runner 上走不通。
-          echo "=== 编译后的磁盘状态 ==="
-          echo "--- target 目录总大小 ---"
-          du -sh upstream/codex-rs/target 2>/dev/null || echo "(不存在)"
-          echo "--- target 下各子目录 ---"
-          du -sh upstream/codex-rs/target/* 2>/dev/null | sort -rh | head -10
-          echo "--- release 目录大小 ---"
-          du -sh upstream/codex-rs/target/x86_64-pc-windows-msvc/release 2>/dev/null || echo "(不存在)"
-          echo "--- release 内的 .exe / .rlib 数量 ---"
-          find upstream/codex-rs/target/x86_64-pc-windows-msvc/release -maxdepth 1 \
-            \( -name '*.exe' -o -name '*.rlib' -o -name '*.rmeta' \) 2>/dev/null | wc -l
+          set -uo pipefail
+          line() { printf '\n===== %s =====\n' "$1"; }
+          target="upstream/codex-rs/target"
+
+          line "1. target 总大小（判断能否进 GitHub 缓存）"
+          if [[ -d "$target" ]]; then
+            du -sh "$target" 2>/dev/null || true
+            echo "--- 一级子目录 ---"
+            du -sh "$target"/* 2>/dev/null | sort -rh | head -10 || true
+            echo "--- 目录数 / 文件数 ---"
+            find "$target" -type d 2>/dev/null | wc -l
+            find "$target" -type f 2>/dev/null | wc -l
+            echo "--- 总字节数（精确）---"
+            find "$target" -type f -printf '%s\n' 2>/dev/null | awk '{s+=$1} END {printf "%.2f GB\n", s/1024/1024/1024}'
+          else
+            echo "(target 不存在)"
+          fi
+
+          line "2. release 产物"
+          REL="$target/x86_64-pc-windows-msvc/release"
+          if [[ -d "$REL" ]]; then
+            du -sh "$REL" 2>/dev/null || true
+            echo "顶层文件数 : $(find "$REL" -maxdepth 1 -type f 2>/dev/null | wc -l)"
+            echo "rlib       : $(find "$REL" -maxdepth 1 -name '*.rlib' 2>/dev/null | wc -l)"
+            echo "rmeta      : $(find "$REL" -maxdepth 1 -name '*.rmeta' 2>/dev/null | wc -l)"
+            echo "exe        : $(find "$REL" -maxdepth 1 -name '*.exe' 2>/dev/null | wc -l)"
+            echo "pdb        : $(find "$REL" -maxdepth 1 -name '*.pdb' 2>/dev/null | wc -l)"
+            echo "--- 前 5 大的文件 ---"
+            find "$REL" -maxdepth 1 -type f -printf '%s %p\n' 2>/dev/null | sort -rn | head -5 | \
+              awk '{printf "%.1f MB  %s\n", $1/1024/1024, $2}'
+            echo "--- deps 目录 ---"
+            if [[ -d "$REL/deps" ]]; then
+              du -sh "$REL/deps" 2>/dev/null || true
+              echo "deps 文件数: $(find "$REL/deps" -type f 2>/dev/null | wc -l)"
+              echo "deps .rlib : $(find "$REL/deps" -maxdepth 1 -name '*.rlib' 2>/dev/null | wc -l)"
+            fi
+            echo "--- build 目录（build script 产物）---"
+            [[ -d "$REL/build" ]] && du -sh "$REL/build" 2>/dev/null || echo "(无 build 目录)"
+            echo "--- fingerprint 目录（决定 cargo 是否复用）---"
+            [[ -d "$target/release/.fingerprint" ]] && \
+              echo "fingerprint 子目录数: $(find "$target/release/.fingerprint" -maxdepth 1 -type d 2>/dev/null | wc -l)" || \
+              echo "(无 fingerprint 目录)"
+          else
+            echo "(release 目录不存在)"
+          fi
+
+          line "3. 最终产物"
+          exe="$REL/${BINARY}.exe"
+          if [[ -f "$exe" ]]; then
+            ls -la "$exe"
+            echo "大小(MB): $(du -m "$exe" 2>/dev/null | cut -f1)"
+            echo "sha256   : $(sha256sum "$exe" 2>/dev/null | cut -d' ' -f1)"
+          else
+            echo "(未找到 ${BINARY}.exe)"
+          fi
+
+          line "4. 磁盘剩余（与编译前对比）"
+          df -h . 2>/dev/null || true
+
+          echo
+          echo "===== 诊断（编译后）结束 ====="
 
       - name: 校验产物
         shell: bash
