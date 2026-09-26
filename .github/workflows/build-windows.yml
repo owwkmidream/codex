@@ -365,6 +365,25 @@ jobs:
           print("all migration files are pure CRLF; checksums will match the official exe")
           PY
 
+      - name: 诊断缓存恢复效果（编译前）
+        shell: bash
+        run: |
+          # 目的：用实测数据判断 rust-cache 到底帮上了多少忙。
+          # 之前的解释都是猜测，这里把真实数字打出来：
+          #   - target/ 里已有多少编译产物（缓存是否真的恢复了产物）
+          #   - cargo registry 有多大（依赖源码是否恢复了）
+          echo "=== 缓存恢复后的磁盘状态 ==="
+          echo "--- target 目录大小 ---"
+          du -sh upstream/codex-rs/target 2>/dev/null || echo "(target 目录不存在)"
+          echo "--- target/release 内的文件数 ---"
+          find upstream/codex-rs/target -maxdepth 3 -type d 2>/dev/null | head -20
+          echo "--- .cargo registry 大小 ---"
+          du -sh "${CARGO_HOME:-$HOME/.cargo}/registry" 2>/dev/null || echo "(registry 不存在)"
+          echo "--- .cargo git 大小 ---"
+          du -sh "${CARGO_HOME:-$HOME/.cargo}/git" 2>/dev/null || echo "(git 不存在)"
+          echo "--- 磁盘剩余空间 ---"
+          df -h . 2>/dev/null | tail -2
+
       - name: 编译 codex.exe
         working-directory: upstream/codex-rs
         shell: bash
@@ -374,9 +393,29 @@ jobs:
           export STABLE_GIT_COMMIT="$(git rev-parse HEAD)"
           # 官方在 x86_64-pc-windows-msvc 上用这个开关规避 sqlite 内联汇编问题
           export LIBSQLITE3_FLAGS=SQLITE_DISABLE_INTRINSIC
+          start=$(date +%s)
           cargo build --locked --release \
             --target x86_64-pc-windows-msvc \
             --bin "${BINARY}"
+          end=$(date +%s)
+          echo "编译耗时: $((end - start)) 秒"
+
+      - name: 诊断缓存恢复效果（编译后）
+        shell: bash
+        run: |
+          # 编译完成后的 target/ 真实大小，用来判断：
+          # 如果远超 GitHub 单缓存 10 GB 上限，说明编译产物根本存不下，
+          # rust-cache 这条路在托管 runner 上走不通。
+          echo "=== 编译后的磁盘状态 ==="
+          echo "--- target 目录总大小 ---"
+          du -sh upstream/codex-rs/target 2>/dev/null || echo "(不存在)"
+          echo "--- target 下各子目录 ---"
+          du -sh upstream/codex-rs/target/* 2>/dev/null | sort -rh | head -10
+          echo "--- release 目录大小 ---"
+          du -sh upstream/codex-rs/target/x86_64-pc-windows-msvc/release 2>/dev/null || echo "(不存在)"
+          echo "--- release 内的 .exe / .rlib 数量 ---"
+          find upstream/codex-rs/target/x86_64-pc-windows-msvc/release -maxdepth 1 \
+            \( -name '*.exe' -o -name '*.rlib' -o -name '*.rmeta' \) 2>/dev/null | wc -l
 
       - name: 校验产物
         shell: bash
