@@ -271,19 +271,35 @@ jobs:
           # "migration 1 was previously applied but has been modified"。
           #
           # 这里显式转成 CRLF，让编译结果与官方 exe 完全一致。
-          cd upstream/codex-rs/state/migrations
-          count=0
-          for f in *.sql; do
-            # 先去掉可能存在的 CR，再统一加 CR，保证幂等
-            sed -i 's/\r$//' "$f"
-            sed -i 's/$/\r/' "$f"
-            count=$((count + 1))
-          done
-          echo "已转换 ${count} 个 migration 文件"
-          # 抽查第一个文件确认结果
-          f="$(ls *.sql | head -1)"
-          printf '抽查 %s: ' "$f"
-          if grep -qU $'\r' "$f"; then echo "CRLF ✅"; else echo "LF ❌"; exit 1; fi
+          # 用一次 python 处理全部文件；逐个 sed -i 在 Windows 上会因为
+          # 反复创建进程而慢上百倍（55 文件 × 2 次 sed 约 4 分钟）。
+          # 注意：Windows 上 python 默认 stdout 是 cp1252，输出中文会
+          # UnicodeEncodeError，所以这里只打印 ASCII。
+          python3 - <<'PY'
+          import os, sys
+
+          mig_dir = "upstream/codex-rs/state/migrations"
+          files = sorted(f for f in os.listdir(mig_dir) if f.endswith(".sql"))
+          if not files:
+              print("::error::no migration files found")
+              sys.exit(1)
+
+          for name in files:
+              path = os.path.join(mig_dir, name)
+              data = open(path, "rb").read()
+              # 先统一成 LF 再转 CRLF，保证幂等（重复运行结果一致）
+              normalized = data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+              if normalized != data:
+                  open(path, "wb").write(normalized)
+
+          # 抽查：确认确实是纯 CRLF
+          sample = open(os.path.join(mig_dir, files[0]), "rb").read()
+          crlf, lf = sample.count(b"\r\n"), sample.count(b"\n")
+          print(f"converted {len(files)} files; sample {files[0]}: CRLF={crlf} LF={lf}")
+          if crlf == 0 or crlf != lf:
+              print("::error::conversion result is not pure CRLF")
+              sys.exit(1)
+          PY
 
       - name: 校验 migration 换行（编译前门禁）
         shell: bash
@@ -293,13 +309,15 @@ jobs:
           # 编译进二进制的 checksum 必须与官方 exe 一致，否则用户换上新 exe
           # 会因数据库校验失败而无法启动（migration N was modified）。
           # 必须在 cargo build 之前拦下，编完再查已经来不及。
+          # 注意：Windows 上 python 默认 stdout 是 cp1252，输出中文会
+          # UnicodeEncodeError，所以这里只打印 ASCII。
           python3 - <<'PY'
           import os, sys
 
           mig_dir = "state/migrations"
           files = sorted(f for f in os.listdir(mig_dir) if f.endswith(".sql"))
           if not files:
-              print("::error::未找到 migration 文件")
+              print("::error::no migration files found")
               sys.exit(1)
 
           bad = []
@@ -308,16 +326,16 @@ jobs:
               crlf = data.count(b"\r\n")
               lf = data.count(b"\n")
               if crlf == 0:
-                  bad.append((name, "无 CRLF"))
+                  bad.append((name, "no CRLF"))
               elif crlf != lf:
-                  bad.append((name, f"混合换行 CRLF={crlf} LF={lf}"))
+                  bad.append((name, f"mixed line endings CRLF={crlf} LF={lf}"))
 
-          print(f"检查 {len(files)} 个 migration 文件")
+          print(f"checked {len(files)} migration files")
           if bad:
               for name, why in bad:
                   print(f"::error file={mig_dir}/{name}::{why}")
               sys.exit(1)
-          print("✅ 全部为纯 CRLF，checksum 将与官方 exe 一致")
+          print("all files are pure CRLF; checksums will match the official exe")
           PY
 
       - name: 编译 codex.exe
