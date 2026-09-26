@@ -243,8 +243,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: upstream/codex-rs
-          # 每个官方 tag 一份缓存，避免不同版本互相污染
-          key: ${{ needs.resolve.outputs.tag }}
+          # 不要按 tag 分桶。rust-cache 默认用 Cargo.lock 的哈希做 key，
+          # 依赖树没变就命中缓存。相邻的官方版本依赖几乎不变，
+          # 跨版本复用能把第二次之后的冷编译时间砍掉大半。
+          # 依赖真变了时 key 自动失效，不存在脏产物风险。
+          cache-on-failure: true
 
       - name: 固化补丁后的改动为提交
         working-directory: upstream

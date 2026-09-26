@@ -30,6 +30,31 @@ codex --version
 
 覆盖前建议备份原文件（原文件约 323 MB）。
 
+### ⚠️ 版本必须和 npm 包一致
+
+`codex.exe` 运行时会调用同目录下的辅助程序：
+
+```
+codex-resources\codex-command-runner.exe
+codex-resources\codex-windows-sandbox-setup.exe
+codex-path\rg.exe
+```
+
+这些**不由本仓库编译**，用的是 npm 包自带的原版。所以替换的 `codex.exe`
+必须和 npm 包**同属一个官方版本**：
+
+| 情况 | 做法 |
+|---|---|
+| npm 包是 0.156.1，替换 0.156.1 的补丁版 | ✅ 直接替换 |
+| npm 包是 0.156.1，想换 0.157.1 的补丁版 | ⚠️ 先把 npm 包升到 0.157.1 |
+
+```bash
+npm install -g @openai/codex@0.157.1   # 先升级
+# 再替换 codex.exe
+```
+
+zip 里的 `BUILD-INFO.txt` 记录了 `upstream_tag`，可用来核对版本。
+
 ## 工作流程
 
 ```mermaid
