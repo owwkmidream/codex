@@ -261,10 +261,23 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: upstream/codex-rs
-          # 只缓存依赖源码（registry），不缓存编译产物。
-          # 编译产物存不存得下由「诊断」步骤实测，不靠猜。
-          # 不要按 tag 分桶：相邻官方版本的依赖几乎不变。
-          cache-targets: false
+          # 缓存 registry + 依赖编译产物（target）。实测数据：
+          #
+          #   cache-targets: true  首次冷启动 Compiling 1031 个 crate，
+          #                        结束时存入 1463MB 缓存；
+          #                        下一次命中该缓存后 Compiling 只剩 139 个，
+          #                        且全是 codex-* 自身的 workspace 成员，
+          #                        tokio/serde/syn 等第三方依赖一个都没重编。
+          #   cache-targets: false 命中缓存也只恢复 496MB registry，
+          #                        Downloading 归零但 Compiling 仍是 1031。
+          #
+          # rust-cache 并非整包 target（那有 9.15GB，确实超 10GB 上限），
+          # 它只挑依赖产物，实际 1463MB，完全放得下。
+          # 曾经按「target 有 20-40GB」判断存不下而关掉，与实测不符。
+          #
+          # 不要按 tag 分桶：相邻官方版本的依赖几乎不变，分桶只会让
+          # 每个版本都从零重编。
+          cache-targets: true
           cache-on-failure: true
 
       - name: 固化补丁后的改动为提交
