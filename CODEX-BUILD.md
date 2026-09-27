@@ -1,6 +1,6 @@
 # codex-patched-build
 
-自动把 `patches/codex-cli.patch` 应用到官方 codex 源码上，编译出打了补丁的
+自动把对应 tag 的补丁（`patches/<tag>.patch`）应用到官方 codex 源码上，编译出打了补丁的
 **Windows x64 版 `codex.exe`**，发到本仓库的 Release。
 
 **本仓库不包含任何 codex 源代码。** 源码在 CI 里临时拉取。
@@ -61,7 +61,9 @@ zip 里的 `BUILD-INFO.txt` 记录了 `upstream_tag`，可用来核对版本。
 flowchart TB
   C["每天 06:00 UTC<br/>检查官方新 release"] --> N{"tag 已构建过？"}
   N -->|是| S["跳过"]
-  N -->|否| P["拉官方源码<br/>应用补丁"]
+  N -->|否| K{"patches/<tag>.patch<br/>存在？"}
+  K -->|否| E["报错退出<br/>提示先生成补丁"]
+  K -->|是| P["拉官方源码<br/>应用该 tag 专属补丁"]
   P -->|"直接 apply 失败"| T["再试三方合并"]
   T -->|失败| I["开 Issue<br/>等人工修补丁"]
   P -->|成功| B["cargo build --release<br/>--bin codex"]
@@ -71,26 +73,37 @@ flowchart TB
   R --> M["把 tag 记入<br/>built-tags.txt"]
 ```
 
-## 补丁基线
+## 补丁文件
 
-| 项 | 值 |
-|---|---|
-| 当前基线 | `rust-v0.156.1` |
-| 补丁文件 | `patches/codex-cli.patch`（41 个文件） |
-| 已构建 | 见 `built-tags.txt` |
+补丁**按 tag 分文件存放**，一个官方版本对应一份：
 
-补丁按**具体版本**写的。官方改了代码结构后补丁会打不上，这时 CI 会开 Issue
-而不是发坏产物。修补丁的步骤：
+| 补丁文件 | 对应官方 tag | 规模 |
+|---|---|---|
+| `patches/rust-v0.156.1.patch` | `rust-v0.156.1` | 41 文件 / 301 hunk |
+| `patches/rust-v0.157.1.patch` | `rust-v0.157.1` | 41 文件 / 301 hunk |
+
+workflow 按待构建的 tag 自动选中 `patches/<tag>.patch`。所以手动输入任意
+tag 都会命中它自己的那份补丁，不会串用别的版本；该 tag 没有补丁时直接报错，
+不会拿错补丁去构建。
+
+已构建的 tag 见 `built-tags.txt`。注意它只控制"是否跳过"：某 tag 已记录后，
+想重建必须显式勾选 `force`。
+
+### 新增一个 tag 的补丁
+
+官方发了新 tag、CI 开了冲突 Issue 时：
 
 ```bash
-git clone --depth 1 -b rust-v0.157.1 https://github.com/openai/codex.git
+git clone --depth 1 -b <新tag> https://github.com/openai/codex.git
 cd codex
-git apply --3way ../patches/codex-cli.patch   # 看冲突
-# 按新版代码结构重写补丁
+git apply --3way /path/to/patches/<上一个tag>.patch   # 看冲突
+# 按新代码结构重写补丁，另存为 patches/<新tag>.patch
 ```
 
-改完后更新 workflow 里的 `PATCH_BASELINE`，并确认 `built-tags.txt` 里没有
-目标 tag（否则会被跳过）。
+要点：`Cargo.lock` 里的 workspace 版本串必须改成**目标 tag 的**
+`[workspace.package] version`（例如 157.1 就要写 `0.157.1`），不能沿用旧值，
+否则 `cargo build --locked` 会直接失败。改完确认 `built-tags.txt` 里没有该
+tag（否则会被跳过），需要时用 `force` 重建。
 
 ## 补丁内容
 

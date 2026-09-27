@@ -29,9 +29,10 @@ permissions:
 
 env:
   UPSTREAM_REPO: openai/codex
-  PATCH_FILE: patches/codex-cli.patch
-  # 补丁的基线版本：补丁是按这个 tag 写的，冲突时要改的就是这个值
-  PATCH_BASELINE: rust-v0.156.1
+  # 补丁按 tag 分文件存放：patches/<tag>.patch
+  # 补丁是按具体官方版本写的，所以一个 tag 对应一份补丁；换 tag 就换文件，
+  # 不再共用一个 patches/codex-cli.patch 槽位（那会导致只有最新 tag 能构建）。
+  PATCH_DIR: patches
   BINARY: codex
 
 jobs:
@@ -42,6 +43,8 @@ jobs:
       tag: ${{ steps.pick.outputs.tag }}
       skip: ${{ steps.pick.outputs.skip }}
       reason: ${{ steps.pick.outputs.reason }}
+      patch: ${{ steps.pick.outputs.patch }}
+      patch_baseline: ${{ steps.pick.outputs.patch_baseline }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,6 +76,17 @@ jobs:
 
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
+          # 该 tag 专属的补丁文件。补丁按具体版本写，因此 tag 与补丁一一对应，
+          # 手动指定任意 tag 都能命中它自己的那份，不会串用别的版本。
+          patch="${PATCH_DIR}/${tag}.patch"
+          if [[ ! -f "${patch}" ]]; then
+            echo "::error::缺少 ${tag} 的补丁 ${patch}；请先为该 tag 生成补丁再构建"
+            exit 1
+          fi
+          echo "patch=${patch}" >> "$GITHUB_OUTPUT"
+          # 基线就是 patch 文件名去掉目录与后缀，仅用于 issue 与产物元信息展示
+          echo "patch_baseline=${tag}" >> "$GITHUB_OUTPUT"
+
           if [[ "${FORCE}" == "true" ]]; then
             echo "force=true，跳过已构建检查"
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -90,9 +104,10 @@ jobs:
 
       - name: 结果
         run: |
-          echo "tag    = ${{ steps.pick.outputs.tag }}"
-          echo "skip   = ${{ steps.pick.outputs.skip }}"
-          echo "reason = ${{ steps.pick.outputs.reason }}"
+          echo "tag            = ${{ steps.pick.outputs.tag }}"
+          echo "patch          = ${{ steps.pick.outputs.patch }}"
+          echo "skip           = ${{ steps.pick.outputs.skip }}"
+          echo "reason         = ${{ steps.pick.outputs.reason }}"
 
   # ── 阶段 2：拉官方源码 + 应用补丁 ──────────────────────────────────
   # 补丁冲突时不算「构建失败」，而是开 Issue 通知，所以用 continue-on-error
@@ -122,10 +137,12 @@ jobs:
         id: apply
         run: |
           set -euo pipefail
+          # 该 tag 专属的补丁（resolve 阶段已确认存在）
+          patch="${GITHUB_WORKSPACE}/${{ needs.resolve.outputs.patch }}"
           cd upstream
 
           echo "::group::尝试 1：直接 git apply"
-          if git apply --verbose "${GITHUB_WORKSPACE}/${PATCH_FILE}"; then
+          if git apply --verbose "${patch}"; then
             echo "strategy=git apply" >> "$GITHUB_OUTPUT"
             echo "applied=true" >> "$GITHUB_OUTPUT"
             echo "::endgroup::"
@@ -139,7 +156,7 @@ jobs:
           # 所以要先补全历史。这一步较慢但只在直接失败时才走。
           echo "::group::尝试 2：git apply --3way（需补全历史）"
           git fetch --unshallow 2>/dev/null || git fetch --all
-          if git apply --3way "${GITHUB_WORKSPACE}/${PATCH_FILE}"; then
+          if git apply --3way "${patch}"; then
             echo "strategy=git apply --3way" >> "$GITHUB_OUTPUT"
             echo "applied=true" >> "$GITHUB_OUTPUT"
             echo "::endgroup::"
@@ -153,7 +170,7 @@ jobs:
           echo "strategy=none" >> "$GITHUB_OUTPUT"
 
           # 留一份冲突详情给 Issue 用
-          git apply --verbose "${GITHUB_WORKSPACE}/${PATCH_FILE}" \
+          git apply --verbose "${patch}" \
             > "${GITHUB_WORKSPACE}/conflict.log" 2>&1 || true
           exit 0 # 不失败，交给下游判断
 
@@ -185,10 +202,10 @@ jobs:
           {
             echo "补丁无法应用到官方 tag \`${tag}\`。"
             echo
-            echo "- 补丁基线：\`${PATCH_BASELINE}\`"
+            echo "- 补丁文件：\`${{ needs.resolve.outputs.patch }}\`"
             echo "- 目标版本：\`${tag}\`"
             echo
-            echo "官方改动破坏了补丁的上下文，需要人工更新 \`${PATCH_FILE}\`。"
+            echo "官方改动破坏了补丁的上下文，需要人工更新该 tag 的补丁文件。"
             echo
             echo "### 冲突详情"
             echo
@@ -199,8 +216,9 @@ jobs:
             echo "### 处理方式"
             echo
             echo "1. 本地 \`git clone --depth 1 -b ${tag} https://github.com/${UPSTREAM_REPO}.git\`"
-            echo "2. \`git apply --3way ${PATCH_FILE}\` 看冲突"
-            echo "3. 按新代码结构重写补丁，更新 \`PATCH_BASELINE\` 与 \`built-tags.txt\`"
+            echo "2. \`git apply --3way ${{ needs.resolve.outputs.patch }}\` 看冲突"
+            echo "3. 按新代码结构重写补丁：\`patches/${tag}.patch\`"
+            echo "4. 确认 \`built-tags.txt\` 里没有该 tag（否则会被跳过）"
           } > body.md
 
           gh issue create --repo "${GITHUB_REPOSITORY}" \
@@ -633,10 +651,11 @@ jobs:
           # 一起带上版本信息，方便替换前核对
           {
             echo "upstream_tag: ${tag}"
-            echo "patch_baseline: ${PATCH_BASELINE}"
+            echo "patch_file: ${{ needs.resolve.outputs.patch }}"
             echo "built_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } > dist/BUILD-INFO.txt
-          cp "${GITHUB_WORKSPACE}/patches/codex-cli.patch" dist/codex-cli.patch
+          # 附带本次实际使用的补丁，便于核对/复现
+          cp "${GITHUB_WORKSPACE}/${{ needs.resolve.outputs.patch }}" dist/codex-cli.patch
           cd dist && 7z a -tzip "../codex-${tag}-windows-x64.zip" ./
 
       - uses: actions/upload-artifact@v4
@@ -666,7 +685,7 @@ jobs:
           set -euo pipefail
 
           cat > notes.md <<'EOF'
-          基于官方 tag，应用了 `patches/codex-cli.patch` 后编译的 Windows x64 版 codex.exe。
+          基于官方 tag，应用了该 tag 专属补丁后编译的 Windows x64 版 codex.exe。补丁文件见 Release 附件 `codex-cli.patch`。
 
           ### 替换方法
 
