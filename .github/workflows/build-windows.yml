@@ -713,14 +713,27 @@ jobs:
           # 把基线版本补进说明
           sed -i "1s/^基于官方 tag/基于官方 ${TAG}/" notes.md
 
-          # 幂等：Release 已存在时更新（--clobber 覆盖同名附件），
-          # 否则重建同一个 tag 会因为重名直接失败。
-          gh release create "${TAG}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --title "${TAG} + codex-cli patches" \
-            --notes-file notes.md \
-            --clobber \
-            dist/*
+          # 幂等：Release 已存在时不能再用 create（重名直接失败），
+          # 而且 gh release create 并不支持 --clobber（只有 upload 支持）。
+          # 所以先探测，已存在则改说明 + 覆盖附件。
+          title="${TAG} + codex-cli patches"
+          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "Release ${TAG} 已存在，更新说明并覆盖附件"
+            gh release edit "${TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${title}" \
+              --notes-file notes.md
+            gh release upload "${TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --clobber \
+              dist/*
+          else
+            gh release create "${TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${title}" \
+              --notes-file notes.md \
+              dist/*
+          fi
 
       - name: 记录已构建 tag
         env:
