@@ -2036,7 +2036,7 @@ index eb5ffa6ec..e6fc8bc8d 100644
          ServerNotification::TurnCompleted(notification) => Some(notification.thread_id.as_str()),
          ServerNotification::HookCompleted(notification) => Some(notification.thread_id.as_str()),
 diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
-index 7fc9161a2..a7f798930 100644
+index 7fc9161a2..e3ff7dd63 100644
 --- a/codex-rs/tui/src/app/event_dispatch.rs
 +++ b/codex-rs/tui/src/app/event_dispatch.rs
 @@ -92,6 +92,7 @@ impl App {
@@ -2047,27 +2047,40 @@ index 7fc9161a2..a7f798930 100644
                      | AppEvent::SetThreadGoalDraft { .. }
                      | AppEvent::SetThreadGoalStatus {
                          status: ThreadGoalStatus::Active,
-@@ -580,6 +581,29 @@ impl App {
+@@ -580,6 +581,42 @@ impl App {
                  self.chat_widget.maybe_send_next_queued_input();
                  tui.frame_requester().schedule_frame();
              }
-+            AppEvent::RollbackOutputFreeTurnForPromptRestore { thread_id, prompt } => {
++            AppEvent::RollbackOutputFreeTurnForPromptRestore { thread_id, turn_id } => {
 +                if self.chat_widget.thread_id() != Some(thread_id) {
 +                    return Ok(AppRunControl::Continue);
 +                }
-+                // Roll back the turn that produced no model output, then reopen its prompt.
-+                // The last user cell in the transcript is that turn's prompt.
-+                let last_user = crate::app_backtrack::user_count(&self.transcript_cells)
++                // The rollback anchor and the restored text must come from the same prompt, so
++                // derive both from the anchored cell instead of a cached submission.
++                let Some(nth) = crate::app_backtrack::user_count(&self.transcript_cells)
 +                    .checked_sub(1)
-+                    .and_then(|nth| {
-+                        crate::app_backtrack::nth_user_position(&self.transcript_cells, nth)
-+                    });
-+                let Some(index) = last_user else {
-+                    self.chat_widget.restore_user_message_to_composer(prompt);
-+                    tui.frame_requester().schedule_frame();
++                else {
++                    return Ok(AppRunControl::Continue);
++                };
++                let Some(index) = crate::app_backtrack::nth_user_position(&self.transcript_cells, nth)
++                else {
 +                    return Ok(AppRunControl::Continue);
 +                };
 +                let selected_cell = Arc::clone(&self.transcript_cells[index]);
++                let Some(user_cell) = selected_cell
++                    .as_any()
++                    .downcast_ref::<crate::history_cell::UserHistoryCell>()
++                else {
++                    return Ok(AppRunControl::Continue);
++                };
++                let prompt = crate::app_backtrack::user_message_from_history_cell(user_cell);
++                // The turn id was pinned when Esc was pressed. If a newer turn has started since,
++                // reverting would discard it, so restore the draft without touching history.
++                if self.chat_widget.last_turn_id().as_deref() != Some(turn_id.as_str()) {
++                    self.chat_widget.restore_user_message_to_composer(prompt);
++                    tui.frame_requester().schedule_frame();
++                    return Ok(AppRunControl::Continue);
++                }
 +                self.app_event_tx.send(AppEvent::RevertSessionForPromptEdit {
 +                    thread_id,
 +                    selected_cell,
@@ -2089,19 +2102,79 @@ index b7d34f637..bce05a58f 100644
                  | ServerNotification::FileChangePatchUpdated(_)
                  | ServerNotification::ServerRequestResolved(_)
                  | ServerNotification::McpToolCallProgress(_)
+diff --git a/codex-rs/tui/src/app_backtrack.rs b/codex-rs/tui/src/app_backtrack.rs
+index 1cdadf53b..502a7a06c 100644
+--- a/codex-rs/tui/src/app_backtrack.rs
++++ b/codex-rs/tui/src/app_backtrack.rs
+@@ -453,27 +453,36 @@ impl App {
+         let selected = nth_user_position(&self.transcript_cells, nth_user_message)
+             .and_then(|idx| self.transcript_cells.get(idx))
+             .and_then(|cell| cell.as_any().downcast_ref::<UserHistoryCell>())?;
+-        let local_images = selected
+-            .local_image_paths
+-            .iter()
+-            .enumerate()
+-            .map(|(index, path)| LocalImageAttachment {
+-                placeholder: local_image_label_text(index + 1),
+-                path: path.clone(),
+-            })
+-            .collect();
+ 
+         Some(BacktrackSelection {
+             thread_id: base_id,
+             nth_user_message,
+-            prompt: UserMessage {
+-                text: selected.message.clone(),
+-                local_images,
+-                remote_image_urls: selected.remote_image_urls.clone(),
+-                text_elements: selected.text_elements.clone(),
+-                mention_bindings: Vec::new(),
+-            },
++            prompt: user_message_from_history_cell(selected),
++        })
++    }
++}
++
++/// Rebuild the editable prompt for a rendered user cell.
++///
++/// Used where a rollback must restore exactly the prompt that anchors it: deriving both from one
++/// cell keeps the composer text and the reverted range from disagreeing.
++pub(crate) fn user_message_from_history_cell(selected: &UserHistoryCell) -> UserMessage {
++    let local_images = selected
++        .local_image_paths
++        .iter()
++        .enumerate()
++        .map(|(index, path)| LocalImageAttachment {
++            placeholder: local_image_label_text(index + 1),
++            path: path.clone(),
+         })
++        .collect();
++
++    UserMessage {
++        text: selected.message.clone(),
++        local_images,
++        remote_image_urls: selected.remote_image_urls.clone(),
++        text_elements: selected.text_elements.clone(),
++        mention_bindings: Vec::new(),
+     }
+ }
+ 
 diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
-index 4dbdc87bf..532013a3e 100644
+index 4dbdc87bf..a0ffe7346 100644
 --- a/codex-rs/tui/src/app_event.rs
 +++ b/codex-rs/tui/src/app_event.rs
-@@ -592,6 +592,12 @@ pub(crate) enum AppEvent {
+@@ -592,6 +592,15 @@ pub(crate) enum AppEvent {
          selected_cell: Arc<dyn HistoryCell>,
          prompt: UserMessage,
      },
-+    /// Roll back a turn that was interrupted before producing model output and
-+    /// restore its prompt in the composer for editing.
++    /// Roll back a turn that was interrupted before producing model output and restore its
++    /// prompt in the composer for editing.
++    ///
++    /// Only the turn id travels: the App layer resolves both the prompt text and the rollback
++    /// anchor from that one turn, so the restored text and the reverted range cannot disagree.
 +    RollbackOutputFreeTurnForPromptRestore {
 +        thread_id: ThreadId,
-+        prompt: UserMessage,
++        turn_id: String,
 +    },
      FinishPromptRevert {
          thread_id: ThreadId,
@@ -2155,7 +2228,7 @@ index 3f16d118e..002ceb314 100644
          self.composer.is_empty()
      }
 diff --git a/codex-rs/tui/src/chatwidget.rs b/codex-rs/tui/src/chatwidget.rs
-index 984a9582c..27d312c5f 100644
+index 984a9582c..9e8be652a 100644
 --- a/codex-rs/tui/src/chatwidget.rs
 +++ b/codex-rs/tui/src/chatwidget.rs
 @@ -95,6 +95,7 @@ use codex_app_server_protocol::ItemStartedNotification;
@@ -2174,16 +2247,31 @@ index 984a9582c..27d312c5f 100644
  use crate::status_indicator_widget::STATUS_DETAILS_DEFAULT_MAX_LINES;
  use crate::status_indicator_widget::StatusDetailsCapitalization;
  use crate::text_formatting::truncate_text;
-@@ -830,6 +832,9 @@ pub(crate) struct ChatWidget {
+@@ -830,6 +832,12 @@ pub(crate) struct ChatWidget {
      last_rendered_user_message_display: Option<UserMessageDisplay>,
      last_rendered_user_message_client_id: Option<String>,
      last_non_retry_error: Option<(String, String)>,
-+    /// Set when the active turn was interrupted before producing any model output, so the
-+    /// submitted prompt can be rolled back out of the transcript and restored for editing.
-+    restore_prompt_after_output_free_interrupt: bool,
++    /// Turn id captured when Esc interrupted a turn that had produced no model output yet.
++    ///
++    /// Capturing the id at key-press time pins the rollback target. The interrupt notification
++    /// arrives after a network round trip, by which point the turn may already be streaming, so
++    /// re-deciding "was there output?" on arrival would silently drop the rollback.
++    pending_output_free_interrupt_turn_id: Option<String>,
  }
  
  #[cfg_attr(not(test), allow(dead_code))]
+@@ -1979,6 +1987,11 @@ impl ChatWidget {
+         self.thread_id
+     }
+ 
++    /// Latest turn id observed for this thread, used to confirm a rollback still targets it.
++    pub(crate) fn last_turn_id(&self) -> Option<String> {
++        self.turn_lifecycle.last_turn_id.clone()
++    }
++
+     pub(crate) fn thread_name(&self) -> Option<String> {
+         self.thread_name.clone()
+     }
 diff --git a/codex-rs/tui/src/chatwidget/compaction.rs b/codex-rs/tui/src/chatwidget/compaction.rs
 index e05180a9e..1d965399f 100644
 --- a/codex-rs/tui/src/chatwidget/compaction.rs
@@ -2252,33 +2340,39 @@ index e05180a9e..1d965399f 100644
  
      pub(super) fn clear_context_compaction(&mut self) {
 diff --git a/codex-rs/tui/src/chatwidget/constructor.rs b/codex-rs/tui/src/chatwidget/constructor.rs
-index 1c8c63ec7..ae2bbd045 100644
+index 1c8c63ec7..62a023416 100644
 --- a/codex-rs/tui/src/chatwidget/constructor.rs
 +++ b/codex-rs/tui/src/chatwidget/constructor.rs
 @@ -284,6 +284,7 @@ impl ChatWidget {
              last_rendered_user_message_display: None,
              last_rendered_user_message_client_id: None,
              last_non_retry_error: None,
-+            restore_prompt_after_output_free_interrupt: false,
++            pending_output_free_interrupt_turn_id: None,
          };
  
          widget.prefetch_rate_limits();
 diff --git a/codex-rs/tui/src/chatwidget/input_restore.rs b/codex-rs/tui/src/chatwidget/input_restore.rs
-index 114118f71..893f3ea5e 100644
+index 114118f71..3ab83e492 100644
 --- a/codex-rs/tui/src/chatwidget/input_restore.rs
 +++ b/codex-rs/tui/src/chatwidget/input_restore.rs
-@@ -311,12 +311,22 @@ impl ChatWidget {
+@@ -311,12 +311,28 @@ impl ChatWidget {
      /// separated by newlines rather than auto-submitting the next one.
      pub(super) fn on_interrupted_turn(&mut self, reason: TurnAbortReason) {
          self.requeue_image_submission();
 +        // An Esc interrupt before any model output should hand the prompt back for editing
-+        // rather than leaving it stranded in the transcript.
-+        let prompt_to_rollback = (self.restore_prompt_after_output_free_interrupt
-+            && reason == TurnAbortReason::Interrupted
-+            && !self.current_turn_has_model_output())
-+        .then(|| self.safety_buffering_prompt.clone())
-+        .flatten();
-+        self.restore_prompt_after_output_free_interrupt = false;
++        // rather than leaving it stranded in the transcript. The turn id was pinned when Esc
++        // was pressed; re-testing for output here would miss a turn that started streaming
++        // during the interrupt round trip and silently drop the rollback.
++        let pinned_turn_id = self.pending_output_free_interrupt_turn_id.take();
++        let interrupted_pinned_turn = reason == TurnAbortReason::Interrupted
++            && pinned_turn_id.as_deref().is_some_and(|turn_id| {
++                self.turn_lifecycle.last_turn_id.as_deref() == Some(turn_id)
++            });
++        let rollback_turn_id = if interrupted_pinned_turn {
++            pinned_turn_id
++        } else {
++            None
++        };
          // Finalize, log a gentle prompt, and clear running state.
          self.finalize_turn();
          let send_pending_steers_immediately =
@@ -2286,38 +2380,41 @@ index 114118f71..893f3ea5e 100644
          self.input_queue.submit_pending_steers_after_interrupt = false;
 -        if self.interrupted_turn_notice_mode != InterruptedTurnNoticeMode::Suppress {
 +        if self.interrupted_turn_notice_mode != InterruptedTurnNoticeMode::Suppress
-+            && prompt_to_rollback.is_none()
++            && rollback_turn_id.is_none()
 +        {
              if send_pending_steers_immediately {
                  self.add_to_history(history_cell::new_info_event(
                      "Model interrupted to submit steer instructions.".to_owned(),
-@@ -382,6 +392,10 @@ impl ChatWidget {
+@@ -382,6 +398,10 @@ impl ChatWidget {
          } else if let Some(combined) = self.drain_pending_messages_for_restore() {
              self.restore_composer_state(combined);
          }
-+        if let (Some(thread_id), Some(prompt)) = (self.thread_id, prompt_to_rollback) {
++        if let (Some(thread_id), Some(turn_id)) = (self.thread_id, rollback_turn_id) {
 +            self.app_event_tx
-+                .send(AppEvent::RollbackOutputFreeTurnForPromptRestore { thread_id, prompt });
++                .send(AppEvent::RollbackOutputFreeTurnForPromptRestore { thread_id, turn_id });
 +        }
          self.refresh_pending_input_preview();
          self.request_redraw();
      }
 diff --git a/codex-rs/tui/src/chatwidget/interaction.rs b/codex-rs/tui/src/chatwidget/interaction.rs
-index f763f6079..949c7142a 100644
+index f763f6079..77ada1c88 100644
 --- a/codex-rs/tui/src/chatwidget/interaction.rs
 +++ b/codex-rs/tui/src/chatwidget/interaction.rs
-@@ -233,6 +233,15 @@ impl ChatWidget {
+@@ -233,6 +233,18 @@ impl ChatWidget {
                  let had_modal_or_popup = !self.bottom_pane.no_modal_or_popup_active();
                  let should_pause_active_goal =
                      self.bottom_pane.should_interrupt_running_task(key_event);
 +                // Interrupting a turn that has produced no model output yet should hand the
 +                // prompt back for editing instead of leaving it stranded in the transcript.
++                // Record which turn was interrupted now: the completion notification arrives
++                // later, and by then the turn may already have streamed output.
 +                if should_pause_active_goal
 +                    && key_event.code == KeyCode::Esc
 +                    && !self.side_conversation_active()
 +                    && !self.current_turn_has_model_output()
 +                {
-+                    self.restore_prompt_after_output_free_interrupt = true;
++                    self.pending_output_free_interrupt_turn_id =
++                        self.turn_lifecycle.last_turn_id.clone();
 +                }
                  let input_result = self.bottom_pane.handle_key_event(key_event);
                  if matches!(
@@ -2564,7 +2661,7 @@ index 5fe1eba3d..d5136fe71 100644
 +    }
  }
 diff --git a/codex-rs/tui/src/chatwidget/turn_runtime.rs b/codex-rs/tui/src/chatwidget/turn_runtime.rs
-index bad721b9c..44b7ec003 100644
+index bad721b9c..2df2398d2 100644
 --- a/codex-rs/tui/src/chatwidget/turn_runtime.rs
 +++ b/codex-rs/tui/src/chatwidget/turn_runtime.rs
 @@ -78,6 +78,11 @@ impl ChatWidget {
@@ -2572,7 +2669,7 @@ index bad721b9c..44b7ec003 100644
          self.clear_context_compaction();
          self.input_queue.user_turn_pending_start = false;
 +        // A new turn clears any pending output-free interrupt rollback.
-+        self.restore_prompt_after_output_free_interrupt = false;
++        self.pending_output_free_interrupt_turn_id = None;
 +        // Byte counters are per-turn; start the accumulator fresh.
 +        self.status_state.reset_model_transfer();
 +        self.bottom_pane.update_model_transfer(None);
