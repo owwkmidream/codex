@@ -2397,10 +2397,10 @@ index 114118f71..3ab83e492 100644
          self.request_redraw();
      }
 diff --git a/codex-rs/tui/src/chatwidget/interaction.rs b/codex-rs/tui/src/chatwidget/interaction.rs
-index f763f6079..77ada1c88 100644
+index f763f6079..2b3cdc273 100644
 --- a/codex-rs/tui/src/chatwidget/interaction.rs
 +++ b/codex-rs/tui/src/chatwidget/interaction.rs
-@@ -233,6 +233,18 @@ impl ChatWidget {
+@@ -233,6 +233,21 @@ impl ChatWidget {
                  let had_modal_or_popup = !self.bottom_pane.no_modal_or_popup_active();
                  let should_pause_active_goal =
                      self.bottom_pane.should_interrupt_running_task(key_event);
@@ -2408,10 +2408,13 @@ index f763f6079..77ada1c88 100644
 +                // prompt back for editing instead of leaving it stranded in the transcript.
 +                // Record which turn was interrupted now: the completion notification arrives
 +                // later, and by then the turn may already have streamed output.
++                // Require a rendered prompt for this turn, so a turn with no user prompt (for
++                // example a goal continuation) never rolls back someone else's message.
 +                if should_pause_active_goal
 +                    && key_event.code == KeyCode::Esc
 +                    && !self.side_conversation_active()
 +                    && !self.current_turn_has_model_output()
++                    && self.last_rendered_user_message_display.is_some()
 +                {
 +                    self.pending_output_free_interrupt_turn_id =
 +                        self.turn_lifecycle.last_turn_id.clone();
