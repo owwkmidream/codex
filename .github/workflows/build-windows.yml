@@ -45,6 +45,7 @@ jobs:
       reason: ${{ steps.pick.outputs.reason }}
       patch: ${{ steps.pick.outputs.patch }}
       patch_baseline: ${{ steps.pick.outputs.patch_baseline }}
+      patch_is_exact: ${{ steps.pick.outputs.patch_is_exact }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -76,16 +77,26 @@ jobs:
 
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
-          # 该 tag 专属的补丁文件。补丁按具体版本写，因此 tag 与补丁一一对应，
-          # 手动指定任意 tag 都能命中它自己的那份，不会串用别的版本。
+          # 优先用该 tag 专属的补丁；官方刚发新版、还没来得及为它写补丁时，
+          # 回退到版本号最大的那份补丁先试跑。否则每次上游发版，整条流水线
+          # 在 resolve 阶段就直接失败，连一次尝试应用的机会都没有。
           patch="${PATCH_DIR}/${tag}.patch"
+          patch_is_exact=true
           if [[ ! -f "${patch}" ]]; then
-            echo "::error::缺少 ${tag} 的补丁 ${patch}；请先为该 tag 生成补丁再构建"
-            exit 1
+            patch_is_exact=false
+            # 只认 rust-v* 形式的版本补丁，按版本号排序取最新的那份
+            patch="$(ls "${PATCH_DIR}"/rust-v*.patch 2>/dev/null | sort -V | tail -n 1 || true)"
+            if [[ -z "${patch}" ]]; then
+              echo "::error::${PATCH_DIR} 下没有任何可用补丁，无法构建"
+              exit 1
+            fi
+            echo "⚠️ 缺少 ${tag} 的专属补丁，回退用最新补丁 ${patch} 尝试应用"
           fi
           echo "patch=${patch}" >> "$GITHUB_OUTPUT"
-          # 基线就是 patch 文件名去掉目录与后缀，仅用于 issue 与产物元信息展示
-          echo "patch_baseline=${tag}" >> "$GITHUB_OUTPUT"
+          echo "patch_is_exact=${patch_is_exact}" >> "$GITHUB_OUTPUT"
+          # 基线 = 补丁文件名去掉目录与 .patch 后缀。回退补丁写的 Cargo.lock
+          # 版本是它自己的基线版本，需要据此改写成目标 tag 的版本。
+          echo "patch_baseline=$(basename "${patch}" .patch)" >> "$GITHUB_OUTPUT"
 
           if [[ "${FORCE}" == "true" ]]; then
             echo "force=true，跳过已构建检查"
@@ -137,42 +148,72 @@ jobs:
         id: apply
         run: |
           set -euo pipefail
-          # 该 tag 专属的补丁（resolve 阶段已确认存在）
           patch="${GITHUB_WORKSPACE}/${{ needs.resolve.outputs.patch }}"
+          patch_baseline="${{ needs.resolve.outputs.patch_baseline }}"
+          tag="${{ needs.resolve.outputs.tag }}"
           cd upstream
 
           echo "::group::尝试 1：直接 git apply"
-          if git apply --verbose "${patch}"; then
+          if git apply --verbose "${patch}" 2>&1; then
             echo "strategy=git apply" >> "$GITHUB_OUTPUT"
             echo "applied=true" >> "$GITHUB_OUTPUT"
             echo "::endgroup::"
             echo "✅ 补丁直接应用成功"
-            exit 0
-          fi
-          echo "::endgroup::"
-
-          # 直接失败说明上下文有偏移，尝试三方合并
-          # 注意：--3way 需要 pre-image blob 在对象库中，浅克隆拿不到，
-          # 所以要先补全历史。这一步较慢但只在直接失败时才走。
-          echo "::group::尝试 2：git apply --3way（需补全历史）"
-          git fetch --unshallow 2>/dev/null || git fetch --all
-          if git apply --3way "${patch}"; then
-            echo "strategy=git apply --3way" >> "$GITHUB_OUTPUT"
-            echo "applied=true" >> "$GITHUB_OUTPUT"
+            applied_via=direct
+          else
             echo "::endgroup::"
-            echo "✅ 补丁三方合并成功"
-            exit 0
+
+            # 直接失败说明上下文有偏移，尝试三方合并
+            # 注意：--3way 需要 pre-image blob 在对象库中，浅克隆拿不到，
+            # 所以要先补全历史。这一步较慢但只在直接失败时才走。
+            echo "::group::尝试 2：git apply --3way（需补全历史）"
+            git fetch --unshallow 2>/dev/null || git fetch --all
+            # 有冲突时 --3way 返回非 0，但会保留合并结果；用冲突文件数判断，
+            # 这样「大部分干净、少数冲突」的情况也能被识别出来而不是直接丢弃。
+            git apply --3way "${patch}" > /dev/null 2>&1 || true
+            conflicts="$(git diff --cached --name-only --diff-filter=U | wc -l | tr -d ' ')"
+            # --3way 成功时改动是已暂存状态（工作区 diff 为空）。完全失败时一处都没
+            # 改，必须避免把「一行都没应用」误判成三方合并成功，所以同时校验暂存改动数。
+            changed="$(git diff --cached --name-only | wc -l | tr -d ' ')"
+            if [[ "${conflicts}" == "0" && "${changed}" != "0" ]]; then
+              echo "strategy=git apply --3way" >> "$GITHUB_OUTPUT"
+              echo "applied=true" >> "$GITHUB_OUTPUT"
+              echo "::endgroup::"
+              echo "✅ 补丁三方合并成功（改动 ${changed} 个文件）"
+            else
+              echo "::endgroup::"
+              echo "❌ 三方合并仍有 ${conflicts} 个冲突文件"
+              git diff --cached --name-only --diff-filter=U | sed 's/^/  冲突: /'
+              echo "applied=false" >> "$GITHUB_OUTPUT"
+              echo "strategy=none" >> "$GITHUB_OUTPUT"
+              echo "conflicts=${conflicts}" >> "$GITHUB_OUTPUT"
+              git diff --cached --name-only --diff-filter=U > "${GITHUB_WORKSPACE}/conflict-files.txt"
+              git diff --cached --diff-filter=U > "${GITHUB_WORKSPACE}/conflict.log" 2>&1 || true
+              exit 0 # 不失败，交给下游判断
+            fi
           fi
-          echo "::endgroup::"
 
-          echo "❌ 两种方式都失败"
-          echo "applied=false" >> "$GITHUB_OUTPUT"
-          echo "strategy=none" >> "$GITHUB_OUTPUT"
-
-          # 留一份冲突详情给 Issue 用
-          git apply --verbose "${patch}" \
-            > "${GITHUB_WORKSPACE}/conflict.log" 2>&1 || true
-          exit 0 # 不失败，交给下游判断
+          # 回退补丁写的是它自己基线的版本号，而编译用 cargo build --locked，
+          # 要求 Cargo.lock 里的成员版本与 Cargo.toml 的 workspace 版本一致。
+          # 官方 CI 不带 --locked，所以官方 tag 自身两者不一致也无所谓；我们必须对齐。
+          if [[ "${patch_baseline}" != "${tag}" ]]; then
+            # 补丁与 tag 都以 rust-v 前缀命名，Cargo.lock 里是纯版本号，先去前缀
+            base_version="${patch_baseline#rust-v}"
+            target_version="${tag#rust-v}"
+            echo "::group::对齐 Cargo.lock 成员版本 ${base_version} -> ${target_version}"
+            lock="codex-rs/Cargo.lock"
+            before="$(grep -c "^version = \"${base_version}\"$" "${lock}" || true)"
+            if [[ "${before}" != "0" ]]; then
+              base_esc="$(printf '%s' "${base_version}" | sed 's/\./\\./g')"
+              target_esc="$(printf '%s' "${target_version}" | sed 's/\./\\./g')"
+              sed -i "s/^version = \"${base_esc}\"$/version = \"${target_esc}\"/" "${lock}"
+              after="$(grep -c "^version = \"${target_version}\"$" "${lock}" || true)"
+              echo "改写版本行: ${before} 行 -> 目标版本共 ${after} 行"
+            else
+              echo "Cargo.lock 中没有 ${base_version} 版本行，跳过改写"
+            fi
+            echo "::endgroup::"
+          fi
 
       - name: 上传应用了补丁的源码
         if: steps.apply.outputs.applied == 'true'
@@ -204,7 +245,11 @@ jobs:
             echo
             echo "- 补丁文件：\`${{ needs.resolve.outputs.patch }}\`"
             echo "- 目标版本：\`${tag}\`"
+            echo "- 是否该版本专属补丁：\`${{ needs.resolve.outputs.patch_is_exact }}\`"
             echo
+            if [[ "${{ needs.resolve.outputs.patch_is_exact }}" == "false" ]]; then
+              echo "官方已发 ${tag}，但还没有它的专属补丁，本次已自动回退到最新可用补丁尝试应用。"
+            fi
             echo "官方改动破坏了补丁的上下文，需要人工更新该 tag 的补丁文件。"
             echo
             echo "### 冲突详情"
@@ -665,6 +710,9 @@ jobs:
           {
             echo "upstream_tag: ${tag}"
             echo "patch_file: ${{ needs.resolve.outputs.patch }}"
+            echo "patch_is_exact: ${{ needs.resolve.outputs.patch_is_exact }}"
+            echo "patch_baseline: ${{ needs.resolve.outputs.patch_baseline }}"
+            echo "apply_strategy: ${{ needs.prepare.outputs.strategy }}"
             echo "built_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } > dist/BUILD-INFO.txt
           # 附带本次实际使用的补丁，便于核对/复现
