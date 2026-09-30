@@ -159,7 +159,6 @@ jobs:
             echo "applied=true" >> "$GITHUB_OUTPUT"
             echo "::endgroup::"
             echo "✅ 补丁直接应用成功"
-            applied_via=direct
           else
             echo "::endgroup::"
 
