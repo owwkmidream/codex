@@ -806,5 +806,15 @@ jobs:
             git config user.name "ci"
             git add built-tags.txt
             git commit -m "Record built tag ${TAG}"
-            git push
+            # 远端可能在本任务运行期间被推过（例如人工提交补丁）。直接 push 会被拒，
+            # 这一步失败就意味着 tag 没被记录、下次 schedule 会重复构建整条流水线。
+            # 所以先 rebase 到最新远端再推，最多重试 3 次。
+            for attempt in 1 2 3; do
+              if git push; then
+                echo "已记录 ${TAG}"
+                break
+              fi
+              echo "push 被拒（第 ${attempt} 次），rebase 到最新远端后重试"
+              git pull --rebase --autostash origin "${GITHUB_REF_NAME:-main}"
+            done
           fi
