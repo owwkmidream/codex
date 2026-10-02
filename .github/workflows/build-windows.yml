@@ -149,11 +149,14 @@ jobs:
         run: |
           set -euo pipefail
           patch="${GITHUB_WORKSPACE}/${{ needs.resolve.outputs.patch }}"
-          patch_baseline="${{ needs.resolve.outputs.patch_baseline }}"
           tag="${{ needs.resolve.outputs.tag }}"
           cd upstream
 
-          echo "::group::尝试 1：直接 git apply"
+          # 补丁已不含 Cargo.lock（版本串由本步骤末尾按目标 tag 对齐），
+          # 所以这里失败一定是真正的代码语义冲突，不会是 lock 版本漂移。
+          target_version="${tag#rust-v}"
+
+          echo "::group::尝试 1：git apply（精确匹配）"
           if git apply --verbose "${patch}" 2>&1; then
             echo "strategy=git apply" >> "$GITHUB_OUTPUT"
             echo "applied=true" >> "$GITHUB_OUTPUT"
@@ -161,58 +164,89 @@ jobs:
             echo "✅ 补丁直接应用成功"
           else
             echo "::endgroup::"
+            rm -f "${GITHUB_WORKSPACE}/conflict.log" "${GITHUB_WORKSPACE}/conflict-files.txt"
 
-            # 直接失败说明上下文有偏移，尝试三方合并
-            # 注意：--3way 需要 pre-image blob 在对象库中，浅克隆拿不到，
-            # 所以要先补全历史。这一步较慢但只在直接失败时才走。
-            echo "::group::尝试 2：git apply --3way（需补全历史）"
-            git fetch --unshallow 2>/dev/null || git fetch --all
-            # 有冲突时 --3way 返回非 0，但会保留合并结果；用冲突文件数判断，
-            # 这样「大部分干净、少数冲突」的情况也能被识别出来而不是直接丢弃。
-            git apply --3way "${patch}" > /dev/null 2>&1 || true
-            conflicts="$(git diff --cached --name-only --diff-filter=U | wc -l | tr -d ' ')"
-            # --3way 成功时改动是已暂存状态（工作区 diff 为空）。完全失败时一处都没
-            # 改，必须避免把「一行都没应用」误判成三方合并成功，所以同时校验暂存改动数。
-            changed="$(git diff --cached --name-only | wc -l | tr -d ' ')"
-            if [[ "${conflicts}" == "0" && "${changed}" != "0" ]]; then
-              echo "strategy=git apply --3way" >> "$GITHUB_OUTPUT"
+            # 尝试 2：GNU patch 的 fuzz 兜底。上游在补丁锚点附近插了几行时，
+            # 上下文整体偏移但语义没变；fuzz=3 允许忽略最多 3 行上下文，能自动
+            # 吸收这类漂移，而且不需要 pre-image blob（--3way 则需要补全历史）。
+            #
+            # 先 --dry-run 统计失败 hunk，只有「全部 hunk 都能落地」才真正应用，
+            # 避免出现「大部分应用、少数 hunk 被静默跳过」的半成品源码。
+            echo "::group::尝试 2：patch --fuzz=3 吸收行号漂移"
+            fuzz_out="$(patch -p1 --fuzz=3 --dry-run --forward < "${patch}" 2>&1 || true)"
+            fuzz_failed="$(printf '%s\n' "${fuzz_out}" | grep -c 'FAILED' || true)"
+            if [[ "${fuzz_failed}" == "0" ]] && \
+               ! printf '%s\n' "${fuzz_out}" | grep -qE 'No file to patch|can.t find file'; then
+              patch -p1 --fuzz=3 --forward --no-backup-if-mismatch < "${patch}" > /dev/null 2>&1
+              fuzzed="$(printf '%s\n' "${fuzz_out}" | grep -c 'with fuzz' || true)"
+              echo "strategy=patch --fuzz=3" >> "$GITHUB_OUTPUT"
               echo "applied=true" >> "$GITHUB_OUTPUT"
               echo "::endgroup::"
-              echo "✅ 补丁三方合并成功（改动 ${changed} 个文件）"
+              echo "✅ fuzz 兜底成功（${fuzzed} 个 hunk 用了容错上下文）"
             else
               echo "::endgroup::"
-              echo "❌ 三方合并仍有 ${conflicts} 个冲突文件"
-              git diff --cached --name-only --diff-filter=U | sed 's/^/  冲突: /'
-              echo "applied=false" >> "$GITHUB_OUTPUT"
-              echo "strategy=none" >> "$GITHUB_OUTPUT"
-              echo "conflicts=${conflicts}" >> "$GITHUB_OUTPUT"
-              git diff --cached --name-only --diff-filter=U > "${GITHUB_WORKSPACE}/conflict-files.txt"
-              git diff --cached --diff-filter=U > "${GITHUB_WORKSPACE}/conflict.log" 2>&1 || true
-              exit 0 # 不失败，交给下游判断
+              echo "fuzz 兜底仍有 ${fuzz_failed} 个 hunk 失败，转三方合并"
+
+              # 尝试 3：三方合并。前面的 fuzz 已经排除了纯漂移，走到这里说明是
+              # 语义冲突，--3way 能把冲突块标出来供人工参考。
+              echo "::group::尝试 3：git apply --3way（需补全历史）"
+              git fetch --unshallow 2>/dev/null || git fetch --all
+              git apply --3way "${patch}" > /dev/null 2>&1 || true
+              conflicts="$(git diff --cached --name-only --diff-filter=U | wc -l | tr -d ' ')"
+              changed="$(git diff --cached --name-only | wc -l | tr -d ' ')"
+              if [[ "${conflicts}" == "0" && "${changed}" != "0" ]]; then
+                echo "strategy=git apply --3way" >> "$GITHUB_OUTPUT"
+                echo "applied=true" >> "$GITHUB_OUTPUT"
+                echo "::endgroup::"
+                echo "✅ 补丁三方合并成功（改动 ${changed} 个文件）"
+              else
+                echo "::endgroup::"
+                echo "❌ 三方合并仍有 ${conflicts} 个冲突文件"
+                git diff --cached --name-only --diff-filter=U | sed 's/^/  冲突: /'
+                echo "applied=false" >> "$GITHUB_OUTPUT"
+                echo "strategy=none" >> "$GITHUB_OUTPUT"
+                echo "conflicts=${conflicts}" >> "$GITHUB_OUTPUT"
+                git diff --cached --name-only --diff-filter=U > "${GITHUB_WORKSPACE}/conflict-files.txt"
+                # 失败报告：先列 fuzz 阶段失败的 hunk（最精确的定位），
+                # 再附三方合并的冲突块，便于人工直接定位要改哪几处。
+                {
+                  echo "### 需人工处理的 hunk（fuzz 兜底失败）"
+                  echo
+                  printf '%s\n' "${fuzz_out}" | grep -E 'FAILED' || echo "(无)"
+                  echo
+                  echo "### 三方合并冲突块"
+                  echo
+                  git diff --cached --diff-filter=U || true
+                } > "${GITHUB_WORKSPACE}/conflict.log" 2>&1
+                exit 0 # 不失败，交给下游判断
+              fi
             fi
           fi
 
-          # 回退补丁写的是它自己基线的版本号，而编译用 cargo build --locked，
-          # 要求 Cargo.lock 里的成员版本与 Cargo.toml 的 workspace 版本一致。
-          # 官方 CI 不带 --locked，所以官方 tag 自身两者不一致也无所谓；我们必须对齐。
-          if [[ "${patch_baseline}" != "${tag}" ]]; then
-            # 补丁与 tag 都以 rust-v 前缀命名，Cargo.lock 里是纯版本号，先去前缀
-            base_version="${patch_baseline#rust-v}"
-            target_version="${tag#rust-v}"
-            echo "::group::对齐 Cargo.lock 成员版本 ${base_version} -> ${target_version}"
-            lock="codex-rs/Cargo.lock"
-            before="$(grep -c "^version = \"${base_version}\"$" "${lock}" || true)"
-            if [[ "${before}" != "0" ]]; then
-              base_esc="$(printf '%s' "${base_version}" | sed 's/\./\\./g')"
-              target_esc="$(printf '%s' "${target_version}" | sed 's/\./\\./g')"
-              sed -i "s/^version = \"${base_esc}\"$/version = \"${target_esc}\"/" "${lock}"
-              after="$(grep -c "^version = \"${target_version}\"$" "${lock}" || true)"
-              echo "改写版本行: ${before} 行 -> 目标版本共 ${after} 行"
-            else
-              echo "Cargo.lock 中没有 ${base_version} 版本行，跳过改写"
-            fi
-            echo "::endgroup::"
+          # Cargo.lock 的 workspace 成员版本对齐。
+          # 官方 tag 自带的 lock 里成员版本是 0.0.0，而 Cargo.toml 写的是版本号；
+          # 编译用 cargo build --locked，两者必须一致。
+          # 补丁已不再改 lock，这里按「成员包」精确改写：先验证 lock 里的 0.0.0
+          # 数量恰好等于 version.workspace = true 的包数 —— 相等才说明这些 0.0.0
+          # 只属于 workspace 成员，改写不会误伤第三方依赖；不等就报错，不猜。
+          echo "::group::对齐 Cargo.lock 成员版本 -> ${target_version}"
+          lock="codex-rs/Cargo.lock"
+          members="$(grep -rl '^version\.workspace = true' codex-rs --include=Cargo.toml | wc -l | tr -d ' ')"
+          zeros="$(grep -c '^version = "0.0.0"$' "${lock}" || true)"
+          echo "workspace 成员包: ${members}, lock 中 0.0.0 行: ${zeros}"
+          if [[ "${members}" == "0" || "${members}" != "${zeros}" ]]; then
+            echo "::error::lock 的 0.0.0 行数与 workspace 成员数不一致，拒绝改写以免误伤依赖"
+            exit 1
           fi
+          sed -i "s/^version = \"0\.0\.0\"$/version = \"${target_version}\"/" "${lock}"
+          after="$(grep -c "^version = \"${target_version}\"$" "${lock}" || true)"
+          leftover="$(grep -c '^version = "0.0.0"$' "${lock}" || true)"
+          echo "改写后: 成员版本 ${after} 行, 残留 0.0.0 ${leftover} 行"
+          if [[ "${leftover}" != "0" || "${after}" != "${members}" ]]; then
+            echo "::error::Cargo.lock 成员版本改写不完整"
+            exit 1
+          fi
+          echo "::endgroup::"
 
       - name: 上传应用了补丁的源码
         if: steps.apply.outputs.applied == 'true'
@@ -249,7 +283,9 @@ jobs:
             if [[ "${{ needs.resolve.outputs.patch_is_exact }}" == "false" ]]; then
               echo "官方已发 ${tag}，但还没有它的专属补丁，本次已自动回退到最新可用补丁尝试应用。"
             fi
-            echo "官方改动破坏了补丁的上下文，需要人工更新该 tag 的补丁文件。"
+            echo "自动流程已依次尝试 \`git apply\` → \`patch --fuzz=3\` → \`git apply --3way\`："
+            echo "行号漂移会被前两步自动吸收，所以剩下的失败是**真正的语义冲突**，"
+            echo "需要人工合并（通常只有几处 hunk）。"
             echo
             echo "### 冲突详情"
             echo
@@ -262,6 +298,8 @@ jobs:
             echo "1. 本地 \`git clone --depth 1 -b ${tag} https://github.com/${UPSTREAM_REPO}.git\`"
             echo "2. \`git apply --3way ${{ needs.resolve.outputs.patch }}\` 看冲突"
             echo "3. 按新代码结构重写补丁：\`patches/${tag}.patch\`"
+            echo "   （补丁**不含** \`Cargo.lock\`：成员版本由 workflow 按目标 tag 自动对齐，"
+            echo "   重做补丁时不要把 lock 加回去）"
             echo "4. 确认 \`built-tags.txt\` 里没有该 tag（否则会被跳过）"
           } > body.md
 

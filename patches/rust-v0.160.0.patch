@@ -1,1418 +1,3 @@
-diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
-index 19885ae97..baab9c00d 100644
---- a/codex-rs/Cargo.lock
-+++ b/codex-rs/Cargo.lock
-@@ -268,7 +268,7 @@ checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
- 
- [[package]]
- name = "app_test_support"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "base64 0.22.1",
-@@ -1893,7 +1893,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-agent-extension"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "codex-core",
-@@ -1905,7 +1905,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-agent-graph-store"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-protocol",
-  "codex-state",
-@@ -1920,7 +1920,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-agent-identity"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "base64 0.22.1",
-@@ -1940,7 +1940,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-agent-message-board-client"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "chrono",
-@@ -1960,7 +1960,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-agent-message-board-extension"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "base64 0.22.1",
-  "caseless",
-@@ -1983,7 +1983,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-agent-roles"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-config",
-  "codex-file-system",
-@@ -1996,7 +1996,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-analytics"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-app-server-protocol",
-  "codex-git-utils",
-@@ -2018,7 +2018,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-ansi-escape"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "ansi-to-tui",
-  "ratatui",
-@@ -2027,7 +2027,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-api"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "assert_matches",
-@@ -2065,7 +2065,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-app-server"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "app_test_support",
-@@ -2177,7 +2177,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-app-server-client"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-app-server",
-  "codex-app-server-protocol",
-@@ -2204,7 +2204,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-app-server-daemon"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "blake3",
-@@ -2229,7 +2229,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-app-server-protocol"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "codex-app-server-protocol-noop-macros",
-@@ -2263,11 +2263,11 @@ dependencies = [
- 
- [[package]]
- name = "codex-app-server-protocol-noop-macros"
--version = "0.0.0"
-+version = "0.160.0"
- 
- [[package]]
- name = "codex-app-server-test-client"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "clap",
-@@ -2289,7 +2289,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-app-server-transport"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "axum",
-  "base64 0.22.1",
-@@ -2331,7 +2331,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-apply-patch"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "assert_cmd",
-@@ -2351,7 +2351,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-arg0"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "codex-apply-patch",
-@@ -2374,7 +2374,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-async-utils"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "pretty_assertions",
-  "rand 0.9.3",
-@@ -2384,7 +2384,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-attachment-store"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "pretty_assertions",
-  "serde",
-@@ -2394,7 +2394,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-aws-auth"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "aws-config",
-  "aws-credential-types",
-@@ -2420,7 +2420,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-backend-client"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "codex-api",
-@@ -2440,7 +2440,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-backend-openapi-models"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "serde",
-  "serde_json",
-@@ -2449,7 +2449,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-build-info"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-install-context",
-  "pretty_assertions",
-@@ -2462,7 +2462,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-bwrap"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "cc",
-  "libc",
-@@ -2471,7 +2471,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-chatgpt"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "clap",
-@@ -2493,7 +2493,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-cli"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "app_test_support",
-@@ -2594,7 +2594,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-client"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-http-client",
-  "eventsource-stream",
-@@ -2608,7 +2608,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-cloud-config"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "base64 0.22.1",
-  "chrono",
-@@ -2634,7 +2634,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-cloud-tasks"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "chrono",
-@@ -2667,7 +2667,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-cloud-tasks-client"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "chrono",
-@@ -2682,7 +2682,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-cloud-tasks-mock-client"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "chrono",
-  "codex-cloud-tasks-client",
-@@ -2691,7 +2691,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-code-mode"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-code-mode-protocol",
-  "codex-http-client",
-@@ -2714,7 +2714,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-code-mode-host"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "axum",
-@@ -2743,7 +2743,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-code-mode-protocol"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-protocol",
-  "glob",
-@@ -2761,7 +2761,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-code-mode-runtime"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "base64 0.22.1",
-  "codex-code-mode-protocol",
-@@ -2779,11 +2779,11 @@ dependencies = [
- 
- [[package]]
- name = "codex-collaboration-mode-templates"
--version = "0.0.0"
-+version = "0.160.0"
- 
- [[package]]
- name = "codex-config"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "base64 0.22.1",
-@@ -2833,7 +2833,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-config-schema"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "clap",
-@@ -2842,7 +2842,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-connectors"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "arc-swap",
-@@ -2864,7 +2864,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-connectors-extension"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-connectors",
-  "codex-core-plugins",
-@@ -2878,7 +2878,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-context-fragments"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-protocol",
-  "codex-utils-string",
-@@ -2888,7 +2888,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-core"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "arc-swap",
-@@ -3026,7 +3026,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-core-api"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-analytics",
-  "codex-app-server-protocol",
-@@ -3049,7 +3049,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-core-plugin-common"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-utils-absolute-path",
-  "semver",
-@@ -3060,7 +3060,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-core-plugins"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "chrono",
-@@ -3116,7 +3116,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-diagnostics"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "libc",
-  "pretty_assertions",
-@@ -3124,7 +3124,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-exec"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "assert_cmd",
-@@ -3176,7 +3176,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-exec-server"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "arc-swap",
-@@ -3244,7 +3244,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-exec-server-protocol"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "base64 0.22.1",
-  "codex-file-system",
-@@ -3260,7 +3260,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-exec-server-test-support"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "codex-exec-server",
-@@ -3275,7 +3275,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-execpolicy"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "clap",
-@@ -3293,7 +3293,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-experimental-api-macros"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "proc-macro2",
-  "quote",
-@@ -3302,7 +3302,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-extension-api"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-api",
-  "codex-config",
-@@ -3324,7 +3324,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-extension-items"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-utils-absolute-path",
-  "pretty_assertions",
-@@ -3336,7 +3336,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-external-agent-migration"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "chrono",
-  "codex-analytics",
-@@ -3366,7 +3366,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-features"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-network-proxy",
-  "codex-protocol",
-@@ -3379,7 +3379,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-feedback"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "bytes",
-@@ -3404,7 +3404,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-file-search"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "clap",
-@@ -3420,7 +3420,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-file-system"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "bytes",
-  "codex-protocol",
-@@ -3432,7 +3432,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-file-watcher"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "notify",
-  "pretty_assertions",
-@@ -3443,7 +3443,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-git-attribution"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-backend-client",
-  "codex-extension-api",
-@@ -3456,7 +3456,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-git-utils"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "chrono",
-@@ -3483,7 +3483,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-goal-extension"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "chrono",
-@@ -3508,7 +3508,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-guardian-context"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-context-fragments",
-  "codex-history",
-@@ -3519,7 +3519,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-guardian-reviewer"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "codex-analytics",
-@@ -3544,7 +3544,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-guardian-v2"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "codex-analytics",
-@@ -3580,7 +3580,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-history"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "codex-protocol",
-@@ -3592,7 +3592,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-history-notes-extension"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-analytics",
-  "codex-client",
-@@ -3617,7 +3617,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-home"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-extension-api",
-  "codex-utils-absolute-path",
-@@ -3629,7 +3629,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-hooks"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "async-channel",
-@@ -3657,7 +3657,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-http-client"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "bytes",
-  "codex-utils-cargo-bin",
-@@ -3693,7 +3693,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-image-generation-extension"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "base64 0.22.1",
-  "codex-api",
-@@ -3721,7 +3721,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-install-context"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-utils-absolute-path",
-  "codex-utils-home-dir",
-@@ -3734,7 +3734,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-keyring-store"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "keyring",
-  "pretty_assertions",
-@@ -3745,7 +3745,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-linux-sandbox"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "clap",
-  "codex-core",
-@@ -3773,7 +3773,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-lmstudio"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-core",
-  "codex-http-client",
-@@ -3787,7 +3787,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-login"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "base64 0.22.1",
-@@ -3831,7 +3831,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-mcp"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "arc-swap",
-@@ -3871,7 +3871,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-mcp-extension"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "axum",
-@@ -3904,7 +3904,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-memories-extension"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-core",
-  "codex-extension-api",
-@@ -3926,7 +3926,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-memories-read"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-protocol",
-  "codex-shell-command",
-@@ -3936,7 +3936,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-memories-write"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "chrono",
-@@ -3973,7 +3973,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-mermaid"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "insta",
-  "pretty_assertions",
-@@ -3982,7 +3982,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-message-history"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-config",
-  "memchr",
-@@ -3996,7 +3996,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-model-provider"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "base64 0.22.1",
-  "chrono",
-@@ -4029,7 +4029,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-model-provider-info"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-client",
-  "codex-protocol",
-@@ -4047,7 +4047,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-models-manager"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "chrono",
-  "codex-http-client",
-@@ -4066,7 +4066,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-mxc-sandbox"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "appcontainer_common",
-@@ -4088,7 +4088,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-network-proxy"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "base64 0.22.1",
-@@ -4137,7 +4137,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-ollama"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "assert_matches",
-  "async-stream",
-@@ -4157,7 +4157,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-otel"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "bytes",
-  "chrono",
-@@ -4194,7 +4194,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-otel-trace-websocket"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "axum",
-@@ -4205,7 +4205,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-plugin"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-config",
-  "codex-core-plugin-common",
-@@ -4220,7 +4220,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-process-hardening"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "libc",
-  "pretty_assertions",
-@@ -4228,7 +4228,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-prompts"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "codex-collaboration-mode-templates",
-@@ -4245,7 +4245,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-protocol"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "chardetng",
-@@ -4289,7 +4289,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-queue-extension"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "codex-core",
-@@ -4310,7 +4310,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-realtime-webrtc"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "codex-build-info",
-@@ -4328,7 +4328,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-response-debug-context"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "base64 0.22.1",
-  "codex-api",
-@@ -4339,7 +4339,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-responses-api-proxy"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "clap",
-@@ -4356,7 +4356,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-rmcp-client"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "axum",
-@@ -4405,7 +4405,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-rollout"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "chrono",
-@@ -4433,7 +4433,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-rollout-trace"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "codex-code-mode",
-@@ -4449,7 +4449,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-sandboxing"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "codex-mxc-sandbox",
-@@ -4476,7 +4476,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-secrets"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "age",
-  "anyhow",
-@@ -4497,7 +4497,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-shell-command"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "base64 0.22.1",
-@@ -4520,7 +4520,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-shell-escalation"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "clap",
-@@ -4540,7 +4540,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-skills"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-protocol",
-  "codex-shell-command",
-@@ -4557,7 +4557,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-skills-extension"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "assert_matches",
-  "blake3",
-@@ -4594,7 +4594,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-state"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "chrono",
-@@ -4620,7 +4620,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-stdio-to-uds"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "codex-uds",
-@@ -4632,7 +4632,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-tcp-tunnel"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "bytes",
-@@ -4653,7 +4653,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-terminal-detection"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "pretty_assertions",
-  "tracing",
-@@ -4661,7 +4661,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-test-binary-support"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-arg0",
-  "tempfile",
-@@ -4669,7 +4669,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-thread-manager-sample"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "clap",
-@@ -4680,7 +4680,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-thread-store"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "chrono",
-  "codex-app-server-protocol",
-@@ -4711,7 +4711,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-tools"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "bitflags 2.13.1",
-  "codex-code-mode",
-@@ -4737,7 +4737,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-tui"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "app_test_support",
-@@ -4863,7 +4863,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-uds"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "async-io",
-  "libc",
-@@ -4877,7 +4877,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-user-verification"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "base64 0.22.1",
-  "core-foundation 0.10.1",
-@@ -4897,7 +4897,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-utils-absolute-path"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "dirs",
-  "dunce",
-@@ -4911,14 +4911,14 @@ dependencies = [
- 
- [[package]]
- name = "codex-utils-approval-presets"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-protocol",
- ]
- 
- [[package]]
- name = "codex-utils-audio"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "base64 0.22.1",
-  "codex-protocol",
-@@ -4932,7 +4932,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-utils-cache"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "lru",
-  "sha1 0.10.6",
-@@ -4941,7 +4941,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-utils-cargo-bin"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "assert_cmd",
-  "runfiles",
-@@ -4950,7 +4950,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-utils-cli"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "clap",
-  "codex-protocol",
-@@ -4962,15 +4962,15 @@ dependencies = [
- 
- [[package]]
- name = "codex-utils-elapsed"
--version = "0.0.0"
-+version = "0.160.0"
- 
- [[package]]
- name = "codex-utils-fuzzy-match"
--version = "0.0.0"
-+version = "0.160.0"
- 
- [[package]]
- name = "codex-utils-git-discovery"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-git-utils",
-  "codex-utils-absolute-path",
-@@ -4983,7 +4983,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-utils-home-dir"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-utils-absolute-path",
-  "dirs",
-@@ -4993,7 +4993,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-utils-image"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "base64 0.22.1",
-  "codex-utils-cache",
-@@ -5007,7 +5007,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-utils-json-to-toml"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "pretty_assertions",
-  "serde_json",
-@@ -5016,7 +5016,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-utils-oss"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-core",
-  "codex-lmstudio",
-@@ -5026,7 +5026,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-utils-output-truncation"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-protocol",
-  "codex-utils-string",
-@@ -5035,7 +5035,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-utils-path"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-utils-absolute-path",
-  "dunce",
-@@ -5046,7 +5046,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-utils-path-uri"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "base64 0.22.1",
-  "codex-utils-absolute-path",
-@@ -5062,7 +5062,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-utils-plugins"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-exec-server",
-  "codex-exec-server-protocol",
-@@ -5076,7 +5076,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-utils-process"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "pretty_assertions",
-  "tokio",
-@@ -5084,7 +5084,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-utils-pty"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "ctor 0.6.3",
-@@ -5102,7 +5102,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-utils-readiness"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "assert_matches",
-  "thiserror 2.0.18",
-@@ -5112,7 +5112,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-utils-redacted-string"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "schemars 0.8.22",
-  "serde",
-@@ -5120,14 +5120,14 @@ dependencies = [
- 
- [[package]]
- name = "codex-utils-rustls-provider"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "rustls",
- ]
- 
- [[package]]
- name = "codex-utils-sandbox-summary"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-protocol",
-  "codex-utils-absolute-path",
-@@ -5137,7 +5137,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-utils-sleep-inhibitor"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "core-foundation 0.9.4",
-  "libc",
-@@ -5147,14 +5147,14 @@ dependencies = [
- 
- [[package]]
- name = "codex-utils-stream-parser"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "pretty_assertions",
- ]
- 
- [[package]]
- name = "codex-utils-string"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "pretty_assertions",
-  "regex-lite",
-@@ -5164,14 +5164,14 @@ dependencies = [
- 
- [[package]]
- name = "codex-utils-template"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "pretty_assertions",
- ]
- 
- [[package]]
- name = "codex-v8-poc"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "pretty_assertions",
-  "v8",
-@@ -5179,7 +5179,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-voice-host"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "codex-install-context",
-@@ -5206,7 +5206,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-web-search-extension"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-api",
-  "codex-core",
-@@ -5228,7 +5228,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-websocket-auth"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "base64 0.22.1",
-@@ -5247,7 +5247,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-websocket-client"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-http-client",
-  "codex-utils-rustls-provider",
-@@ -5263,7 +5263,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-windows-sandbox"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "base64 0.22.1",
-@@ -5291,7 +5291,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-windows-sandbox-service"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "codex-cloud-config",
-@@ -5308,7 +5308,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-workload-identity"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "codex-http-client",
-  "pretty_assertions",
-@@ -5323,7 +5323,7 @@ dependencies = [
- 
- [[package]]
- name = "codex-worktree"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "codex-git-utils",
-@@ -5563,7 +5563,7 @@ dependencies = [
- 
- [[package]]
- name = "core_test_support"
--version = "0.0.0"
-+version = "0.160.0"
- dependencies = [
-  "anyhow",
-  "assert_cmd",
 diff --git a/codex-rs/app-server-protocol/src/protocol/common.rs b/codex-rs/app-server-protocol/src/protocol/common.rs
 index c37c4956f..fc0d77788 100644
 --- a/codex-rs/app-server-protocol/src/protocol/common.rs
@@ -1796,7 +381,7 @@ index 8e445aee0..8f75d0894 100644
  ///
  /// This logs a tracing event with `target: "feedback_tags"`. If
 diff --git a/codex-rs/model-provider-info/src/lib.rs b/codex-rs/model-provider-info/src/lib.rs
-index 5d5b1f92e..58d703cc4 100644
+index 5d5b1f92e..399517089 100644
 --- a/codex-rs/model-provider-info/src/lib.rs
 +++ b/codex-rs/model-provider-info/src/lib.rs
 @@ -67,9 +67,9 @@ const DEFAULT_AWS_CREDENTIAL_EXPORT_TIMEOUT_MS: u64 = 30_000;
@@ -1811,7 +396,7 @@ index 5d5b1f92e..58d703cc4 100644
  
  const OPENAI_PROVIDER_NAME: &str = "OpenAI";
  const OPENAI_ACTOR_AUTHORIZATION_HEADER: &str = "x-openai-actor-authorization";
-@@ -609,6 +609,16 @@ other non-default provider fields are not supported"
+@@ -609,6 +609,37 @@ other non-default provider fields are not supported"
          self.name == OPENAI_PROVIDER_NAME
      }
  
@@ -1821,8 +406,29 @@ index 5d5b1f92e..58d703cc4 100644
 +    /// `compaction_trigger` items over the Responses endpoint; every other
 +    /// configured provider compacts locally.
 +    pub fn supports_remote_compaction(&self) -> bool {
-+        self.is_openai()
-+            || codex_api::is_azure_responses_provider(&self.name, self.base_url.as_deref())
++        self.is_openai() || self.is_azure_responses_provider()
++    }
++
++    /// Whether this provider targets an Azure-hosted Responses deployment.
++    ///
++    /// Pure string matching, kept local: this is a shared-config crate and must
++    /// not depend on the HTTP stack (`codex-api`).
++    fn is_azure_responses_provider(&self) -> bool {
++        if self.name.eq_ignore_ascii_case("azure") {
++            return true;
++        }
++        const AZURE_MARKERS: [&str; 6] = [
++            "openai.azure.",
++            "cognitiveservices.azure.",
++            "aoai.azure.",
++            "azure-api.",
++            "azurefd.",
++            "windows.net/openai",
++        ];
++        self.base_url.as_deref().is_some_and(|base_url| {
++            let base_url = base_url.to_ascii_lowercase();
++            AZURE_MARKERS.iter().any(|marker| base_url.contains(marker))
++        })
 +    }
 +
      pub fn supports_codex_backend_routes(&self) -> bool {
@@ -2813,7 +1419,7 @@ index c5fa22417..26e4e45ad 100644
  
  impl HistoryCell for SafetyAccessBlockCell {
 diff --git a/codex-rs/tui/src/resume_picker.rs b/codex-rs/tui/src/resume_picker.rs
-index 6742919a2..3cb8a0943 100644
+index 6742919a2..2b1a6fc8b 100644
 --- a/codex-rs/tui/src/resume_picker.rs
 +++ b/codex-rs/tui/src/resume_picker.rs
 @@ -198,7 +198,6 @@ enum PickerLoadRequest {
@@ -2824,7 +1430,7 @@ index 6742919a2..3cb8a0943 100644
  }
  
  #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-@@ -659,13 +658,14 @@ fn local_picker_cwd_filter(
+@@ -659,13 +658,13 @@ fn local_picker_cwd_filter(
  }
  
  async fn picker_provider_filter(
@@ -2841,11 +1447,10 @@ index 6742919a2..3cb8a0943 100644
 +    // rollout is not a reliable filter for what the user wants to resume. Only the
 +    // working directory filter is applied.
 +    Ok(ProviderFilter::Any)
-+}
  }
  
  fn picker_runtime_keymap(config: &crate::local_settings::LocalSettings) -> Result<RuntimeKeymap> {
-@@ -2074,7 +2074,6 @@ fn thread_list_params(
+@@ -2074,7 +2073,6 @@ fn thread_list_params(
          sort_direction: None,
          model_providers: match provider_filter {
              ProviderFilter::Any => None,
@@ -2853,7 +1458,7 @@ index 6742919a2..3cb8a0943 100644
          },
          source_kinds: Some(crate::resume_source_kinds(include_non_interactive)),
          archived: Some(status == SessionStatus::Archived),
-@@ -3654,7 +3653,7 @@ mod tests {
+@@ -3654,7 +3652,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -2862,7 +1467,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -3748,7 +3747,7 @@ mod tests {
+@@ -3748,7 +3746,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              page_only_loader(|_| {}),
@@ -2871,7 +1476,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ false,
              Some(primary.clone()),
              SessionPickerAction::Resume,
-@@ -3841,7 +3840,7 @@ mod tests {
+@@ -3841,7 +3839,7 @@ mod tests {
          let mut live_picker = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -2880,7 +1485,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ false,
              Some(primary.clone()),
              SessionPickerAction::Resume,
-@@ -3931,7 +3930,7 @@ mod tests {
+@@ -3931,7 +3929,7 @@ mod tests {
              Some(String::from("cursor-1")),
              cwd_filter.map(|cwd| ThreadListCwdFilter::One(cwd.to_string_lossy().into_owned())),
              SessionStatus::Active,
@@ -2889,7 +1494,7 @@ index 6742919a2..3cb8a0943 100644
              ThreadSortKey::UpdatedAt,
              /*include_non_interactive*/ false,
              /*use_state_db_only*/ true,
-@@ -4156,7 +4155,7 @@ mod tests {
+@@ -4156,7 +4154,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -2898,7 +1503,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -4454,7 +4453,7 @@ mod tests {
+@@ -4454,7 +4452,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -2907,7 +1512,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -4513,7 +4512,7 @@ mod tests {
+@@ -4513,7 +4511,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -2916,7 +1521,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -4545,7 +4544,7 @@ mod tests {
+@@ -4545,7 +4543,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -2925,7 +1530,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -4564,7 +4563,7 @@ mod tests {
+@@ -4564,7 +4562,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -2934,7 +1539,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -4592,7 +4591,7 @@ mod tests {
+@@ -4592,7 +4590,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -2943,7 +1548,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -4623,7 +4622,7 @@ mod tests {
+@@ -4623,7 +4621,7 @@ mod tests {
          let state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -2952,7 +1557,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -4646,7 +4645,7 @@ mod tests {
+@@ -4646,7 +4644,7 @@ mod tests {
          let state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -2961,7 +1566,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -4664,7 +4663,7 @@ mod tests {
+@@ -4664,7 +4662,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -2970,7 +1575,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -4684,7 +4683,7 @@ mod tests {
+@@ -4684,7 +4682,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -2979,7 +1584,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -4712,7 +4711,7 @@ mod tests {
+@@ -4712,7 +4710,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -2988,7 +1593,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -4732,7 +4731,7 @@ mod tests {
+@@ -4732,7 +4730,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -2997,7 +1602,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -4760,7 +4759,7 @@ mod tests {
+@@ -4760,7 +4758,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3006,7 +1611,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -4788,7 +4787,7 @@ mod tests {
+@@ -4788,7 +4786,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3015,7 +1620,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -4816,7 +4815,7 @@ mod tests {
+@@ -4816,7 +4814,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3024,7 +1629,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -4851,7 +4850,7 @@ mod tests {
+@@ -4851,7 +4849,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3033,7 +1638,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -4873,7 +4872,7 @@ mod tests {
+@@ -4873,7 +4871,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3042,7 +1647,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -4902,7 +4901,7 @@ mod tests {
+@@ -4902,7 +4900,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3051,7 +1656,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -4939,7 +4938,7 @@ mod tests {
+@@ -4939,7 +4937,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3060,7 +1665,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -4999,7 +4998,7 @@ mod tests {
+@@ -4999,7 +4997,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3069,7 +1674,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -5047,7 +5046,7 @@ mod tests {
+@@ -5047,7 +5045,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3078,7 +1683,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -5071,7 +5070,7 @@ mod tests {
+@@ -5071,7 +5069,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3087,7 +1692,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -5139,7 +5138,7 @@ mod tests {
+@@ -5139,7 +5137,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3096,7 +1701,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -5169,7 +5168,7 @@ mod tests {
+@@ -5169,7 +5167,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3105,7 +1710,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -5205,7 +5204,7 @@ mod tests {
+@@ -5205,7 +5203,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3114,7 +1719,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -5310,7 +5309,7 @@ mod tests {
+@@ -5310,7 +5308,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3123,7 +1728,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -5354,7 +5353,7 @@ mod tests {
+@@ -5354,7 +5352,7 @@ mod tests {
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3132,7 +1737,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -5388,7 +5387,7 @@ session_picker_view = "dense"
+@@ -5388,7 +5386,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3141,7 +1746,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -5419,7 +5418,7 @@ session_picker_view = "dense"
+@@ -5419,7 +5417,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3150,7 +1755,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -5441,7 +5440,7 @@ session_picker_view = "dense"
+@@ -5441,7 +5439,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3159,7 +1764,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -5474,7 +5473,7 @@ session_picker_view = "dense"
+@@ -5474,7 +5472,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3168,7 +1773,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -5513,7 +5512,7 @@ session_picker_view = "dense"
+@@ -5513,7 +5511,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3177,16 +1782,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -5546,7 +5545,7 @@ session_picker_view = "dense"
-         let state = PickerState::new(
-             FrameRequester::test_dummy(),
-             loader,
--            ProviderFilter::MatchDefault(String::from("openai")),
-+            ProviderFilter::Any,
-             /*show_all*/ false,
-             Some(PathBuf::from("/tmp/project")),
-             SessionPickerAction::Resume,
-@@ -5576,7 +5575,7 @@ session_picker_view = "dense"
+@@ -5546,7 +5544,7 @@ session_picker_view = "dense"
          let state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3195,7 +1791,16 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ false,
              Some(PathBuf::from("/tmp/project")),
              SessionPickerAction::Resume,
-@@ -5622,7 +5621,7 @@ session_picker_view = "dense"
+@@ -5576,7 +5574,7 @@ session_picker_view = "dense"
+         let state = PickerState::new(
+             FrameRequester::test_dummy(),
+             loader,
+-            ProviderFilter::MatchDefault(String::from("openai")),
++            ProviderFilter::Any,
+             /*show_all*/ false,
+             Some(PathBuf::from("/tmp/project")),
+             SessionPickerAction::Resume,
+@@ -5622,7 +5620,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3204,7 +1809,7 @@ index 6742919a2..3cb8a0943 100644
              show_all,
              filter_cwd,
              SessionPickerAction::Resume,
-@@ -5711,7 +5710,7 @@ session_picker_view = "dense"
+@@ -5711,7 +5709,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3213,7 +1818,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -5773,7 +5772,7 @@ session_picker_view = "dense"
+@@ -5773,7 +5771,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3222,7 +1827,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -5814,7 +5813,7 @@ session_picker_view = "dense"
+@@ -5814,7 +5812,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3231,7 +1836,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ false,
              Some(PathBuf::from(
                  "/Users/felipe.coury/code/codex.fcoury-session-picker/codex-rs",
-@@ -5866,7 +5865,7 @@ session_picker_view = "dense"
+@@ -5866,7 +5864,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3240,7 +1845,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -5938,7 +5937,7 @@ session_picker_view = "dense"
+@@ -5938,7 +5936,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3249,7 +1854,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -5976,7 +5975,7 @@ session_picker_view = "dense"
+@@ -5976,7 +5974,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3258,7 +1863,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -6028,7 +6027,7 @@ session_picker_view = "dense"
+@@ -6028,7 +6026,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3267,7 +1872,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -6083,7 +6082,7 @@ session_picker_view = "dense"
+@@ -6083,7 +6081,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3276,7 +1881,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -6143,7 +6142,7 @@ session_picker_view = "dense"
+@@ -6143,7 +6141,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3285,7 +1890,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -6177,7 +6176,7 @@ session_picker_view = "dense"
+@@ -6177,7 +6175,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3294,7 +1899,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -6212,7 +6211,7 @@ session_picker_view = "dense"
+@@ -6212,7 +6210,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3303,7 +1908,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -6254,7 +6253,7 @@ session_picker_view = "dense"
+@@ -6254,7 +6252,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3312,7 +1917,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -6296,7 +6295,7 @@ session_picker_view = "dense"
+@@ -6296,7 +6294,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3321,7 +1926,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ false,
              Some(PathBuf::from("/tmp/project")),
              SessionPickerAction::Resume,
-@@ -6330,7 +6329,7 @@ session_picker_view = "dense"
+@@ -6330,7 +6328,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3330,7 +1935,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              Some(PathBuf::from("/tmp/project")),
              SessionPickerAction::Resume,
-@@ -6406,7 +6405,7 @@ session_picker_view = "dense"
+@@ -6406,7 +6404,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3339,7 +1944,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -6465,7 +6464,7 @@ session_picker_view = "dense"
+@@ -6465,7 +6463,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3348,7 +1953,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -6527,7 +6526,7 @@ session_picker_view = "dense"
+@@ -6527,7 +6525,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3357,7 +1962,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -6552,7 +6551,7 @@ session_picker_view = "dense"
+@@ -6552,7 +6550,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3366,7 +1971,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -6596,7 +6595,7 @@ session_picker_view = "dense"
+@@ -6596,7 +6594,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3375,7 +1980,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -6635,7 +6634,7 @@ session_picker_view = "dense"
+@@ -6635,7 +6633,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3384,7 +1989,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -6953,7 +6952,7 @@ session_picker_view = "dense"
+@@ -6953,7 +6951,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3393,7 +1998,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -6995,7 +6994,7 @@ session_picker_view = "dense"
+@@ -6995,7 +6993,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3402,7 +2007,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -7037,7 +7036,7 @@ session_picker_view = "dense"
+@@ -7037,7 +7035,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3411,7 +2016,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -7075,7 +7074,7 @@ session_picker_view = "dense"
+@@ -7075,7 +7073,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3420,7 +2025,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -7116,7 +7115,7 @@ session_picker_view = "dense"
+@@ -7116,7 +7114,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3429,7 +2034,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -7232,7 +7231,7 @@ session_picker_view = "dense"
+@@ -7232,7 +7230,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3438,7 +2043,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -7250,7 +7249,7 @@ session_picker_view = "dense"
+@@ -7250,7 +7248,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3447,7 +2052,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -7273,7 +7272,7 @@ session_picker_view = "dense"
+@@ -7273,7 +7271,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3456,7 +2061,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -7305,7 +7304,7 @@ session_picker_view = "dense"
+@@ -7305,7 +7303,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
@@ -3465,7 +2070,7 @@ index 6742919a2..3cb8a0943 100644
              /*show_all*/ true,
              /*filter_cwd*/ None,
              SessionPickerAction::Resume,
-@@ -7325,7 +7324,7 @@ session_picker_view = "dense"
+@@ -7325,7 +7323,7 @@ session_picker_view = "dense"
          let mut state = PickerState::new(
              FrameRequester::test_dummy(),
              loader,
