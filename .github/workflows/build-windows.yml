@@ -806,15 +806,25 @@ jobs:
             git config user.name "ci"
             git add built-tags.txt
             git commit -m "Record built tag ${TAG}"
-            # 远端可能在本任务运行期间被推过（例如人工提交补丁）。直接 push 会被拒，
-            # 这一步失败就意味着 tag 没被记录、下次 schedule 会重复构建整条流水线。
-            # 所以先 rebase 到最新远端再推，最多重试 3 次。
-            for attempt in 1 2 3; do
+
+            # 多个 tag 并行构建时，收尾阶段都要往 built-tags.txt 追加并 push，
+            # 先推成功的会让后面的 push 被拒。这一步失败就意味着 tag 没被记录、
+            # 下次 schedule 会把整条流水线（约 1.5 小时）重跑一遍，所以必须成功。
+            # 策略：先 rebase 到最新远端再推，失败则退避重试。
+            pushed=false
+            for attempt in 1 2 3 4 5; do
               if git push; then
-                echo "已记录 ${TAG}"
+                echo "已记录 ${TAG}（第 ${attempt} 次尝试）"
+                pushed=true
                 break
               fi
               echo "push 被拒（第 ${attempt} 次），rebase 到最新远端后重试"
               git pull --rebase --autostash origin "${GITHUB_REF_NAME:-main}"
+              sleep $((attempt * 5))
             done
+
+            if [[ "${pushed}" != "true" ]]; then
+              echo "::error::无法把 ${TAG} 写入 built-tags.txt（远端持续被更新）"
+              exit 1
+            fi
           fi
