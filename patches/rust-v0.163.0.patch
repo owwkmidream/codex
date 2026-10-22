@@ -139,18 +139,18 @@ index 9c41a80..1d00f3c 100644
              self.sse_telemetry.clone(),
              turn_state,
 diff --git a/codex-rs/codex-api/src/endpoint/responses_websocket.rs b/codex-rs/codex-api/src/endpoint/responses_websocket.rs
-index 77ed1ea..2d3a8c0 100644
+index 77ed1ea..516a528 100644
 --- a/codex-rs/codex-api/src/endpoint/responses_websocket.rs
 +++ b/codex-rs/codex-api/src/endpoint/responses_websocket.rs
-@@ -675,6 +675,8 @@ fn map_wrapped_websocket_error_event(
-             }
-             PREVIOUS_RESPONSE_NOT_FOUND_CODE => Some(PREVIOUS_RESPONSE_NOT_FOUND_MESSAGE),
-             _ => None,
+@@ -726,6 +726,8 @@ async fn run_websocket_response_stream(
+         // No request reached the backend, so this socket is still reusable.
+         return Ok(());
+     }
 +    // Measure the frame we are about to send so the UI can report upload volume.
 +    let request_bytes = u64::try_from(request_text.len()).unwrap_or(u64::MAX);
-         }
-     {
-         return Some(ApiError::Retryable {
+     send_websocket_request(
+         ws_stream,
+         request_text,
 @@ -734,6 +736,10 @@ async fn run_websocket_response_stream(
          timing_log_context.connection_reused,
      )
@@ -1031,13 +1031,13 @@ index e1a798b..4c81f5e 100644
          self.request_redraw();
      }
 diff --git a/codex-rs/tui/src/chatwidget/interaction.rs b/codex-rs/tui/src/chatwidget/interaction.rs
-index 8657de2..9134ece 100644
+index 8657de2..ecce737 100644
 --- a/codex-rs/tui/src/chatwidget/interaction.rs
 +++ b/codex-rs/tui/src/chatwidget/interaction.rs
-@@ -250,6 +250,21 @@ impl ChatWidget {
-             && self.bottom_pane.no_modal_or_popup_active()
-             && !self.should_handle_vim_insert_escape(key_event)
-         {
+@@ -282,6 +282,21 @@ impl ChatWidget {
+                 let had_modal_or_popup = !self.bottom_pane.no_modal_or_popup_active();
+                 let should_pause_active_goal =
+                     self.bottom_pane.should_interrupt_running_task(key_event);
 +                // Interrupting a turn that has produced no model output yet should hand the
 +                // prompt back for editing instead of leaving it stranded in the transcript.
 +                // Record which turn was interrupted now: the completion notification arrives
@@ -1053,9 +1053,9 @@ index 8657de2..9134ece 100644
 +                    self.pending_output_free_interrupt_turn_id =
 +                        self.turn_lifecycle.last_turn_id.clone();
 +                }
-             self.input_queue.submit_pending_steers_after_interrupt = true;
-             if self.submit_op(AppCommand::interrupt()) {
-                 self.pause_active_goal_for_interrupt();
+                 let input_result = self
+                     .bottom_pane
+                     .handle_key_event_with_activation_key(key_event, activation_key);
 diff --git a/codex-rs/tui/src/chatwidget/protocol.rs b/codex-rs/tui/src/chatwidget/protocol.rs
 index 0065ef4..c6f451c 100644
 --- a/codex-rs/tui/src/chatwidget/protocol.rs
