@@ -166,15 +166,15 @@ git apply --3way /path/to/patches/<上一个tag>.patch                          
 > **之外**（属于公共上下文）。替换整段函数体时**不要**再写一个 `}`，否则会多出
 > 右花括号 → `unexpected closing delimiter`。
 
-### 已知的两个编译级陷阱（apply 成功也编不过）
+### 已知的编译级陷阱（apply 成功也编不过）
 
-下面两处 `git apply` 完全成功，**只有编译才会暴露**。重做补丁后务必跑一次编译
-（`cargo check --locked -p codex-tui`）再推。
+下面几处 `git apply` 完全成功，**只有编译才会暴露**。重做补丁后务必确认语义：
 
 | 位置 | 症状 | 处理 |
 |---|---|---|
 | `model-provider-info/src/lib.rs` | `error[E0433]: cannot find module or crate 'codex_api'` | 上游 `f5960fcc2`（Reduce dependency coupling）起，`codex-model-provider-info` 不再依赖 `codex-api`。补丁新增的 `supports_remote_compaction()` 调用 `codex_api::is_azure_responses_provider` 会失败。该判定是纯字符串匹配，**内联**进来即可；不要把依赖加回去（那还会改 `Cargo.lock` 的依赖列表，与 `--locked` 冲突） |
 | `tui/src/resume_picker.rs` | `error: unexpected closing delimiter: '}'` | 见上一条注释：解冲突时多写了一个 `}` |
+| `tui/src/chatwidget/safety_recourse.rs` | `error[E0308]: match arms have incompatible types` | 上游 0.166.0 新增 `safety_recourse` 模块，在 match 中统一处理为 `SafetyAccessBlockCell`。补丁将 `new_cyber_policy_error_event` 改为返回 `WarningHistoryCell` 导致类型冲突。需按 `pending.domain` 分流处理，Bio 保留原逻辑，Cyber 保持弹 Warning 且不中断会话 |
 
 ## 补丁内容
 

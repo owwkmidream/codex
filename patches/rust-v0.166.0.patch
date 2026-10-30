@@ -1068,6 +1068,61 @@ index be7da50..5718207 100644
              ServerNotification::TurnCompleted(notification) => {
                  self.restore_realtime_transcripts_before_turn(&notification.turn.id);
                  self.handle_turn_completed_notification(notification, replay_kind);
+diff --git a/codex-rs/tui/src/chatwidget/safety_recourse.rs b/codex-rs/tui/src/chatwidget/safety_recourse.rs
+index 602ddf4..24bf3d0 100644
+--- a/codex-rs/tui/src/chatwidget/safety_recourse.rs
++++ b/codex-rs/tui/src/chatwidget/safety_recourse.rs
+@@ -32,10 +32,12 @@ pub(super) fn on_metadata(chat: &mut ChatWidget, notification: TurnModerationMet
+     };
+     let pending = chat.safety_recourse.get_or_insert(PendingRecourse {
+         domain,
+-        notice: Box::new(match domain {
+-            Domain::Bio => history_cell::new_safety_access_block_event(),
+-            Domain::Cyber => history_cell::new_cyber_policy_error_event(chat.cyber_policy_notice()),
+-        }),
++        notice: match domain {
++            Domain::Bio => Box::new(history_cell::new_safety_access_block_event()),
++            Domain::Cyber => {
++                Box::new(history_cell::new_cyber_policy_error_event(chat.cyber_policy_notice()))
++            }
++        },
+         result: None,
+         deferred_error: None,
+     });
+@@ -106,8 +108,14 @@ pub(super) fn render_failure(
+             ..Default::default()
+         });
+     }
+-    let mut cell = match pending.domain {
+-        Domain::Bio => history_cell::new_safety_access_block_event(),
++    match pending.domain {
++        Domain::Bio => {
++            let mut cell = history_cell::new_safety_access_block_event();
++            cell.explanation = Some(result.explanation);
++            chat.input_queue.submit_pending_steers_after_interrupt = false;
++            chat.finalize_turn();
++            chat.add_to_history(cell);
++        }
+         Domain::Cyber => {
+             let notice = chat.cyber_policy_notice();
+             if notice == crate::daybreak::Notice::Disabled {
+@@ -123,13 +131,10 @@ pub(super) fn render_failure(
+                     ..Default::default()
+                 });
+             }
+-            history_cell::new_cyber_policy_error_event(notice)
++            // Cybersecurity refusals only surface as a warning: the turn is not force-ended.
++            chat.add_to_history(history_cell::new_cyber_policy_error_event(notice));
+         }
+-    };
+-    cell.explanation = Some(result.explanation);
+-    chat.input_queue.submit_pending_steers_after_interrupt = false;
+-    chat.finalize_turn();
+-    chat.add_to_history(cell);
++    }
+     if !items.is_empty() {
+         chat.bottom_pane.show_selection_view(SelectionViewParams {
+             view_id: Some(VIEW_ID),
 diff --git a/codex-rs/tui/src/chatwidget/slash_dispatch.rs b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
 index 79a9018..1fb3048 100644
 --- a/codex-rs/tui/src/chatwidget/slash_dispatch.rs
