@@ -313,7 +313,17 @@ jobs:
     if: needs.prepare.outputs.applied == 'true'
     runs-on: windows-latest
     timeout-minutes: 180
+    env:
+      CARGO_HOME: "C:\\cargo"
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
     steps:
+      - name: 启用 Windows 长路径
+        shell: bash
+        run: |
+          powershell -NoProfile -Command "Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name 'LongPathsEnabled' -Value 1" 2>/dev/null || true
+          git config --system core.longpaths true || true
+          git config --global core.longpaths true || true
+
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
