@@ -2,6 +2,14 @@
 
 把官方 tag 对应的补丁应用到 Codex 源码，构建 Windows x64 `codex.exe`，由 Actions 发布 Release。本仓库保存补丁，不常驻保存上游源码。
 
+## 当前交付与验证入口
+
+当前专属补丁为 `rust-v0.167.0`，源码交付提交为 [`6751133`](https://github.com/owwkmidream/codex/commit/675113356a7e07b08daf4c268095df3a2354beed)，包含合并补丁及 11 个可重放的小提交。[本次 CI](https://github.com/owwkmidream/codex/actions/runs/42519034906) 由 `workflow_dispatch` 指定 `tag=rust-v0.167.0, force=true` 启动。
+
+2026-11-09 更新本文时，`resolve`、`prepare` 已成功，`build` 正在“重建并校验协议导出”，尚未确认构建或发布成功。后续状态以该运行的 jobs 和 [Releases](https://github.com/owwkmidream/codex/releases) 为准；本地检查结果及未执行的测试见[验证记录](patches/series/rust-v0.167.0/VALIDATION.md)。
+
+仓库的构建记录由 `built-tags.txt` 保存，成功发布后 CI 自动追加。需要区分源码已交付、补丁已应用、构建成功和产物已发布这几个状态。
+
 ## 安装与手动更新
 
 1. 先安装对应版本 npm 包，例如 `npm install -g @openai/codex@0.167.0`。
@@ -138,3 +146,33 @@ Actions → `build-windows-codex` → Run workflow：
 - `force`：忽略已构建记录，强制重建；已记录 tag 不加 force 会跳过。
 
 CLI 构建不使用 V8 运行时，但 Cargo 解析 workspace 依赖时仍可能获取 V8 Git 源码。本次本机验证遇到其子模块的 Windows 长路径错误，记录见 [验证记录](patches/series/rust-v0.167.0/VALIDATION.md)。发布前应在可构建环境补齐 Rust 测试、协议导出一致性检查和 Windows TUI 验证。
+
+## 构建成功后
+
+1. 打开[本次 CI](https://github.com/owwkmidream/codex/actions/runs/42519034906)，确认 `build` 和 `release` 都是成功；仅有整条运行的绿色状态不能证明实际编译或发布过。
+2. 在 [rust-v0.167.0 Release](https://github.com/owwkmidream/codex/releases/tag/rust-v0.167.0) 下载 `codex-rust-v0.167.0-windows-x64.zip`，解压后核对 `BUILD-INFO.txt` 的 `upstream_tag`、`patch_baseline` 均为 `rust-v0.167.0`，且 `patch_is_exact: true`。zip 中同时包含 `codex.exe` 和本次实际使用的 `codex-cli.patch`。
+3. 按上方“安装与手动更新”执行同版本 npm 包升级、备份和手动替换。使用独立守护进程时，在会话空闲时运行 `codex app-server daemon update --from-cli`，再核对 CLI 与 daemon 版本及路径。
+4. 实际启动 TUI，验证 Space 引用清除选区且保持阅读位置、无选区时仍输入空格；同时检查原有附件与字节活动显示。重试字段按本人的 provider 配置设置，负数表示固定等待并忽略建议。
+
+workflow 会校验协议导出并执行 `codex.exe --version`，完整核心/TUI 回归测试仍需另外运行。Release 说明由 workflow 中的模板生成；当前模板仍残留“GPT-5.6 上下文 353k”和“固定 10 秒”，具体行为以本文“0.167.0 补丁的行为”及 zip 内实际补丁为准。
+
+## 构建失败后
+
+先取得失败步骤及日志，再决定改补丁还是处理构建环境：
+
+```powershell
+gh run view 42519034906 --repo owwkmidream/codex
+gh run view 42519034906 --repo owwkmidream/codex --log-failed
+```
+
+- `prepare` 失败：查看补丁应用输出与关联 Issue，按功能提交处理冲突，再同步导出合并补丁和 series。
+- “重建并校验协议导出”或编译失败：先区分依赖获取、Rust 编译、生成结果不一致及测试断言失败。CLI 不运行 V8，但 workspace 解析仍可能获取其源码；已有 Windows 长路径情况见验证记录。
+- `build` 成功而 `release` 失败：检查上传、发布与记录 tag 的具体失败步骤，先利用 `codex-windows-x64` artifact 核对已生成的产物。
+
+源码或 workflow 已修正并推送后，启动新运行以使用新提交：
+
+```powershell
+gh workflow run build-windows.yml --repo owwkmidream/codex --ref main -f tag=rust-v0.167.0 -f force=true
+```
+
+仅当失败属于临时网络或 runner 问题、且希望原提交重试时，使用 `gh run rerun 42519034906 --repo owwkmidream/codex --failed`。重跑旧 run 仍使用旧提交，不能验证后来推送的修复。
