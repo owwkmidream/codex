@@ -759,10 +759,18 @@ index f365c4e2e8cba703f2189ecff0acaf6aacd20ef1..38068f08e64807e692be593ccd8a4978
          let started_at_ms = turn_context
              .turn_timing_state
 diff --git a/codex-rs/core/src/session/turn.rs b/codex-rs/core/src/session/turn.rs
-index b25f718d4704d16f6f113c26ec0d6db1aaee9704..ce65d6bb25b8903a6d8b6e1ef1b75471be059485 100644
+index b25f718d4704d16f6f113c26ec0d6db1aaee9704..232ce430ad6a6256d4030152f9ad2ae97e9cb22e 100644
 --- a/codex-rs/core/src/session/turn.rs
 +++ b/codex-rs/core/src/session/turn.rs
-@@ -2829,6 +2829,15 @@ async fn try_run_sampling_request(
+@@ -2319,6 +2319,7 @@ pub(super) fn realtime_text_for_event(msg: &EventMsg) -> Option<RealtimeEventTex
+         | EventMsg::RealtimeConversationClosed(_)
+         | EventMsg::ModelReroute(_)
+         | EventMsg::ModelVerification(_)
++        | EventMsg::ModelRequestProgress(_)
+         | EventMsg::TurnModerationMetadata(_)
+         | EventMsg::SafetyBuffering(_)
+         | EventMsg::ContextCompacted(_)
+@@ -2829,6 +2830,15 @@ async fn try_run_sampling_request(
      } else {
          None
      };
@@ -778,7 +786,7 @@ index b25f718d4704d16f6f113c26ec0d6db1aaee9704..ce65d6bb25b8903a6d8b6e1ef1b75471
      let stream = client_session
          .stream(
              &prompt,
-@@ -2896,6 +2905,7 @@ async fn try_run_sampling_request(
+@@ -2896,6 +2906,7 @@ async fn try_run_sampling_request(
          !sess.services.extensions.turn_item_contributors().is_empty();
      let mut active_item_is_streaming_to_client = false;
      let receiving_span = trace_span!("receiving_stream");
@@ -786,7 +794,7 @@ index b25f718d4704d16f6f113c26ec0d6db1aaee9704..ce65d6bb25b8903a6d8b6e1ef1b75471
      let outcome: CodexResult<SamplingRequestResult> = loop {
          let handle_responses = trace_span!(
              parent: &receiving_span,
-@@ -2988,12 +2998,45 @@ async fn try_run_sampling_request(
+@@ -2988,12 +2999,45 @@ async fn try_run_sampling_request(
              }
          };
  
@@ -836,6 +844,36 @@ index b25f718d4704d16f6f113c26ec0d6db1aaee9704..ce65d6bb25b8903a6d8b6e1ef1b75471
              ResponseEvent::Created { response_id } => {
                  response_id_for_assessment.clone_from(&response_id);
                  if let Some(response_id) = response_id {
+diff --git a/codex-rs/core/src/session/turn_tests.rs b/codex-rs/core/src/session/turn_tests.rs
+index c1554d79c0241e43f59cb02e9ca62f8811f66ddb..ccd25aaf1e3550d9474e4089ba128a5fc7ed0a06 100644
+--- a/codex-rs/core/src/session/turn_tests.rs
++++ b/codex-rs/core/src/session/turn_tests.rs
+@@ -94,6 +94,25 @@ async fn plan_mode_uses_contributed_turn_item_for_last_agent_message() {
+     );
+ }
+ 
++#[test]
++fn realtime_model_request_progress_has_no_text() {
++    use codex_protocol::protocol::ModelRequestProgressEvent;
++    use codex_protocol::protocol::ModelRequestProgressPhase;
++
++    // 收发进度只更新 UI，不转成实时对话文本。
++    for phase in [
++        ModelRequestProgressPhase::Sending,
++        ModelRequestProgressPhase::Receiving,
++    ] {
++        let event = EventMsg::ModelRequestProgress(ModelRequestProgressEvent {
++            phase,
++            sent_bytes: 128,
++            received_bytes: 256,
++        });
++        assert_eq!(realtime_text_for_event(&event), None);
++    }
++}
++
+ #[test]
+ fn realtime_user_verification_notice_excludes_request_payload() {
+     let event = EventMsg::ElicitationRequest(codex_protocol::approvals::ElicitationRequestEvent {
 diff --git a/codex-rs/core/src/turn_timing.rs b/codex-rs/core/src/turn_timing.rs
 index de45b7403dfd29b823d5aa1b9a2fc1348dc9d3b8..0ebfbd54e22b41eb746c0d2170d516378857a19f 100644
 --- a/codex-rs/core/src/turn_timing.rs

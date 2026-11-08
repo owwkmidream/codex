@@ -30,7 +30,7 @@ CLI 与 daemon 使用不同的磁盘副本，daemon 实际路径以 `managedCode
 
 | 功能 | 行为 |
 |---|---|
-| 请求活动 | SSE/WebSocket 显示收发字节，同轮多请求累计、跨轮清零；目前无法持续取得准确的本次新增 token。 |
+| 请求活动 | SSE/WebSocket 显示收发字节，同轮多请求累计、跨轮清零；进度事件不转成实时对话文本。目前无法持续取得准确的本次新增 token。 |
 | 压缩横幅 | 复用上游 provider 能力解析，包含能力覆盖及 TokenBudget 条件，区分本地/远程压缩。 |
 | 重试 | 次数允许上限 1000，默认次数保持上游值；ServerOverloaded、PolicyCapacityUnavailable、RetryLimit 无建议时仍可重试。 |
 | Cyber 提示 | 显示警告，UI 不主动结束 turn；Bio 保持上游处理。 |
