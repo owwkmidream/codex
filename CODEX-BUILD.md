@@ -4,6 +4,8 @@
 
 ## 安装与手动更新
 
+自动下载、备份、替换 CLI 并同步 daemon，可使用 [scripts/codex-patch.bat](scripts/codex-patch.bat)；安装、恢复与状态检查参数见 [脚本说明](scripts/README.md)。以下为手动流程。
+
 1. 下载目标版本 Release 的 zip，核对其中 `BUILD-INFO.txt` 的 `upstream_tag`。
 2. 安装相同版本的完整 npm 包，使辅助程序保持匹配，例如 `npm install -g @openai/codex@0.167.0`。
 3. 退出占用目标文件的 CLI，备份原文件，将 zip 中的 `codex.exe` 覆盖到 `npm root -g` 输出目录下的：
@@ -20,7 +22,7 @@ codex app-server daemon version
 codex app-server daemon status
 ```
 
-CLI 与 daemon 使用不同的磁盘副本，daemon 实际路径以 `managed_codex_path` 输出为准。`update --from-cli` 会固定使用当前 CLI 包，并重启运行中的 daemon；不带该参数的普通 `update` 会恢复官方生产更新通道。
+CLI 与 daemon 使用不同的磁盘副本，daemon 实际路径以 `managedCodexPath` 输出为准。`update --from-cli` 会固定使用当前 CLI 包，并重启运行中的 daemon；不带该参数的普通 `update` 会恢复官方生产更新通道。
 
 自动更新开关位于 `$CODEX_HOME/app-server-daemon/settings.json` 的 `updater.autoUpdateEnabled`，与 `config.toml` 分开。回滚时恢复同版本完整 npm 包及补丁，再同步 daemon。
 

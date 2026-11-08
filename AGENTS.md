@@ -7,6 +7,7 @@
 - 修改补丁、配置、安装或守护进程更新说明时，先读 [CODEX-BUILD.md](CODEX-BUILD.md) 的对应章节；这里是当前功能约定的来源。
 - 接手 0.167.0 验证或失败排查时，读 [VALIDATION.md](patches/series/rust-v0.167.0/VALIDATION.md)，再用 `gh run view` 取得最新状态和失败日志。
 - 修改 CI 或判断是否已发布时，核对 [.github/workflows/build-windows.yml](.github/workflows/build-windows.yml)、实际 jobs、Release 附件及 `built-tags.txt`。workflow 是执行入口，构建记录由成功发布的 CI 维护。
+- 修改 Windows 安装、恢复或状态检查脚本时，读 [scripts/README.md](scripts/README.md)，使用其中的隔离测试命令；不要用本机真实安装替代 fixture。
 
 ## 维护补丁
 
@@ -22,4 +23,4 @@
 - 判断构建成功时确认 `build` 实际执行并成功；判断发布成功时另外确认 `release` 及附件。`prepare` 允许失败后反馈 Issue，整条运行绿色可能没有产物。
 - 新提交需要新的 workflow dispatch；重跑旧 run 仍使用原提交。构建文档给出了两种入口。
 - `CODEX-BUILD.md` 的功能、部署步骤及 CI 说明随本次改动更新；临时进度和会话交接写入系统临时目录，通过路径交接。
-- 本机二进制替换由用户手动完成。修改全局 npm 包、daemon 设置或重启运行中的会话前，取得对应部署授权。
+- 本机部署由用户发起。运行管理脚本修改全局 npm 包、daemon 设置或重启运行中的会话前，取得对应部署授权。
