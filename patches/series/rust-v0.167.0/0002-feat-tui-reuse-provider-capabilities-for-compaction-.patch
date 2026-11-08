@@ -1,0 +1,228 @@
+From 33cf6a1532ab85b05a7a09a268311c63b9bfc96f Mon Sep 17 00:00:00 2001
+From: owwkmidream <159dreaml@gmail.com>
+Date: Mon, 9 Nov 2026 03:39:29 +0800
+Subject: [PATCH 02/11] feat(tui): reuse provider capabilities for compaction
+ banners
+
+---
+ codex-rs/model-provider/src/capabilities.rs   |  2 +-
+ codex-rs/tui/src/chatwidget/compaction.rs     | 45 +++++++++++++++++--
+ codex-rs/tui/src/chatwidget/slash_dispatch.rs |  6 ++-
+ ...chatwidget__tests__compaction_running.snap |  2 +-
+ ...get__tests__compaction_running_narrow.snap |  2 +-
+ .../tui/src/chatwidget/status_controls.rs     |  9 ++--
+ .../src/chatwidget/tests/compaction_tests.rs  | 24 ++++++++--
+ 7 files changed, 76 insertions(+), 14 deletions(-)
+
+diff --git a/codex-rs/model-provider/src/capabilities.rs b/codex-rs/model-provider/src/capabilities.rs
+index 311a83fe459c2e15e7e9d2690dd78f45cd062af0..ea1305600f0db78b9607d23a9dceb86836a68a77 100644
+--- a/codex-rs/model-provider/src/capabilities.rs
++++ b/codex-rs/model-provider/src/capabilities.rs
+@@ -31,7 +31,7 @@ impl Default for ProviderCapabilities {
+ }
+ 
+ impl ProviderCapabilities {
+-    pub(crate) fn from_config(info: &ModelProviderInfo) -> Self {
++    pub fn from_config(info: &ModelProviderInfo) -> Self {
+         let defaults = Self {
+             remote_compaction: if info.is_openai()
+                 || is_azure_responses_provider(&info.name, info.base_url.as_deref())
+diff --git a/codex-rs/tui/src/chatwidget/compaction.rs b/codex-rs/tui/src/chatwidget/compaction.rs
+index e05180a9eebfbe2c34e0a8a4deacf63be4f4a7f6..330b4e5639df6c896a84a8c9971d380431badb06 100644
+--- a/codex-rs/tui/src/chatwidget/compaction.rs
++++ b/codex-rs/tui/src/chatwidget/compaction.rs
+@@ -3,13 +3,46 @@
+ 
+ use super::*;
+ 
+-pub(super) const COMPACTION_HEADER: &str = "Compacting context";
+ pub(super) const COMPACTION_DETAILS: &str = "Making room to continue.";
+ 
++/// Which compaction implementation is producing the current status banner.
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub(super) enum CompactionStatusKind {
++    Local,
++    RemoteV2,
++}
++
++impl CompactionStatusKind {
++    pub(super) fn header(self) -> &'static str {
++        match self {
++            Self::Local => "Compacting locally",
++            Self::RemoteV2 => "Compacting remotely",
++        }
++    }
++
++    /// Resolve the implementation from the same inputs the core turn path uses:
++    /// token-budget compaction and providers without remote support both compact locally.
++    pub(super) fn resolve(
++        features: &crate::legacy_core::config::ManagedFeatures,
++        provider: &codex_model_provider_info::ModelProviderInfo,
++    ) -> Self {
++        // 与核心复用同一能力解析，包含用户对 provider capability 的覆盖。
++        if features.enabled(Feature::TokenBudget)
++            || codex_model_provider::ProviderCapabilities::from_config(provider).remote_compaction
++                == codex_model_provider_info::RemoteCompactionSupport::Unsupported
++        {
++            Self::Local
++        } else {
++            Self::RemoteV2
++        }
++    }
++}
++
+ #[derive(Debug)]
+ pub(super) struct ActiveCompaction {
+     pub(super) id: String,
+     pub(super) started_at: Instant,
++    pub(super) kind: CompactionStatusKind,
+ }
+ 
+ impl ChatWidget {
+@@ -25,10 +58,16 @@ impl ChatWidget {
+         self.flush_answer_stream_with_separator();
+         let now = Instant::now();
+         let started_at = now.checked_sub(elapsed).unwrap_or(now);
+-        self.status_state.compaction = Some(ActiveCompaction { id, started_at });
++        let kind =
++            CompactionStatusKind::resolve(&self.config.features, &self.config.model_provider);
++        self.status_state.compaction = Some(ActiveCompaction {
++            id,
++            started_at,
++            kind,
++        });
+         self.bottom_pane.set_status_timer_origin(Some(started_at));
+         self.bottom_pane.ensure_status_indicator();
+-        self.set_status_header(COMPACTION_HEADER.to_string());
++        self.set_status_header(kind.header().to_string());
+     }
+ 
+     pub(super) fn clear_context_compaction(&mut self) {
+diff --git a/codex-rs/tui/src/chatwidget/slash_dispatch.rs b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
+index 44f3c879e27620cb7102161e286a310b2522d7cc..28f53fccd897d27d77c74a2e764512212313c741 100644
+--- a/codex-rs/tui/src/chatwidget/slash_dispatch.rs
++++ b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
+@@ -334,8 +334,12 @@ impl ChatWidget {
+                     self.bottom_pane.set_task_running(/*running*/ true);
+                 }
+                 self.bottom_pane.ensure_status_indicator();
++                let compaction_kind = compaction::CompactionStatusKind::resolve(
++                    &self.config.features,
++                    &self.config.model_provider,
++                );
+                 self.set_status(
+-                    compaction::COMPACTION_HEADER.to_string(),
++                    compaction_kind.header().to_string(),
+                     Some(compaction::COMPACTION_DETAILS.to_string()),
+                     StatusDetailsCapitalization::Preserve,
+                     STATUS_DETAILS_DEFAULT_MAX_LINES,
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running.snap
+index fff40163ad765dca7df245aeaa006e0a6bc99157..3be1f241b52041f390e8722ee167566e24d04158 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running.snap
+@@ -2,7 +2,7 @@
+ source: tui/src/chatwidget/tests/compaction_tests.rs
+ expression: "normalize_compaction_snapshot(render_bottom_popup(&chat, 80))"
+ ---
+-• Compacting context (<elapsed> • esc to interrupt)
++• Compacting remotely (<elapsed> • esc to interrupt)
+   └ Making room to continue.
+ 
+ 
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running_narrow.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running_narrow.snap
+index 161bd517c209a8aec5f12b82134592422ab9d1ff..2cb99477f53ba5b954f1885dbd2bb687972c6cf2 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running_narrow.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running_narrow.snap
+@@ -2,7 +2,7 @@
+ source: tui/src/chatwidget/tests/compaction_tests.rs
+ expression: "normalize_compaction_snapshot(render_bottom_popup(&chat, 40))"
+ ---
+-• Compacting context (<elapsed> • esc to i…
++• Compacting remotely (<elapsed> • esc to …
+   └ Making room to continue.
+ 
+ 
+diff --git a/codex-rs/tui/src/chatwidget/status_controls.rs b/codex-rs/tui/src/chatwidget/status_controls.rs
+index d08632d79e9cc7a22d061adfaffe8db0ebf6f1cd..49a539701470a2f0c1973d0a1433bcf7d48fb6ba 100644
+--- a/codex-rs/tui/src/chatwidget/status_controls.rs
++++ b/codex-rs/tui/src/chatwidget/status_controls.rs
+@@ -22,11 +22,14 @@ impl ChatWidget {
+     ) -> bool {
+         // Follow-up input and background activity must not obscure compaction.
+         // Retry errors still get their own status until the next notification.
+-        let (header, details, details_max_lines) = if self.status_state.compaction.is_some()
+-            && self.status_state.retry_status_header.is_none()
++        let (header, details, details_max_lines) = if let Some(active) = self
++            .status_state
++            .compaction
++            .as_ref()
++            .filter(|_| self.status_state.retry_status_header.is_none())
+         {
+             (
+-                compaction::COMPACTION_HEADER.to_string(),
++                active.kind.header().to_string(),
+                 Some(compaction::COMPACTION_DETAILS.to_string()),
+                 STATUS_DETAILS_DEFAULT_MAX_LINES,
+             )
+diff --git a/codex-rs/tui/src/chatwidget/tests/compaction_tests.rs b/codex-rs/tui/src/chatwidget/tests/compaction_tests.rs
+index 291dc844f40957af725f78dee245815e81c161b2..f567b34f8830ab30e8a273bb645d0c7609a63cf6 100644
+--- a/codex-rs/tui/src/chatwidget/tests/compaction_tests.rs
++++ b/codex-rs/tui/src/chatwidget/tests/compaction_tests.rs
+@@ -1,6 +1,22 @@
+ use super::*;
+ use pretty_assertions::assert_eq;
+ 
++#[tokio::test]
++async fn compaction_banner_respects_provider_capability_override() {
++    use codex_model_provider_info::ModelProviderCapabilities;
++    use codex_model_provider_info::RemoteCompactionSupport;
++    let (mut chat, _, _) = make_chatwidget_manual(None).await;
++    chat.config.model_provider.capabilities = Some(ModelProviderCapabilities {
++        remote_compaction: Some(RemoteCompactionSupport::Unsupported),
++        ..Default::default()
++    });
++    chat.dispatch_command(SlashCommand::Compact);
++    assert_eq!(
++        chat.bottom_pane.status_widget().unwrap().header(),
++        "Compacting locally"
++    );
++}
++
+ fn normalize_compaction_snapshot(text: String) -> String {
+     let elapsed = regex_lite::Regex::new(r"\b\d+(?:h \d+m \d+s|m \d+s|s)\b").unwrap();
+     elapsed
+@@ -70,7 +86,7 @@ async fn compaction_status_survives_follow_up_and_preserves_turn_time() {
+     assert_eq!(chat.input_queue.pending_steers.len(), 1);
+     assert_eq!(
+         chat.bottom_pane.status_widget().unwrap().header(),
+-        "Compacting context"
++        "Compacting remotely"
+     );
+     drain_insert_history(&mut rx);
+ 
+@@ -96,7 +112,7 @@ async fn manual_compaction_shows_status_before_backend_events() {
+     assert!(chat.bottom_pane.status_indicator_visible());
+     assert_eq!(
+         chat.bottom_pane.status_widget().unwrap().header(),
+-        "Compacting context"
++        "Compacting remotely"
+     );
+     assert!(chat.handle_turn_start_rejection("Could not start compaction".to_string()));
+     assert!(!chat.bottom_pane.status_indicator_visible());
+@@ -172,7 +188,7 @@ async fn compaction_snapshot_restores_elapsed_time_and_clears_on_replayed_comple
+     );
+     assert_eq!(
+         chat.bottom_pane.status_widget().unwrap().header(),
+-        "Compacting context"
++        "Compacting remotely"
+     );
+     assert!(
+         chat.status_state
+@@ -226,6 +242,6 @@ async fn compaction_retry_status_returns_to_compacting() {
+     chat.handle_server_notification(compaction_started("compact-1"), /*replay_kind*/ None);
+     assert_eq!(
+         chat.bottom_pane.status_widget().unwrap().header(),
+-        "Compacting context"
++        "Compacting remotely"
+     );
+ }

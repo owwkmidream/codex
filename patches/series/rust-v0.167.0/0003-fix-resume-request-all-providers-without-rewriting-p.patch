@@ -1,0 +1,32 @@
+From 91bb8599ea15df48414e3b0ea7fb4ca625c4a1da Mon Sep 17 00:00:00 2001
+From: owwkmidream <159dreaml@gmail.com>
+Date: Mon, 9 Nov 2026 03:39:30 +0800
+Subject: [PATCH 03/11] fix(resume): request all providers without rewriting
+ picker tests
+
+---
+ codex-rs/tui/src/resume_picker.rs | 10 ++++------
+ 1 file changed, 4 insertions(+), 6 deletions(-)
+
+diff --git a/codex-rs/tui/src/resume_picker.rs b/codex-rs/tui/src/resume_picker.rs
+index 8b8401ccb71f2540c683b82684f5cc84915a9d86..30338776f55bc4a04032809ce620f05cecbcfc56 100644
+--- a/codex-rs/tui/src/resume_picker.rs
++++ b/codex-rs/tui/src/resume_picker.rs
+@@ -867,13 +867,11 @@ fn local_picker_cwd_filter(
+ }
+ 
+ async fn picker_provider_filter(
+-    config: &Config,
+-    app_server: &AppServerSession,
++    _config: &Config,
++    _app_server: &AppServerSession,
+ ) -> Result<ProviderFilter> {
+-    Ok(app_server
+-        .history_model_provider(config)
+-        .await?
+-        .map_or(ProviderFilter::Any, ProviderFilter::MatchDefault))
++    // 显式请求所有 provider；保留目录过滤以及其他调用方的原过滤能力。
++    Ok(ProviderFilter::All)
+ }
+ 
+ fn picker_runtime_keymap(config: &crate::local_settings::LocalSettings) -> Result<RuntimeKeymap> {

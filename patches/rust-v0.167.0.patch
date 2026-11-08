@@ -1,0 +1,3684 @@
+diff --git a/codex-rs/app-server-protocol/src/protocol/common.rs b/codex-rs/app-server-protocol/src/protocol/common.rs
+index bf2ebde276a5b66f57b537d518d0233a3a2f5ac4..406186d5701046c8c573ec046a7c9b13cacb8dff 100644
+--- a/codex-rs/app-server-protocol/src/protocol/common.rs
++++ b/codex-rs/app-server-protocol/src/protocol/common.rs
+@@ -2037,6 +2037,8 @@ server_notification_definitions! {
+     ThreadSettingsUpdated => "thread/settings/updated" (v2::ThreadSettingsUpdatedNotification),
+     ThreadTokenUsageUpdated => "thread/tokenUsage/updated" (v2::ThreadTokenUsageUpdatedNotification),
+     TurnStarted => "turn/started" (v2::TurnStartedNotification),
++    /// Ephemeral byte progress for the active upstream model request.
++    ModelRequestProgress => "turn/modelRequestProgress" (v2::ModelRequestProgressNotification),
+     HookStarted => "hook/started" (v2::HookStartedNotification),
+     TurnCompleted => "turn/completed" (v2::TurnCompletedNotification),
+     HookCompleted => "hook/completed" (v2::HookCompletedNotification),
+diff --git a/codex-rs/app-server-protocol/src/protocol/v2/turn.rs b/codex-rs/app-server-protocol/src/protocol/v2/turn.rs
+index c3b3fa7493ae785feaa16d9d81988480ee248914..905821a56a5d88235b8ff3203614487d98cccba3 100644
+--- a/codex-rs/app-server-protocol/src/protocol/v2/turn.rs
++++ b/codex-rs/app-server-protocol/src/protocol/v2/turn.rs
+@@ -596,6 +596,33 @@ pub struct TurnStartedNotification {
+     pub turn: Turn,
+ }
+ 
++/// Direction of the byte counters in [`ModelRequestProgressNotification`].
++#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema, TS)]
++#[serde(rename_all = "camelCase")]
++#[ts(rename_all = "camelCase", export_to = "v2/")]
++pub enum ModelRequestProgressPhase {
++    Sending,
++    Receiving,
++}
++
++/// Ephemeral byte progress for the active upstream model request.
++///
++/// Not persisted and never replayed; clients render it as live transfer volume.
++#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
++#[serde(rename_all = "camelCase")]
++#[ts(export_to = "v2/")]
++pub struct ModelRequestProgressNotification {
++    pub thread_id: String,
++    pub turn_id: String,
++    pub phase: ModelRequestProgressPhase,
++    /// Cumulative request bytes sent for this request.
++    #[ts(type = "number")]
++    pub sent_bytes: u64,
++    /// Cumulative response bytes received for this request.
++    #[ts(type = "number")]
++    pub received_bytes: u64,
++}
++
+ #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+ #[serde(rename_all = "camelCase")]
+ #[ts(export_to = "v2/")]
+diff --git a/codex-rs/app-server/src/bespoke_event_handling.rs b/codex-rs/app-server/src/bespoke_event_handling.rs
+index da4d0e1050a51a32ca08db636a4d2f506c993fe2..93fef7ed318ca25a6ef2b26b4999b5c1d6daed0e 100644
+--- a/codex-rs/app-server/src/bespoke_event_handling.rs
++++ b/codex-rs/app-server/src/bespoke_event_handling.rs
+@@ -39,6 +39,8 @@ use codex_app_server_protocol::McpServerElicitationRequestParams;
+ use codex_app_server_protocol::McpServerElicitationRequestResponse;
+ use codex_app_server_protocol::McpServerStartupState;
+ use codex_app_server_protocol::McpServerStatusUpdatedNotification;
++use codex_app_server_protocol::ModelRequestProgressNotification;
++use codex_app_server_protocol::ModelRequestProgressPhase;
+ use codex_app_server_protocol::ModelReroutedNotification;
+ use codex_app_server_protocol::ModelSafetyBufferingUpdatedNotification;
+ use codex_app_server_protocol::ModelVerificationNotification;
+@@ -189,6 +191,27 @@ pub(crate) async fn apply_bespoke_event_handling(
+                 .send_server_notification(ServerNotification::TurnStarted(notification))
+                 .await;
+         }
++        EventMsg::ModelRequestProgress(progress) => {
++            let phase = match progress.phase {
++                codex_protocol::protocol::ModelRequestProgressPhase::Sending => {
++                    ModelRequestProgressPhase::Sending
++                }
++                codex_protocol::protocol::ModelRequestProgressPhase::Receiving => {
++                    ModelRequestProgressPhase::Receiving
++                }
++            };
++            outgoing
++                .send_server_notification(ServerNotification::ModelRequestProgress(
++                    ModelRequestProgressNotification {
++                        thread_id: conversation_id.to_string(),
++                        turn_id: event_turn_id,
++                        phase,
++                        sent_bytes: progress.sent_bytes,
++                        received_bytes: progress.received_bytes,
++                    },
++                ))
++                .await;
++        }
+         EventMsg::TurnComplete(turn_complete_event) => {
+             // All per-thread requests are bound to a turn, so abort them.
+             outgoing.abort_pending_server_requests().await;
+diff --git a/codex-rs/app-server/src/notification_media.rs b/codex-rs/app-server/src/notification_media.rs
+index 1e3d3d91c1743ca1f6e4da1d4f5699fd53874807..d6086c7067ee6b65a0fd1bedea180df349d61b2a 100644
+--- a/codex-rs/app-server/src/notification_media.rs
++++ b/codex-rs/app-server/src/notification_media.rs
+@@ -79,6 +79,7 @@ pub(crate) fn without_notification_media(notification: ServerNotification) -> Se
+         | ServerNotification::ThreadSettingsUpdated(_)
+         | ServerNotification::ThreadTokenUsageUpdated(_)
+         | ServerNotification::TurnStarted(_)
++        | ServerNotification::ModelRequestProgress(_)
+         | ServerNotification::HookStarted(_)
+         | ServerNotification::TurnCompleted(_)
+         | ServerNotification::HookCompleted(_)
+diff --git a/codex-rs/codex-api/src/common.rs b/codex-rs/codex-api/src/common.rs
+index 2510f35d9b0a2086a7ef3837abfbd3451d09431c..a62d4001af3aed246fa4cb70ee667bcc75dc0d9c 100644
+--- a/codex-rs/codex-api/src/common.rs
++++ b/codex-rs/codex-api/src/common.rs
+@@ -79,6 +79,10 @@ pub struct ResponseId(pub String);
+ 
+ #[derive(Debug)]
+ pub enum ResponseEvent {
++    /// Exact request body bytes sent upstream, reported once per request.
++    RequestBytesSent(u64),
++    /// Cumulative raw response bytes received from the upstream stream.
++    ResponseBytesReceived(u64),
+     Created {
+         /// Existing server response ID, when supplied by the stream.
+         response_id: Option<String>,
+diff --git a/codex-rs/codex-api/src/endpoint/images.rs b/codex-rs/codex-api/src/endpoint/images.rs
+index ec4b3f8608b5fc865322032fda4d376c51acacbc..2be289ff48711e83846345bb5bb9bc602d6e8bf7 100644
+--- a/codex-rs/codex-api/src/endpoint/images.rs
++++ b/codex-rs/codex-api/src/endpoint/images.rs
+@@ -189,6 +189,7 @@ mod tests {
+             retry: RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: true,
+                 retry_transport: true,
+diff --git a/codex-rs/codex-api/src/endpoint/memories.rs b/codex-rs/codex-api/src/endpoint/memories.rs
+index 979f96bb640e2ffe0ec952f236bbd11eec179e30..2df0b33ea3aac2d452df6ea10bf97de32d1bc580 100644
+--- a/codex-rs/codex-api/src/endpoint/memories.rs
++++ b/codex-rs/codex-api/src/endpoint/memories.rs
+@@ -146,6 +146,7 @@ mod tests {
+             retry: RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: true,
+                 retry_transport: true,
+diff --git a/codex-rs/codex-api/src/endpoint/models.rs b/codex-rs/codex-api/src/endpoint/models.rs
+index 99016987069c9d14b541a6e3a03dafe344f77e36..cf5f60cfb0ccbf8a3148d6e5651dc695285dc67d 100644
+--- a/codex-rs/codex-api/src/endpoint/models.rs
++++ b/codex-rs/codex-api/src/endpoint/models.rs
+@@ -222,6 +222,7 @@ mod tests {
+             retry: RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: true,
+                 retry_transport: true,
+diff --git a/codex-rs/codex-api/src/endpoint/realtime_call.rs b/codex-rs/codex-api/src/endpoint/realtime_call.rs
+index 745d0b04055c04bde448e55730526d6c74c93bb8..95528d068250fa17b51e940ec6135faee2d03b41 100644
+--- a/codex-rs/codex-api/src/endpoint/realtime_call.rs
++++ b/codex-rs/codex-api/src/endpoint/realtime_call.rs
+@@ -378,6 +378,7 @@ mod tests {
+             retry: RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: true,
+                 retry_transport: true,
+diff --git a/codex-rs/codex-api/src/endpoint/realtime_websocket/methods.rs b/codex-rs/codex-api/src/endpoint/realtime_websocket/methods.rs
+index e7a8bf1bd4362c24df33bdc38cfa13727d903244..af73d46b8ad3ee8d7a0251ee430619219bda82ee 100644
+--- a/codex-rs/codex-api/src/endpoint/realtime_websocket/methods.rs
++++ b/codex-rs/codex-api/src/endpoint/realtime_websocket/methods.rs
+@@ -2355,6 +2355,7 @@ mod tests {
+             retry: RetryConfig {
+                 max_attempts: 0,
+                 base_delay: Duration::ZERO,
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: false,
+                 retry_transport: false,
+@@ -2551,6 +2552,7 @@ mod tests {
+             retry: crate::provider::RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: false,
+                 retry_transport: false,
+@@ -2877,6 +2879,7 @@ mod tests {
+             retry: crate::provider::RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: false,
+                 retry_transport: false,
+@@ -3004,6 +3007,7 @@ mod tests {
+             retry: crate::provider::RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: false,
+                 retry_transport: false,
+@@ -3110,6 +3114,7 @@ mod tests {
+             retry: crate::provider::RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: false,
+                 retry_transport: false,
+@@ -3202,6 +3207,7 @@ mod tests {
+             retry: crate::provider::RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: false,
+                 retry_transport: false,
+diff --git a/codex-rs/codex-api/src/endpoint/responses.rs b/codex-rs/codex-api/src/endpoint/responses.rs
+index 9c41a802eadd57cf20ffc733121921d8d3ba9d08..1d00f3cf5296e337ddc02af384b703b3b554f46d 100644
+--- a/codex-rs/codex-api/src/endpoint/responses.rs
++++ b/codex-rs/codex-api/src/endpoint/responses.rs
+@@ -132,6 +132,10 @@ impl<T: HttpTransport> ResponsesClient<T> {
+             Compression::Zstd => RequestCompression::Zstd,
+         };
+ 
++        // Measure the exact encoded body before it is moved into the request so the
++        // UI can report upload volume for the active model call.
++        let request_bytes = u64::try_from(body.as_bytes().len()).unwrap_or(u64::MAX);
++
+         let stream_response = self
+             .session
+             .stream_encoded_json_with(
+@@ -151,6 +155,7 @@ impl<T: HttpTransport> ResponsesClient<T> {
+ 
+         Ok(spawn_response_stream(
+             stream_response,
++            request_bytes,
+             self.session.provider().stream_idle_timeout,
+             self.sse_telemetry.clone(),
+             turn_state,
+diff --git a/codex-rs/codex-api/src/endpoint/responses_websocket.rs b/codex-rs/codex-api/src/endpoint/responses_websocket.rs
+index ce32a374c18702c242c88fe4976b1cb67b2d1577..139758ea4234f67c26504ac1efe4c421aa77f113 100644
+--- a/codex-rs/codex-api/src/endpoint/responses_websocket.rs
++++ b/codex-rs/codex-api/src/endpoint/responses_websocket.rs
+@@ -789,6 +789,8 @@ async fn run_websocket_response_stream(
+         // No request reached the backend, so this socket is still reusable.
+         return Ok(());
+     }
++    // Measure the frame we are about to send so the UI can report upload volume.
++    let request_bytes = u64::try_from(request_text.len()).unwrap_or(u64::MAX);
+     send_websocket_request(
+         ws_stream,
+         request_text,
+@@ -797,6 +799,10 @@ async fn run_websocket_response_stream(
+         timing_log_context.connection_reused,
+     )
+     .await?;
++    let _ = tx_event
++        .send(Ok(ResponseEvent::RequestBytesSent(request_bytes)))
++        .await;
++    let mut received_bytes = 0_u64;
+ 
+     // A response owns its interrupt, and create must be sent before interrupt.
+     let mut interrupt_request = interrupt.clone().fuse();
+@@ -847,6 +853,11 @@ async fn run_websocket_response_stream(
+ 
+         match message {
+             Message::Text(text) => {
++                received_bytes =
++                    received_bytes.saturating_add(u64::try_from(text.len()).unwrap_or(u64::MAX));
++                let _ = tx_event
++                    .send(Ok(ResponseEvent::ResponseBytesReceived(received_bytes)))
++                    .await;
+                 if let Some(wrapped_error) = parse_wrapped_websocket_error_event(&text)
+                     && let Some(error) =
+                         map_wrapped_websocket_error_event(wrapped_error, text.to_string())
+diff --git a/codex-rs/codex-api/src/endpoint/search.rs b/codex-rs/codex-api/src/endpoint/search.rs
+index ee47b906a74bf2d6de6efaac6e26d8ec1b39cef1..7484e6019dc905b31730fe2c719195e36211c3e1 100644
+--- a/codex-rs/codex-api/src/endpoint/search.rs
++++ b/codex-rs/codex-api/src/endpoint/search.rs
+@@ -127,6 +127,7 @@ mod tests {
+             retry: RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: true,
+                 retry_transport: true,
+diff --git a/codex-rs/codex-api/src/sse/responses.rs b/codex-rs/codex-api/src/sse/responses.rs
+index 055feeca44a0d376cc7e2b965a242001bba5ea8e..1be4d08a223eee2f5e80ab033167460938e5ea0c 100644
+--- a/codex-rs/codex-api/src/sse/responses.rs
++++ b/codex-rs/codex-api/src/sse/responses.rs
+@@ -38,6 +38,7 @@ const TRUSTED_ACCESS_FOR_CYBER_VERIFICATION: &str = "trusted_access_for_cyber";
+ 
+ pub fn spawn_response_stream(
+     stream_response: StreamResponse,
++    request_bytes: u64,
+     idle_timeout: Duration,
+     telemetry: Option<Arc<dyn SseTelemetry>>,
+     turn_state: Option<Arc<OnceLock<String>>>,
+@@ -74,6 +75,9 @@ pub fn spawn_response_stream(
+     }
+     let (tx_event, rx_event) = mpsc::channel::<Result<ResponseEvent, ApiError>>(1600);
+     tokio::spawn(async move {
++        let _ = tx_event
++            .send(Ok(ResponseEvent::RequestBytesSent(request_bytes)))
++            .await;
+         if let Some(model) = server_model {
+             let _ = tx_event.send(Ok(ResponseEvent::ServerModel(model))).await;
+         }
+@@ -88,8 +92,18 @@ pub fn spawn_response_stream(
+                 .send(Ok(ResponseEvent::ServerReasoningIncluded(true)))
+                 .await;
+         }
++        // 在解码前累计响应体字节，仅为实际网络请求发送瞬时进度。
++        let mut received_bytes = 0_u64;
++        let progress_tx = tx_event.clone();
++        let bytes = stream_response.bytes.inspect(move |chunk| {
++            if let Ok(chunk) = chunk {
++                received_bytes = received_bytes.saturating_add(chunk.len() as u64);
++                let _ =
++                    progress_tx.try_send(Ok(ResponseEvent::ResponseBytesReceived(received_bytes)));
++            }
++        });
+         process_sse_with_treatment(
+-            stream_response.bytes,
++            Box::pin(bytes),
+             tx_event,
+             idle_timeout,
+             telemetry,
+@@ -1584,11 +1598,16 @@ mod tests {
+ 
+         let mut stream = spawn_response_stream(
+             stream_response,
++            /*request_bytes*/ 0,
+             idle_timeout(),
+             /*telemetry*/ None,
+             /*turn_state*/ None,
+         );
+         assert_eq!(stream.upstream_request_id.as_deref(), Some("req-1"));
++        assert!(matches!(
++            stream.rx_event.recv().await,
++            Some(Ok(ResponseEvent::RequestBytesSent(0)))
++        ));
+         let event = stream
+             .rx_event
+             .recv()
+@@ -1624,6 +1643,7 @@ mod tests {
+ 
+         let mut stream = spawn_response_stream(
+             stream_response,
++            /*request_bytes*/ 0,
+             idle_timeout(),
+             /*telemetry*/ None,
+             /*turn_state*/ None,
+diff --git a/codex-rs/codex-api/tests/clients.rs b/codex-rs/codex-api/tests/clients.rs
+index 664697da323ab6963d080b9e33f0558382b0cb0a..21a260789dc2215f9de33f70d66851decf76e623 100644
+--- a/codex-rs/codex-api/tests/clients.rs
++++ b/codex-rs/codex-api/tests/clients.rs
+@@ -147,6 +147,7 @@ fn provider(name: &str) -> Provider {
+         retry: codex_api::RetryConfig {
+             max_attempts: 1,
+             base_delay: Duration::from_millis(1),
++            retry_delay_ms: None,
+             retry_429: false,
+             retry_5xx: false,
+             retry_transport: true,
+diff --git a/codex-rs/codex-api/tests/models_integration.rs b/codex-rs/codex-api/tests/models_integration.rs
+index 05d1806c1f7e60ea0d613062bb59de1104372cb6..be1484f25fcb20a6f50fce8faf4b87bc93b7e751 100644
+--- a/codex-rs/codex-api/tests/models_integration.rs
++++ b/codex-rs/codex-api/tests/models_integration.rs
+@@ -42,6 +42,7 @@ fn provider(base_url: &str) -> Provider {
+         retry: RetryConfig {
+             max_attempts: 1,
+             base_delay: std::time::Duration::from_millis(1),
++            retry_delay_ms: None,
+             retry_429: false,
+             retry_5xx: true,
+             retry_transport: true,
+diff --git a/codex-rs/codex-api/tests/realtime_websocket_e2e.rs b/codex-rs/codex-api/tests/realtime_websocket_e2e.rs
+index d42d4ec7d901ca4712722f103cbca08b99b6b44b..dffb7adf7e6224059f1ab3337631194cc2a26a2a 100644
+--- a/codex-rs/codex-api/tests/realtime_websocket_e2e.rs
++++ b/codex-rs/codex-api/tests/realtime_websocket_e2e.rs
+@@ -77,6 +77,7 @@ fn test_provider(base_url: String) -> Provider {
+         retry: RetryConfig {
+             max_attempts: 1,
+             base_delay: Duration::from_millis(1),
++            retry_delay_ms: None,
+             retry_429: false,
+             retry_5xx: false,
+             retry_transport: false,
+diff --git a/codex-rs/codex-api/tests/realtime_websocket_tls.rs b/codex-rs/codex-api/tests/realtime_websocket_tls.rs
+index 5668ff669c334844ed9da65b85b5a65c29471905..28f1ce76895bdd1245effe0dc2405f4f5919b6b3 100644
+--- a/codex-rs/codex-api/tests/realtime_websocket_tls.rs
++++ b/codex-rs/codex-api/tests/realtime_websocket_tls.rs
+@@ -125,6 +125,7 @@ async fn check_connection(address: String) {
+             retry: RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(/*millis*/ 1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: false,
+                 retry_transport: false,
+diff --git a/codex-rs/codex-api/tests/responses_websocket_probe.rs b/codex-rs/codex-api/tests/responses_websocket_probe.rs
+index 278f7ac995ea48c63fdd0e054392363a332c19f4..a3a3bfffad6ebbe42dc4f8a62c69c362e5b6c757 100644
+--- a/codex-rs/codex-api/tests/responses_websocket_probe.rs
++++ b/codex-rs/codex-api/tests/responses_websocket_probe.rs
+@@ -37,6 +37,7 @@ fn probe_client(base_url: String) -> ResponsesWebsocketClient {
+             retry: RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(/*millis*/ 1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: false,
+                 retry_transport: false,
+diff --git a/codex-rs/codex-api/tests/sse_end_to_end.rs b/codex-rs/codex-api/tests/sse_end_to_end.rs
+index 0a7f14801d6de9eebc4409ee48b1b1b5c498fa11..df882876d2b46d807a540e21fca67bb54c5c3e70 100644
+--- a/codex-rs/codex-api/tests/sse_end_to_end.rs
++++ b/codex-rs/codex-api/tests/sse_end_to_end.rs
+@@ -70,6 +70,7 @@ fn provider(name: &str) -> Provider {
+         retry: codex_api::RetryConfig {
+             max_attempts: 1,
+             base_delay: Duration::from_millis(1),
++            retry_delay_ms: None,
+             retry_429: false,
+             retry_5xx: false,
+             retry_transport: true,
+diff --git a/codex-rs/codex-client/src/lib.rs b/codex-rs/codex-client/src/lib.rs
+index e634a2b2947c0a5dede108ab5cf1f4e599cc0d1f..db27e71b17d43dcc5518132612c4fbc7296fbd6d 100644
+--- a/codex-rs/codex-client/src/lib.rs
++++ b/codex-rs/codex-client/src/lib.rs
+@@ -9,6 +9,7 @@ pub use crate::retry::RetryOn;
+ pub use crate::retry::RetryOperation;
+ pub use crate::retry::RetryPolicy;
+ pub use crate::retry::backoff;
++pub use crate::retry::configured_retry_delay;
+ pub use crate::retry::run_with_retry;
+ pub use crate::sse::sse_stream;
+ pub use crate::telemetry::RequestTelemetry;
+diff --git a/codex-rs/codex-client/src/provider.rs b/codex-rs/codex-client/src/provider.rs
+index 9feb92fb2cb1d5d759aea0ecdf9ee2ff6b55578b..a908faced82f91a58044b8cbffe5d92800d5cae4 100644
+--- a/codex-rs/codex-client/src/provider.rs
++++ b/codex-rs/codex-client/src/provider.rs
+@@ -18,6 +18,7 @@ use url::Url;
+ pub struct RetryConfig {
+     pub max_attempts: u64,
+     pub base_delay: Duration,
++    pub retry_delay_ms: Option<i64>,
+     pub retry_429: bool,
+     pub retry_5xx: bool,
+     pub retry_transport: bool,
+@@ -28,6 +29,7 @@ impl RetryConfig {
+         RetryPolicy {
+             max_attempts: self.max_attempts,
+             base_delay: self.base_delay,
++            retry_delay_ms: self.retry_delay_ms,
+             retry_on: RetryOn {
+                 retry_429: self.retry_429,
+                 retry_5xx: self.retry_5xx,
+diff --git a/codex-rs/codex-client/src/retry.rs b/codex-rs/codex-client/src/retry.rs
+index b10fa50794de347b73a76c83d0b6b36e055a7842..f4025e41c2073769b3d41a41dc6a32eb5a36181d 100644
+--- a/codex-rs/codex-client/src/retry.rs
++++ b/codex-rs/codex-client/src/retry.rs
+@@ -9,6 +9,7 @@ use std::time::Duration;
+ pub struct RetryPolicy {
+     pub max_attempts: u64,
+     pub base_delay: Duration,
++    pub retry_delay_ms: Option<i64>,
+     pub retry_on: RetryOn,
+ }
+ 
+@@ -51,6 +52,13 @@ pub fn backoff(base: Duration, attempt: u64) -> Duration {
+     Duration::from_millis((raw as f64 * jitter) as u64)
+ }
+ 
++/// 正数优先采用服务端建议；负数固定等待其绝对值，包含 i64::MIN。
++pub fn configured_retry_delay(millis: i64, server_delay: Option<Duration>) -> Duration {
++    server_delay
++        .filter(|_| millis >= 0)
++        .unwrap_or_else(|| Duration::from_millis(millis.unsigned_abs()))
++}
++
+ /// Identifies a retry path and its associated trace-event layer.
+ #[derive(Debug, Clone, Copy)]
+ pub enum RetryOperation {
+@@ -100,10 +108,17 @@ where
+                     .should_retry(&err, attempt, policy.max_attempts) =>
+             {
+                 let retry_attempt = attempt + 1;
+-                let retry_after = err.retry_after();
++                let retry_after = err
++                    .retry_after()
++                    .filter(|_| policy.retry_delay_ms.is_none_or(|millis| millis >= 0));
+                 let delay = retry_after
+                     .map(RetryAfter::remaining_delay)
+-                    .unwrap_or_else(|| backoff(policy.base_delay, retry_attempt));
++                    .unwrap_or_else(|| {
++                        policy.retry_delay_ms.map_or_else(
++                            || backoff(policy.base_delay, retry_attempt),
++                            |millis| configured_retry_delay(millis, None),
++                        )
++                    });
+                 crate::record_retry!(retry_attempt, delay, RetryOperation::HttpRequest);
+                 if let Some(retry_after) = retry_after {
+                     tokio::time::sleep_until(retry_after.deadline()).await;
+@@ -116,3 +131,30 @@ where
+     }
+     Err(TransportError::RetryLimit)
+ }
++
++#[cfg(test)]
++mod configured_retry_tests {
++    use super::*;
++
++    #[test]
++    fn configured_delay_obeys_sign_and_server_advice() {
++        let advice = Some(Duration::from_secs(30));
++        assert_eq!(
++            configured_retry_delay(10_000, advice),
++            Duration::from_secs(30)
++        );
++        assert_eq!(
++            configured_retry_delay(-10_000, advice),
++            Duration::from_secs(10)
++        );
++        assert_eq!(
++            configured_retry_delay(10_000, None),
++            Duration::from_secs(10)
++        );
++        assert_eq!(configured_retry_delay(0, None), Duration::ZERO);
++        assert_eq!(
++            configured_retry_delay(i64::MIN, None),
++            Duration::from_millis(1_u64 << 63)
++        );
++    }
++}
+diff --git a/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.proto b/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.proto
+index 1e7d72bf33f8512696dacd6693139a2227883a2c..cdff7a6bd97733bbcb509eb0eba3e023e8244ff2 100644
+--- a/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.proto
++++ b/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.proto
+@@ -54,6 +54,7 @@ message ModelProvider {
+   optional string location = 21;
+   optional string credential_file = 22;
+   optional ModelProviderCapabilities capabilities = 23;
++  optional int64 retry_delay_ms = 24;
+ }
+ 
+ message ModelProviderCapabilities {
+diff --git a/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.rs b/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.rs
+index c6e5b161960dfab0d894cb770324ae5fc3589616..8a5b4dddcfead0fe293922c3a1686960e0013a6b 100644
+--- a/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.rs
++++ b/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.rs
+@@ -87,6 +87,8 @@ pub struct ModelProvider {
+     pub credential_file: ::core::option::Option<::prost::alloc::string::String>,
+     #[prost(message, optional, tag = "23")]
+     pub capabilities: ::core::option::Option<ModelProviderCapabilities>,
++    #[prost(int64, optional, tag = "24")]
++    pub retry_delay_ms: ::core::option::Option<i64>,
+ }
+ #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+ pub struct ModelProviderCapabilities {
+diff --git a/codex-rs/config/src/thread_config/remote.rs b/codex-rs/config/src/thread_config/remote.rs
+index fd616daa271de69d8a56f23cd281120abd278314..563ee008173c03d531ec9fe6b1bdb42cca85fd81 100644
+--- a/codex-rs/config/src/thread_config/remote.rs
++++ b/codex-rs/config/src/thread_config/remote.rs
+@@ -190,6 +190,7 @@ fn model_provider_from_proto(
+         env_http_headers: provider.env_http_headers.map(|map| map.values),
+         request_max_retries: provider.request_max_retries,
+         stream_max_retries: provider.stream_max_retries,
++        retry_delay_ms: provider.retry_delay_ms,
+         stream_idle_timeout_ms: provider.stream_idle_timeout_ms,
+         websocket_connect_timeout_ms: provider.websocket_connect_timeout_ms,
+         requires_openai_auth: provider.requires_openai_auth,
+@@ -232,6 +233,7 @@ fn model_provider_to_proto(
+         env_http_headers,
+         request_max_retries,
+         stream_max_retries,
++        retry_delay_ms,
+         stream_idle_timeout_ms,
+         websocket_connect_timeout_ms,
+         requires_openai_auth,
+@@ -261,6 +263,7 @@ fn model_provider_to_proto(
+         env_http_headers: env_http_headers.map(|values| proto::StringMap { values }),
+         request_max_retries,
+         stream_max_retries,
++        retry_delay_ms,
+         stream_idle_timeout_ms,
+         websocket_connect_timeout_ms,
+         requires_openai_auth,
+diff --git a/codex-rs/core/config.schema.json b/codex-rs/core/config.schema.json
+index f5149c6efdf7ab9f1550aa0639dd5f2401205f25..ebbaab0364c74b49a5f9458fbeb8c288910cf699 100644
+--- a/codex-rs/core/config.schema.json
++++ b/codex-rs/core/config.schema.json
+@@ -3180,6 +3180,11 @@
+           "description": "Does this provider require an OpenAI API key or ChatGPT login token? If true, the user is presented with a login screen on first run, and credentials are stored using the backend selected by `cli_auth_credentials_store`. If false (the default), the login screen is skipped, and the API key (if needed) comes from the environment variable specified by `env_key`.",
+           "type": "boolean"
+         },
++        "retry_delay_ms": {
++          "description": "模型重试等待毫秒数，默认 10000；负数忽略服务端建议并取绝对值。",
++          "format": "int64",
++          "type": "integer"
++        },
+         "stream_idle_timeout_ms": {
+           "description": "Idle timeout (in milliseconds) to wait for activity on a streaming response before treating the connection as lost.",
+           "format": "uint64",
+@@ -8679,4 +8684,4 @@
+   },
+   "title": "ConfigToml",
+   "type": "object"
+-}
+\ No newline at end of file
++}
+diff --git a/codex-rs/core/src/compact.rs b/codex-rs/core/src/compact.rs
+index 2f6a91de7054cf67bcda1dc9ee5955d82e9d14dc..92b7c89e84b61e59c59500478168f5501cdb2438 100644
+--- a/codex-rs/core/src/compact.rs
++++ b/codex-rs/core/src/compact.rs
+@@ -25,7 +25,6 @@ use crate::session::step_context::StepContext;
+ use crate::session::turn::get_last_assistant_message_from_turn;
+ use crate::session::turn_context::TurnContext;
+ use crate::state::AutoCompactWindowIds;
+-use crate::util::backoff;
+ use codex_analytics::CodexCompactionEvent;
+ use codex_analytics::CompactionImplementation;
+ use codex_analytics::CompactionPhase;
+@@ -375,7 +374,14 @@ async fn run_compact_task_inner_impl(
+             Err(e) => {
+                 if retries < max_retries {
+                     retries += 1;
+-                    let delay = backoff(retries);
++                    let delay = codex_client::configured_retry_delay(
++                        turn_context
++                            .provider
++                            .info()
++                            .retry_delay_ms
++                            .unwrap_or(10_000),
++                        e.server_retry_delay(),
++                    );
+                     sess.notify_stream_error(
+                         turn_context.as_ref(),
+                         format!("Reconnecting... {retries}/{max_retries}"),
+diff --git a/codex-rs/core/src/responses_retry.rs b/codex-rs/core/src/responses_retry.rs
+index 6a4214609c9f9d2ddb61026d17a232497bd792d9..f78f12cffaaf74d2d62f8c9be552860addc6b10e 100644
+--- a/codex-rs/core/src/responses_retry.rs
++++ b/codex-rs/core/src/responses_retry.rs
+@@ -1,6 +1,6 @@
+ //! Shared retry and transport fallback decisions for Responses requests.
+ //! Content-filter guidance is recorded for sampling requests before retry decisions.
+-//! Server advice controls timing without extending configured retry limits.
++//! Provider retry_delay_ms controls timing without extending configured retry limits.
+ 
+ use std::time::Duration;
+ 
+@@ -20,29 +20,16 @@ use codex_protocol::protocol::WarningEvent;
+ use tokio::time::Instant;
+ use tracing::warn;
+ 
+-const INITIAL_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(5);
+-const MAX_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(60);
+-
+ #[derive(Debug, Clone, Copy)]
+ pub(crate) enum ResponsesStreamRequest {
+     Sampling,
+     RemoteCompactionV2,
+ }
+ 
++#[derive(Default)]
+ pub(crate) struct ResponsesStreamRetryState {
+     retries: u64,
+     connection_retries: u64,
+-    connection_retry_delay: Duration,
+-}
+-
+-impl Default for ResponsesStreamRetryState {
+-    fn default() -> Self {
+-        Self {
+-            retries: 0,
+-            connection_retries: 0,
+-            connection_retry_delay: INITIAL_CONNECTION_RETRY_DELAY,
+-        }
+-    }
+ }
+ 
+ /// Server retry advice retained after stream retries are exhausted. The turn ID
+@@ -86,10 +73,17 @@ pub(crate) async fn handle_response_stream_error(
+         ResponsesStreamRequest::RemoteCompactionV2 => RetryOperation::RemoteCompactionV2,
+     };
+     let retry_count = retry_state.retries.saturating_add(1);
+-    let Some(delay) = err.retry_delay(retry_count) else {
++    let Some(_) = err.retry_delay(retry_count) else {
+         return Err(err);
+     };
+-    let retry_after = err.retry_after();
++    let millis = turn_context
++        .provider
++        .info()
++        .retry_delay_ms
++        .unwrap_or(10_000);
++    // 同时处理普通重试、传输回退及耗尽后的建议，负数不残留服务端截止时间。
++    let retry_after = err.retry_after().filter(|_| millis >= 0);
++    let delay = codex_client::configured_retry_delay(millis, err.server_retry_delay());
+ 
+     if turn_context
+         .config
+@@ -100,7 +94,7 @@ pub(crate) async fn handle_response_stream_error(
+         && !turn_context.session_source.is_internal()
+         && !turn_context.provider.info().is_amazon_bedrock()
+     {
+-        let retry_delay = retry_state.connection_retry_delay;
++        let retry_delay = delay;
+         warn!(
+             turn_id = %turn_context.sub_id,
+             error = %err,
+@@ -112,9 +106,6 @@ pub(crate) async fn handle_response_stream_error(
+         retry_state.connection_retries = retry_state.connection_retries.saturating_add(1);
+         codex_client::record_retry!(retry_state.connection_retries, retry_delay, operation);
+         tokio::time::sleep(retry_delay).await;
+-        retry_state.connection_retry_delay = retry_delay
+-            .saturating_mul(2)
+-            .min(MAX_CONNECTION_RETRY_DELAY);
+         return Ok(());
+     }
+ 
+@@ -124,9 +115,11 @@ pub(crate) async fn handle_response_stream_error(
+             turn_context.model_info(),
+         )
+     {
+-        // Changing transport must not bypass the server's retry deadline.
++        // 切换传输也采用同一等待配置，避免绕过固定等待或服务端截止时间。
+         if let Some(retry_after) = retry_after {
+             tokio::time::sleep_until(retry_after.deadline()).await;
++        } else {
++            tokio::time::sleep(delay).await;
+         }
+         sess.send_event(
+             turn_context,
+diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
+index f365c4e2e8cba703f2189ecff0acaf6aacd20ef1..38068f08e64807e692be593ccd8a4978fcadf370 100644
+--- a/codex-rs/core/src/session/mod.rs
++++ b/codex-rs/core/src/session/mod.rs
+@@ -2847,6 +2847,18 @@ impl Session {
+         }
+     }
+ 
++    /// Delivers high-frequency UI state without persisting it in the rollout.
++    ///
++    /// Use this for progress that is only meaningful while the turn is live; the
++    /// [`crate::rollout`] policy treats [`EventMsg::ModelRequestProgress`] as transient.
++    pub(crate) async fn send_transient_event(&self, turn_context: &TurnContext, msg: EventMsg) {
++        self.deliver_event_raw(Event {
++            id: turn_context.sub_id.clone(),
++            msg,
++        })
++        .await;
++    }
++
+     pub(crate) async fn emit_turn_item_started(&self, turn_context: &TurnContext, item: &TurnItem) {
+         let started_at_ms = turn_context
+             .turn_timing_state
+diff --git a/codex-rs/core/src/session/turn.rs b/codex-rs/core/src/session/turn.rs
+index b25f718d4704d16f6f113c26ec0d6db1aaee9704..ce65d6bb25b8903a6d8b6e1ef1b75471be059485 100644
+--- a/codex-rs/core/src/session/turn.rs
++++ b/codex-rs/core/src/session/turn.rs
+@@ -2829,6 +2829,15 @@ async fn try_run_sampling_request(
+     } else {
+         None
+     };
++    sess.send_transient_event(
++        &turn_context,
++        EventMsg::ModelRequestProgress(codex_protocol::protocol::ModelRequestProgressEvent {
++            phase: codex_protocol::protocol::ModelRequestProgressPhase::Sending,
++            sent_bytes: 0,
++            received_bytes: 0,
++        }),
++    )
++    .await;
+     let stream = client_session
+         .stream(
+             &prompt,
+@@ -2896,6 +2905,7 @@ async fn try_run_sampling_request(
+         !sess.services.extensions.turn_item_contributors().is_empty();
+     let mut active_item_is_streaming_to_client = false;
+     let receiving_span = trace_span!("receiving_stream");
++    let mut request_sent_bytes = 0;
+     let outcome: CodexResult<SamplingRequestResult> = loop {
+         let handle_responses = trace_span!(
+             parent: &receiving_span,
+@@ -2988,12 +2998,45 @@ async fn try_run_sampling_request(
+             }
+         };
+ 
+-        sess.services
+-            .session_telemetry
+-            .record_responses(&handle_responses, &event);
+-        record_turn_ttft_metric(&turn_context, &event).await;
++        // 活动进度不计入首 token 延迟，也不记录到会话历史。
++        if !matches!(
++            event,
++            ResponseEvent::RequestBytesSent(_) | ResponseEvent::ResponseBytesReceived(_)
++        ) {
++            sess.services
++                .session_telemetry
++                .record_responses(&handle_responses, &event);
++            record_turn_ttft_metric(&turn_context, &event).await;
++        }
+ 
+         match event {
++            ResponseEvent::RequestBytesSent(bytes) => {
++                request_sent_bytes = bytes;
++                sess.send_transient_event(
++                    &turn_context,
++                    EventMsg::ModelRequestProgress(
++                        codex_protocol::protocol::ModelRequestProgressEvent {
++                            phase: codex_protocol::protocol::ModelRequestProgressPhase::Receiving,
++                            sent_bytes: bytes,
++                            received_bytes: 0,
++                        },
++                    ),
++                )
++                .await;
++            }
++            ResponseEvent::ResponseBytesReceived(bytes) => {
++                sess.send_transient_event(
++                    &turn_context,
++                    EventMsg::ModelRequestProgress(
++                        codex_protocol::protocol::ModelRequestProgressEvent {
++                            phase: codex_protocol::protocol::ModelRequestProgressPhase::Receiving,
++                            sent_bytes: request_sent_bytes,
++                            received_bytes: bytes,
++                        },
++                    ),
++                )
++                .await;
++            }
+             ResponseEvent::Created { response_id } => {
+                 response_id_for_assessment.clone_from(&response_id);
+                 if let Some(response_id) = response_id {
+diff --git a/codex-rs/core/src/turn_timing.rs b/codex-rs/core/src/turn_timing.rs
+index de45b7403dfd29b823d5aa1b9a2fc1348dc9d3b8..0ebfbd54e22b41eb746c0d2170d516378857a19f 100644
+--- a/codex-rs/core/src/turn_timing.rs
++++ b/codex-rs/core/src/turn_timing.rs
+@@ -491,6 +491,8 @@ fn response_event_records_turn_ttft(event: &ResponseEvent) -> bool {
+         | ResponseEvent::ReasoningSummaryDone { .. }
+         | ResponseEvent::ReasoningContentDelta { .. } => true,
+         ResponseEvent::Created { .. }
++        | ResponseEvent::RequestBytesSent(_)
++        | ResponseEvent::ResponseBytesReceived(_)
+         | ResponseEvent::ServerModel(_)
+         | ResponseEvent::ModelVerifications(_)
+         | ResponseEvent::TurnModerationMetadata(_)
+diff --git a/codex-rs/core/tests/suite/retry_after.rs b/codex-rs/core/tests/suite/retry_after.rs
+index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb00135351c184d6 100644
+--- a/codex-rs/core/tests/suite/retry_after.rs
++++ b/codex-rs/core/tests/suite/retry_after.rs
+@@ -275,22 +275,26 @@ async fn wait_for_turn_completion(test: &TestCodex) {
+     assert_eq!(completed.error, None, "turn should complete successfully");
+ }
+ 
+-/// HTTP overloads use server advice within the request and stream retry budgets.
++/// 正数遵从建议，负数在 HTTP 与流重连两层都使用固定等待。
++#[test_case::test_case(None; "default_advice")]
++#[test_case::test_case(Some(200); "positive_advice")]
++#[test_case::test_case(Some(-200); "negative_ignores_advice")]
+ #[tokio::test(flavor = "current_thread")]
+-async fn responses_http_uses_retry_after() -> Result<()> {
++async fn responses_http_uses_retry_after(retry_delay_ms: Option<i64>) -> Result<()> {
+     skip_if_no_network!(Ok(()));
+-
+     let mut telemetry = RetryTelemetryCapture::install();
+     let server = responses::start_mock_server().await;
++    let fixed = retry_delay_ms.is_some_and(|millis| millis < 0);
++    // 错误地遵从 60 秒建议会触发现有 10 秒测试超时。
++    let header = if fixed { "60" } else { "1" };
++    let overload = ResponseTemplate::new(503)
++        .insert_header("Retry-After", header)
++        .set_body_json(json!({ "error": { "code": "server_is_overloaded" } }));
+     let response_mock = responses::mount_response_sequence(
+         &server,
+         vec![
+-            ResponseTemplate::new(503)
+-                .insert_header("Retry-After", "1")
+-                .set_body_json(json!({ "error": { "code": "server_is_overloaded" } })),
+-            ResponseTemplate::new(503)
+-                .insert_header("Retry-After", "1")
+-                .set_body_json(json!({ "error": { "code": "server_is_overloaded" } })),
++            overload.clone(),
++            overload,
+             responses::sse_response(responses::sse(vec![
+                 responses::ev_response_created("recovered"),
+                 responses::ev_completed("recovered"),
+@@ -299,7 +303,8 @@ async fn responses_http_uses_retry_after() -> Result<()> {
+     )
+     .await;
+     let test = test_codex()
+-        .with_config(|config| {
++        .with_config(move |config| {
++            config.model_provider.retry_delay_ms = retry_delay_ms;
+             config.model_provider.request_max_retries = Some(1);
+             config.model_provider.stream_max_retries = Some(1);
+         })
+@@ -307,32 +312,32 @@ async fn responses_http_uses_retry_after() -> Result<()> {
+         .await?;
+ 
+     submit_user_input(&test, "retry the upstream overload").await?;
+-    let retry = telemetry.next_retry().await;
+-    assert!(retry.delay <= Duration::from_secs(1));
+-    assert_eq!(
+-        retry,
+-        RetryTelemetryEvent {
+-            attempt: 1,
+-            delay: retry.delay,
+-            layer: "http".into(),
+-            operation: "request".into(),
+-        }
+-    );
+-    assert!(wait_for_retry(&mut telemetry, &retry).await >= Duration::from_secs(1));
+-    let retry = telemetry.next_retry().await;
+-    assert!(retry.delay <= Duration::from_secs(1));
+-    assert_eq!(
+-        retry,
+-        RetryTelemetryEvent {
+-            attempt: 1,
+-            delay: retry.delay,
+-            layer: "stream".into(),
+-            operation: "sampling".into(),
+-        }
+-    );
+-    assert!(wait_for_retry(&mut telemetry, &retry).await >= Duration::from_secs(1));
++    for layer in ["http", "stream"] {
++        let retry = telemetry.next_retry().await;
++        let minimum = if fixed {
++            assert_eq!(retry.delay, Duration::from_millis(200));
++            Duration::from_millis(200)
++        } else {
++            assert!(retry.delay <= Duration::from_secs(1));
++            Duration::from_secs(1)
++        };
++        assert_eq!(
++            retry,
++            RetryTelemetryEvent {
++                attempt: 1,
++                delay: retry.delay,
++                layer: layer.into(),
++                operation: if layer == "http" {
++                    "request"
++                } else {
++                    "sampling"
++                }
++                .into(),
++            }
++        );
++        assert!(wait_for_retry(&mut telemetry, &retry).await >= minimum);
++    }
+     wait_for_turn_completion(&test).await;
+-
+     assert_eq!(response_mock.requests().len(), 3);
+     assert_eq!(
+         telemetry.events.try_recv(),
+@@ -408,6 +413,7 @@ async fn http_retry_backoff_exhausts_attempts() {
+         RetryPolicy {
+             max_attempts: 2,
+             base_delay: Duration::from_millis(200),
++            retry_delay_ms: None,
+             retry_on: RetryOn {
+                 retry_429: false,
+                 retry_5xx: true,
+@@ -463,6 +469,7 @@ async fn exhausted_http_retries_preserve_deadline_through_error_mapping() {
+         RetryPolicy {
+             max_attempts: 1,
+             base_delay: Duration::from_millis(200),
++            retry_delay_ms: None,
+             retry_on: RetryOn {
+                 retry_429: false,
+                 retry_5xx: true,
+@@ -500,7 +507,7 @@ async fn exhausted_http_retries_preserve_deadline_through_error_mapping() {
+ }
+ 
+ /// Retry advice changes delays but never extends either retry budget or its displayed count.
+-#[test_case::test_case(None, 2, 3; "without_advice")]
++#[test_case::test_case(None, 2, 9; "without_advice")]
+ #[test_case::test_case(Some("0"), 0, 3; "advice_without_stream_retries")]
+ #[test_case::test_case(Some("0"), 2, 9; "advice_with_stream_retries")]
+ #[tokio::test(flavor = "current_thread")]
+@@ -524,6 +531,7 @@ async fn responses_http_overload_respects_retry_limits(
+         .await;
+     let test = test_codex()
+         .with_config(move |config| {
++            config.model_provider.retry_delay_ms = Some(200);
+             config.model_provider.request_max_retries = Some(2);
+             config.model_provider.stream_max_retries = Some(stream_max_retries);
+         })
+@@ -563,13 +571,9 @@ async fn responses_http_overload_respects_retry_limits(
+     .expect("overload retries should finish the turn within 10 seconds");
+ 
+     assert_eq!(error_events, 1);
+-    let expected_messages = if retry_after.is_some() {
+-        (1..=stream_max_retries)
+-            .map(|retry| format!("Reconnecting... {retry}/{stream_max_retries}"))
+-            .collect::<Vec<_>>()
+-    } else {
+-        Vec::new()
+-    };
++    let expected_messages = (1..=stream_max_retries)
++        .map(|retry| format!("Reconnecting... {retry}/{stream_max_retries}"))
++        .collect::<Vec<_>>();
+     assert_eq!(reconnect_messages, expected_messages);
+     let request_count = server
+         .received_requests()
+@@ -595,6 +599,7 @@ async fn responses_http_504_preserves_status_after_stream_retry() -> Result<()>
+         responses::mount_response_sequence(&server, vec![ResponseTemplate::new(504); 2]).await;
+     let test = test_codex()
+         .with_config(|config| {
++            config.model_provider.retry_delay_ms = Some(200);
+             config.service_tier = Some("flex".to_string());
+             config.model_provider.request_max_retries = Some(0);
+             config.model_provider.stream_max_retries = Some(1);
+@@ -722,6 +727,7 @@ async fn compact_v2_stream_failure_uses_local_backoff_despite_retry_after() -> R
+     let test = test_codex()
+         .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+         .with_config(|config| {
++            config.model_provider.retry_delay_ms = Some(200);
+             config.model_provider.request_max_retries = Some(0);
+             config.model_provider.stream_max_retries = Some(1);
+         })
+@@ -731,7 +737,7 @@ async fn compact_v2_stream_failure_uses_local_backoff_despite_retry_after() -> R
+ 
+     test.codex.submit(Op::Compact).await?;
+     let retry = telemetry.next_retry().await;
+-    assert!((FIRST_RETRY_MIN_DELAY..FIRST_RETRY_MAX_DELAY).contains(&retry.delay));
++    assert_eq!(retry.delay, Duration::from_millis(200));
+     assert_eq!(
+         retry,
+         RetryTelemetryEvent {
+@@ -791,6 +797,7 @@ async fn compact_v2_stream_failure_without_retry_after_exhausts_stream_retries()
+     let test = test_codex()
+         .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+         .with_config(|config| {
++            config.model_provider.retry_delay_ms = Some(200);
+             config.model_provider.request_max_retries = Some(0);
+             config.model_provider.stream_max_retries = Some(1);
+         })
+@@ -800,7 +807,7 @@ async fn compact_v2_stream_failure_without_retry_after_exhausts_stream_retries()
+ 
+     test.codex.submit(Op::Compact).await?;
+     let retry = telemetry.next_retry().await;
+-    assert!((FIRST_RETRY_MIN_DELAY..FIRST_RETRY_MAX_DELAY).contains(&retry.delay));
++    assert_eq!(retry.delay, Duration::from_millis(200));
+     assert_eq!(
+         retry,
+         RetryTelemetryEvent {
+@@ -964,8 +971,9 @@ async fn compact_v2_overload_without_retry_after_exhausts_request_retries() -> R
+     let test = test_codex()
+         .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
+         .with_config(|config| {
++            config.model_provider.retry_delay_ms = Some(200);
+             config.model_provider.request_max_retries = Some(2);
+-            config.model_provider.stream_max_retries = Some(2);
++            config.model_provider.stream_max_retries = Some(0);
+         })
+         .build_with_auto_env(&server)
+         .await?;
+@@ -973,7 +981,7 @@ async fn compact_v2_overload_without_retry_after_exhausts_request_retries() -> R
+ 
+     test.codex.submit(Op::Compact).await?;
+     let first_retry = telemetry.next_retry().await;
+-    assert!((FIRST_RETRY_MIN_DELAY..FIRST_RETRY_MAX_DELAY).contains(&first_retry.delay));
++    assert_eq!(first_retry.delay, Duration::from_millis(200));
+     assert_eq!(
+         first_retry,
+         RetryTelemetryEvent {
+@@ -985,7 +993,7 @@ async fn compact_v2_overload_without_retry_after_exhausts_request_retries() -> R
+     );
+     wait_for_retry(&mut telemetry, &first_retry).await;
+     let second_retry = telemetry.next_retry().await;
+-    assert!((SECOND_RETRY_MIN_DELAY..SECOND_RETRY_MAX_DELAY).contains(&second_retry.delay));
++    assert_eq!(second_retry.delay, Duration::from_millis(200));
+     assert_eq!(
+         second_retry,
+         RetryTelemetryEvent {
+@@ -1088,6 +1096,7 @@ async fn sse_failure_uses_local_backoff_despite_retry_after() -> Result<()> {
+     .await;
+     let test = test_codex()
+         .with_config(|config| {
++            config.model_provider.retry_delay_ms = Some(200);
+             config.model_provider.request_max_retries = Some(0);
+             config.model_provider.stream_max_retries = Some(1);
+         })
+@@ -1096,7 +1105,7 @@ async fn sse_failure_uses_local_backoff_despite_retry_after() -> Result<()> {
+ 
+     submit_user_input(&test, "retry the rate-limited stream").await?;
+     let retry = telemetry.next_retry().await;
+-    assert!((FIRST_RETRY_MIN_DELAY..FIRST_RETRY_MAX_DELAY).contains(&retry.delay));
++    assert_eq!(retry.delay, Duration::from_millis(200));
+     assert_eq!(
+         retry,
+         RetryTelemetryEvent {
+@@ -1144,6 +1153,7 @@ async fn sse_failure_without_retry_after_exhausts_stream_retries(code: &str) ->
+     .await;
+     let test = test_codex()
+         .with_config(|config| {
++            config.model_provider.retry_delay_ms = Some(200);
+             config.model_provider.request_max_retries = Some(0);
+             config.model_provider.stream_max_retries = Some(1);
+         })
+@@ -1152,10 +1162,7 @@ async fn sse_failure_without_retry_after_exhausts_stream_retries(code: &str) ->
+ 
+     submit_user_input(&test, "exhaust the headerless rate-limited stream").await?;
+     let retry = telemetry.next_retry().await;
+-    assert!(
+-        (FIRST_RETRY_MIN_DELAY..FIRST_RETRY_MAX_DELAY).contains(&retry.delay),
+-        "{retry:?}",
+-    );
++    assert!(retry.delay == Duration::from_millis(200), "{retry:?}",);
+     assert_eq!(
+         retry,
+         RetryTelemetryEvent {
+@@ -1270,148 +1277,59 @@ async fn sse_failure_uses_server_advice(
+     Ok(())
+ }
+ 
+-/// A streamed backend overload remains terminal despite an enclosing retry header.
++/// SSE 外层响应头不作为事件建议，无建议时使用配置等待并重试。
++#[test_case::test_case(None; "without_enclosing_header")]
++#[test_case::test_case(Some("1"); "with_enclosing_header")]
+ #[tokio::test(flavor = "current_thread")]
+-async fn sse_overload_with_retry_after_is_terminal() -> Result<()> {
++async fn sse_overload_retries_with_configured_delay(header: Option<&str>) -> Result<()> {
+     skip_if_no_network!(Ok(()));
+-
+     let mut telemetry = RetryTelemetryCapture::install();
+     let server = responses::start_mock_server().await;
+-    let response_mock = responses::mount_response_once(
+-        &server,
+-        responses::sse_response(responses::sse_failed(
+-            "disabled-model",
+-            "server_is_overloaded",
+-            "This model is disabled.",
+-        ))
+-        .insert_header("Retry-After", "1"),
+-    )
+-    .await;
+-    let test = test_codex()
+-        .with_config(|config| {
+-            config.model_provider.request_max_retries = Some(2);
+-            config.model_provider.stream_max_retries = Some(2);
+-        })
+-        .build_with_auto_env(&server)
+-        .await?;
+-
+-    submit_user_input(&test, "reject the streamed overload despite retry advice").await?;
+-
+-    let mut error_events = 0;
+-    let mut stream_error_events = 0;
+-    loop {
+-        match wait_for_event(&test.codex, |_| true).await {
+-            EventMsg::Error(error) => {
+-                error_events += 1;
+-                assert_eq!(
+-                    error.codex_error_info,
+-                    Some(CodexErrorInfo::ServerOverloaded)
+-                );
+-                assert_eq!(
+-                    error.message,
+-                    "Selected model is at capacity. Please try a different model."
+-                );
+-            }
+-            EventMsg::StreamError(_) => stream_error_events += 1,
+-            EventMsg::TurnComplete(event) => {
+-                assert_eq!(
+-                    event.error.and_then(|error| error.codex_error_info),
+-                    Some(CodexErrorInfo::ServerOverloaded)
+-                );
+-                break;
+-            }
+-            _ => {}
+-        }
++    let mut failure = responses::sse_response(responses::sse_failed(
++        "overloaded",
++        "server_is_overloaded",
++        "Please try again.",
++    ));
++    if let Some(header) = header {
++        failure = failure.insert_header("Retry-After", header);
+     }
+-
+-    assert_eq!(error_events, 1);
+-    assert_eq!(stream_error_events, 0);
+-    assert_eq!(response_mock.requests().len(), 1);
+-    let request_count = server
+-        .received_requests()
+-        .await
+-        .expect("mock server should record requests")
+-        .into_iter()
+-        .filter(|request| request.url.path() == "/v1/responses")
+-        .count();
+-    assert_eq!(request_count, 1, "streamed overload must not retry");
+-    assert_eq!(
+-        telemetry.events.try_recv(),
+-        Err(mpsc::error::TryRecvError::Empty)
+-    );
+-
+-    Ok(())
+-}
+-
+-/// A streamed backend overload without retry advice must complete with one terminal error.
+-#[tokio::test(flavor = "current_thread")]
+-async fn sse_overload_without_retry_after_is_terminal() -> Result<()> {
+-    skip_if_no_network!(Ok(()));
+-
+-    let mut telemetry = RetryTelemetryCapture::install();
+-    let server = responses::start_mock_server().await;
+-    let response_mock = responses::mount_sse_once(
++    let response_mock = responses::mount_response_sequence(
+         &server,
+-        responses::sse_failed(
+-            "disabled-model",
+-            "server_is_overloaded",
+-            "This model is disabled.",
+-        ),
++        vec![
++            failure,
++            responses::sse_response(responses::sse(vec![
++                responses::ev_response_created("recovered"),
++                responses::ev_completed("recovered"),
++            ])),
++        ],
+     )
+     .await;
+     let test = test_codex()
+         .with_config(|config| {
+-            config.model_provider.request_max_retries = Some(2);
+-            config.model_provider.stream_max_retries = Some(2);
++            config.model_provider.retry_delay_ms = Some(200);
++            config.model_provider.request_max_retries = Some(0);
++            config.model_provider.stream_max_retries = Some(1);
+         })
+         .build_with_auto_env(&server)
+         .await?;
+-
+-    submit_user_input(&test, "reject the streamed overload").await?;
+-
+-    let mut error_events = 0;
+-    let mut stream_error_events = 0;
+-    loop {
+-        match wait_for_event(&test.codex, |_| true).await {
+-            EventMsg::Error(error) => {
+-                error_events += 1;
+-                assert_eq!(
+-                    error.codex_error_info,
+-                    Some(CodexErrorInfo::ServerOverloaded)
+-                );
+-                assert_eq!(
+-                    error.message,
+-                    "Selected model is at capacity. Please try a different model."
+-                );
+-            }
+-            EventMsg::StreamError(_) => stream_error_events += 1,
+-            EventMsg::TurnComplete(event) => {
+-                assert_eq!(
+-                    event.error.and_then(|error| error.codex_error_info),
+-                    Some(CodexErrorInfo::ServerOverloaded)
+-                );
+-                break;
+-            }
+-            _ => {}
++    submit_user_input(&test, "retry the streamed overload").await?;
++    let retry = telemetry.next_retry().await;
++    assert_eq!(
++        retry,
++        RetryTelemetryEvent {
++            attempt: 1,
++            delay: Duration::from_millis(200),
++            layer: "stream".into(),
++            operation: "sampling".into(),
+         }
+-    }
+-
+-    assert_eq!(error_events, 1);
+-    assert_eq!(stream_error_events, 0);
+-    assert_eq!(response_mock.requests().len(), 1);
+-    let request_count = server
+-        .received_requests()
+-        .await
+-        .expect("mock server should record requests")
+-        .into_iter()
+-        .filter(|request| request.url.path() == "/v1/responses")
+-        .count();
+-    assert_eq!(request_count, 1, "headerless SSE overload must not retry");
++    );
++    wait_for_retry(&mut telemetry, &retry).await;
++    wait_for_turn_completion(&test).await;
++    assert_eq!(response_mock.requests().len(), 2);
+     assert_eq!(
+         telemetry.events.try_recv(),
+         Err(mpsc::error::TryRecvError::Empty)
+     );
+-
+     Ok(())
+ }
+ 
+@@ -1605,6 +1523,7 @@ async fn connection_failures_increment_retry_telemetry_without_consuming_retry_b
+ 
+     let test = test_codex()
+         .with_config(move |config| {
++            config.model_provider.retry_delay_ms = Some(200);
+             config.model_provider.base_url = Some(format!("http://{unavailable_address}/v1"));
+             config.model_provider.request_max_retries = Some(0);
+             config.model_provider.stream_max_retries = Some(0);
+@@ -1620,7 +1539,7 @@ async fn connection_failures_increment_retry_telemetry_without_consuming_retry_b
+         first_retry,
+         RetryTelemetryEvent {
+             attempt: 1,
+-            delay: Duration::from_secs(5),
++            delay: Duration::from_millis(200),
+             layer: "stream".into(),
+             operation: "sampling".into(),
+         }
+@@ -1632,7 +1551,7 @@ async fn connection_failures_increment_retry_telemetry_without_consuming_retry_b
+         second_retry,
+         RetryTelemetryEvent {
+             attempt: 2,
+-            delay: Duration::from_secs(10),
++            delay: Duration::from_millis(200),
+             layer: "stream".into(),
+             operation: "sampling".into(),
+         }
+@@ -1693,6 +1612,7 @@ async fn websocket_connection_limit_retries_with_local_backoff() -> Result<()> {
+     .await;
+     let test = test_codex()
+         .with_config(|config| {
++            config.model_provider.retry_delay_ms = Some(200);
+             config.model_provider.request_max_retries = Some(0);
+             config.model_provider.stream_max_retries = Some(1);
+         })
+@@ -1705,7 +1625,7 @@ async fn websocket_connection_limit_retries_with_local_backoff() -> Result<()> {
+     assert_eq!(warmup.body_json()["generate"].as_bool(), Some(false));
+     submit_user_input(&test, "retry after reaching the websocket connection limit").await?;
+     let retry = telemetry.next_retry().await;
+-    assert!((FIRST_RETRY_MIN_DELAY..FIRST_RETRY_MAX_DELAY).contains(&retry.delay));
++    assert_eq!(retry.delay, Duration::from_millis(200));
+     assert_eq!(
+         retry,
+         RetryTelemetryEvent {
+@@ -1802,10 +1722,16 @@ async fn websocket_failed_event_uses_header_over_plaintext_retry_after() -> Resu
+     Ok(())
+ }
+ 
+-/// Advised WebSocket failures reach HTTP after the existing retry budget. HTTP
+-/// recovery uses its own retry budget and honors the preceding advice deadlines.
++/// WebSocket 耗尽预算后的 HTTP 回退也遵从有符号等待配置。
++#[test_case::test_case(Some("1"), 200, 2000; "server_advice")]
++#[test_case::test_case(None, 200, 400; "without_advice")]
++#[test_case::test_case(Some("60"), -200, 400; "negative_ignores_advice")]
+ #[tokio::test(flavor = "current_thread")]
+-async fn websocket_upgrade_rejection_uses_retry_after() -> Result<()> {
++async fn websocket_upgrade_rejection_uses_retry_after(
++    header: Option<&str>,
++    retry_delay_ms: i64,
++    minimum_delay_ms: u64,
++) -> Result<()> {
+     skip_if_no_network!(Ok(()));
+ 
+     let server = responses::start_mock_server().await;
+@@ -1816,13 +1742,14 @@ async fn websocket_upgrade_rejection_uses_retry_after() -> Result<()> {
+         .expect(/*r*/ 1)
+         .mount_as_scoped(&server)
+         .await;
++    let mut rejection = ResponseTemplate::new(/*s*/ 503)
++        .set_body_json(json!({ "error": { "code": "server_is_overloaded" } }));
++    if let Some(header) = header {
++        rejection = rejection.insert_header("Retry-After", header);
++    }
+     Mock::given(method("GET"))
+         .and(path("/v1/responses"))
+-        .respond_with(
+-            ResponseTemplate::new(/*s*/ 503)
+-                .insert_header("Retry-After", "1")
+-                .set_body_json(json!({ "error": { "code": "server_is_overloaded" } })),
+-        )
++        .respond_with(rejection)
+         .mount(&server)
+         .await;
+     let http_overload = ResponseTemplate::new(/*s*/ 503)
+@@ -1842,7 +1769,8 @@ async fn websocket_upgrade_rejection_uses_retry_after() -> Result<()> {
+     )
+     .await;
+     let test = test_codex()
+-        .with_config(|config| {
++        .with_config(move |config| {
++            config.model_provider.retry_delay_ms = Some(retry_delay_ms);
+             config.model_catalog = Some(bundled_models_response().expect("bundled models"));
+             config.model_provider.supports_websockets = true;
+             config.model_provider.request_max_retries = Some(0);
+@@ -1862,8 +1790,8 @@ async fn websocket_upgrade_rejection_uses_retry_after() -> Result<()> {
+     submit_user_input(&test, "retry the rejected websocket upgrade").await?;
+     wait_for_turn_completion(&test).await;
+ 
+-    // Both WebSocket advice deadlines apply, including the one before transport fallback.
+-    assert!(start.elapsed() >= Duration::from_secs(2));
++    // 普通重试和切换传输各等待一次；负数场景不能被 60 秒建议阻塞。
++    assert!(start.elapsed() >= Duration::from_millis(minimum_delay_ms));
+     let requests = server.received_requests().await.unwrap_or_default();
+     let methods = requests
+         .iter()
+@@ -1949,94 +1877,13 @@ async fn websocket_error_uses_nested_retry_after() -> Result<()> {
+     Ok(())
+ }
+ 
+-/// Headerless websocket rate limits remain terminal.
+-#[tokio::test(flavor = "current_thread")]
+-async fn websocket_rate_limit_without_retry_after_is_terminal() -> Result<()> {
+-    skip_if_no_network!(Ok(()));
+-
+-    let mut telemetry = RetryTelemetryCapture::install();
+-    let server = responses::start_websocket_server(vec![vec![
+-        vec![
+-            responses::ev_response_created("prewarm"),
+-            responses::ev_completed("prewarm"),
+-        ],
+-        vec![json!({
+-            "type": "error",
+-            "status": 429,
+-            "error": {
+-                "type": "rate_limit_error",
+-                "code": "rate_limit_exceeded",
+-                "message": "Rate limit exceeded."
+-            }
+-        })],
+-    ]])
+-    .await;
+-    let test = test_codex()
+-        .with_config(|config| {
+-            config.model_provider.request_max_retries = Some(0);
+-            config.model_provider.stream_max_retries = Some(1);
+-        })
+-        .build_with_websocket_server(&server)
+-        .await?;
+-
+-    let warmup = server
+-        .wait_for_request(/*connection_index*/ 0, /*request_index*/ 0)
+-        .await;
+-    assert_eq!(warmup.body_json()["generate"].as_bool(), Some(false));
+-    submit_user_input(&test, "surface the headerless websocket rate limit").await?;
+-
+-    let mut error_events = 0;
+-    let mut stream_error_events = 0;
+-    loop {
+-        match wait_for_event(&test.codex, |_| true).await {
+-            EventMsg::Error(error) => {
+-                error_events += 1;
+-                assert_eq!(
+-                    error.codex_error_info,
+-                    Some(CodexErrorInfo::ResponseTooManyFailedAttempts {
+-                        http_status_code: Some(429),
+-                    })
+-                );
+-            }
+-            EventMsg::StreamError(_) => stream_error_events += 1,
+-            EventMsg::TurnComplete(event) => {
+-                assert_eq!(
+-                    event.error.and_then(|error| error.codex_error_info),
+-                    Some(CodexErrorInfo::ResponseTooManyFailedAttempts {
+-                        http_status_code: Some(429),
+-                    })
+-                );
+-                break;
+-            }
+-            _ => {}
+-        }
+-    }
+-
+-    assert_eq!(error_events, 1);
+-    assert_eq!(stream_error_events, 0);
+-    let request_count: usize = server.connections().iter().map(Vec::len).sum();
+-    assert_eq!(request_count, 2, "expected only prewarm and terminal error");
+-    assert_eq!(
+-        telemetry.events.try_recv(),
+-        Err(mpsc::error::TryRecvError::Empty)
+-    );
+-    server.shutdown().await;
+-
+-    Ok(())
+-}
+-
+-/// When an overload stops giving advice, it is terminal even if the retry limit
+-/// has been reached. The transport must not switch after that terminal error.
+-#[test_case::test_case("policy_capacity_unavailable", "server_is_overloaded", CodexErrorInfo::ServerOverloaded; "prior_policy_failure_stays_on_its_attempt")]
+-#[test_case::test_case("server_is_overloaded", "policy_capacity_unavailable", CodexErrorInfo::PolicyCapacityUnavailable; "terminal_policy_failure_is_preserved")]
++/// WebSocket 的三类暂时错误即使没有建议，也按配置等待并重新连接。
++#[test_case::test_case("rate_limit_exceeded", 429; "rate_limit")]
++#[test_case::test_case("server_is_overloaded", 503; "overload")]
++#[test_case::test_case("policy_capacity_unavailable", 503; "policy_capacity")]
+ #[tokio::test(flavor = "current_thread")]
+-async fn websocket_overload_retries_only_while_it_has_retry_after(
+-    first_code: &str,
+-    last_code: &str,
+-    expected_error: CodexErrorInfo,
+-) -> Result<()> {
++async fn websocket_headerless_errors_retry(code: &str, status: u16) -> Result<()> {
+     skip_if_no_network!(Ok(()));
+-
+     let mut telemetry = RetryTelemetryCapture::install();
+     let server = responses::start_websocket_server(vec![
+         vec![
+@@ -2045,193 +1892,53 @@ async fn websocket_overload_retries_only_while_it_has_retry_after(
+                 responses::ev_completed("prewarm"),
+             ],
+             vec![json!({
+-                "type": "error",
+-                "status": 503,
+-                "error": {
+-                    "code": first_code,
+-                    "message": "This model is disabled.",
+-                    "headers": { "Retry-After": "1" }
+-                }
++                "type": "error", "status": status,
++                "error": { "code": code, "message": "Please try again." }
+             })],
+         ],
+-        vec![vec![json!({
+-            "type": "error",
+-            "status": 503,
+-            "error": {"code": "server_is_overloaded", "headers": {"Retry-After": "1"}}
+-        })]],
+-        vec![vec![json!({
+-            "type": "error",
+-            "status": 503,
+-            "error": {"code": "server_is_overloaded", "headers": {"Retry-After": "1"}}
+-        })]],
+-        vec![vec![json!({
+-            "type": "error",
+-            "status": 503,
+-            "error": {"code": last_code, "message": "This model is disabled."}
+-        })]],
++        vec![vec![
++            responses::ev_response_created("recovered"),
++            responses::ev_completed("recovered"),
++        ]],
+     ])
+     .await;
+     let test = test_codex()
+         .with_config(|config| {
+-            // Capture inference retries without unrelated startup model-discovery retries.
+-            config.model_catalog =
+-                Some(bundled_models_response().expect("bundled models.json should parse"));
+-            config.model_provider.request_max_retries = Some(2);
+-            config.model_provider.stream_max_retries = Some(3);
++            config.model_catalog = Some(bundled_models_response().expect("bundled models"));
++            config.model_provider.retry_delay_ms = Some(200);
++            config.model_provider.request_max_retries = Some(0);
++            config.model_provider.stream_max_retries = Some(1);
+         })
+         .build_with_websocket_server(&server)
+         .await?;
+-
+-    let warmup = server
++    server
+         .wait_for_request(/*connection_index*/ 0, /*request_index*/ 0)
+         .await;
+-    assert_eq!(warmup.body_json()["generate"].as_bool(), Some(false));
+-    submit_user_input(&test, "retry the websocket overload only when advised").await?;
+-    for attempt in 1..=3 {
+-        let retry = telemetry.next_retry().await;
+-        assert_eq!(retry.attempt, attempt);
+-        assert!(retry.delay <= Duration::from_secs(1));
+-        assert!(wait_for_retry(&mut telemetry, &retry).await >= Duration::from_secs(1));
+-    }
+-
+-    let mut error_events = 0;
+-    let mut stream_error_events = 0;
+-    let mut fallback_warning_events = 0;
+-    loop {
+-        match wait_for_event(&test.codex, |_| true).await {
+-            EventMsg::Error(error) => {
+-                error_events += 1;
+-                assert_eq!(error.codex_error_info, Some(expected_error.clone()));
+-                assert_eq!(
+-                    error.message,
+-                    if last_code == "policy_capacity_unavailable" {
+-                        "Policy-restricted capacity is unavailable. Please try again later."
+-                    } else {
+-                        "Selected model is at capacity. Please try a different model."
+-                    }
+-                );
+-            }
+-            EventMsg::StreamError(_) => stream_error_events += 1,
+-            EventMsg::Warning(warning)
+-                if warning.message.contains("Falling back from WebSockets") =>
+-            {
+-                fallback_warning_events += 1;
+-            }
+-            EventMsg::TurnComplete(event) => {
+-                assert_eq!(
+-                    event.error.and_then(|error| error.codex_error_info),
+-                    Some(expected_error.clone())
+-                );
+-                break;
+-            }
+-            _ => {}
+-        }
+-    }
+-
+-    assert_eq!(error_events, 1);
+-    assert_eq!(stream_error_events, 2 + usize::from(cfg!(debug_assertions)));
+-    assert_eq!(
+-        fallback_warning_events, 0,
+-        "websocket must not fall back to HTTP"
+-    );
+-    let request_count: usize = server.connections().iter().map(Vec::len).sum();
+-    assert_eq!(
+-        request_count, 5,
+-        "expected prewarm, three advised errors, and a terminal error"
+-    );
++    submit_user_input(&test, "retry the headerless websocket error").await?;
++    let retry = telemetry.next_retry().await;
+     assert_eq!(
+-        telemetry.events.try_recv(),
+-        Err(mpsc::error::TryRecvError::Empty)
+-    );
+-    server.shutdown().await;
+-
+-    Ok(())
+-}
+-
+-/// Headerless websocket overloads must neither reconnect nor fall back to HTTP.
+-#[tokio::test(flavor = "current_thread")]
+-async fn websocket_overload_without_retry_after_is_terminal() -> Result<()> {
+-    skip_if_no_network!(Ok(()));
+-
+-    let mut telemetry = RetryTelemetryCapture::install();
+-    let server = responses::start_websocket_server(vec![vec![
+-        vec![
+-            responses::ev_response_created("prewarm"),
+-            responses::ev_completed("prewarm"),
+-        ],
+-        vec![json!({
+-            "type": "error",
+-            "status": 503,
+-            "error": {
+-                "code": "server_is_overloaded",
+-                "message": "This model is disabled."
+-            }
+-        })],
+-    ]])
+-    .await;
+-    let test = test_codex()
+-        .with_config(|config| {
+-            // Capture inference retries without unrelated startup model-discovery retries.
+-            config.model_catalog =
+-                Some(bundled_models_response().expect("bundled models.json should parse"));
+-            config.model_provider.request_max_retries = Some(2);
+-            config.model_provider.stream_max_retries = Some(2);
+-        })
+-        .build_with_websocket_server(&server)
+-        .await?;
+-
+-    let warmup = server
+-        .wait_for_request(/*connection_index*/ 0, /*request_index*/ 0)
+-        .await;
+-    assert_eq!(warmup.body_json()["generate"].as_bool(), Some(false));
+-    submit_user_input(&test, "reject the websocket overload").await?;
+-
+-    let mut error_events = 0;
+-    let mut stream_error_events = 0;
+-    let mut fallback_warning_events = 0;
+-    loop {
+-        match wait_for_event(&test.codex, |_| true).await {
+-            EventMsg::Error(error) => {
+-                error_events += 1;
+-                assert_eq!(
+-                    error.codex_error_info,
+-                    Some(CodexErrorInfo::ServerOverloaded)
+-                );
+-                assert_eq!(
+-                    error.message,
+-                    "Selected model is at capacity. Please try a different model."
+-                );
+-            }
+-            EventMsg::StreamError(_) => stream_error_events += 1,
+-            EventMsg::Warning(warning)
+-                if warning.message.contains("Falling back from WebSockets") =>
+-            {
+-                fallback_warning_events += 1;
+-            }
+-            EventMsg::TurnComplete(event) => {
+-                assert_eq!(
+-                    event.error.and_then(|error| error.codex_error_info),
+-                    Some(CodexErrorInfo::ServerOverloaded)
+-                );
+-                break;
+-            }
+-            _ => {}
++        retry,
++        RetryTelemetryEvent {
++            attempt: 1,
++            delay: Duration::from_millis(200),
++            layer: "stream".into(),
++            operation: "sampling".into(),
+         }
+-    }
+-
+-    assert_eq!(error_events, 1);
+-    assert_eq!(stream_error_events, 0);
++    );
++    wait_for_retry(&mut telemetry, &retry).await;
++    wait_for_turn_completion(&test).await;
+     assert_eq!(
+-        fallback_warning_events, 0,
+-        "websocket must not fall back to HTTP"
++        server
++            .connections()
++            .iter()
++            .map(Vec::len)
++            .collect::<Vec<_>>(),
++        vec![2, 1]
+     );
+-    let request_count: usize = server.connections().iter().map(Vec::len).sum();
+-    assert_eq!(request_count, 2, "expected only prewarm and terminal error");
+     assert_eq!(
+         telemetry.events.try_recv(),
+         Err(mpsc::error::TryRecvError::Empty)
+     );
+     server.shutdown().await;
+-
+     Ok(())
+ }
+diff --git a/codex-rs/model-provider-info/src/lib.rs b/codex-rs/model-provider-info/src/lib.rs
+index 96408491631e40298676bb79a6766b79a5abefad..4088f7a23d3e4c2a37a3ceda6c195d6f2c36b467 100644
+--- a/codex-rs/model-provider-info/src/lib.rs
++++ b/codex-rs/model-provider-info/src/lib.rs
+@@ -76,9 +76,9 @@ const DEFAULT_AWS_CREDENTIAL_EXPORT_TIMEOUT_MS: u64 = 30_000;
+ const DEFAULT_AWS_AUTH_REFRESH_TIMEOUT_MS: u64 = 300_000;
+ pub const DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS: u64 = 15_000;
+ /// Hard cap for user-configured `stream_max_retries`.
+-const MAX_STREAM_MAX_RETRIES: u64 = 100;
++const MAX_STREAM_MAX_RETRIES: u64 = 1000;
+ /// Hard cap for user-configured `request_max_retries`.
+-const MAX_REQUEST_MAX_RETRIES: u64 = 100;
++const MAX_REQUEST_MAX_RETRIES: u64 = 1000;
+ 
+ const OPENAI_PROVIDER_NAME: &str = "OpenAI";
+ const OPENAI_ACTOR_AUTHORIZATION_HEADER: &str = "x-openai-actor-authorization";
+@@ -209,6 +209,8 @@ pub struct ModelProviderInfo {
+     pub request_max_retries: Option<u64>,
+     /// Number of times to retry reconnecting a dropped streaming response before failing.
+     pub stream_max_retries: Option<u64>,
++    /// 模型重试等待毫秒数，默认 10000；负数忽略服务端建议并取绝对值。
++    pub retry_delay_ms: Option<i64>,
+     /// Idle timeout (in milliseconds) to wait for activity on a streaming response before treating
+     /// the connection as lost.
+     pub stream_idle_timeout_ms: Option<u64>,
+@@ -496,6 +498,7 @@ other non-default provider fields are not supported"
+         let retry = ApiRetryConfig {
+             max_attempts: self.request_max_retries(),
+             base_delay: Duration::from_millis(200),
++            retry_delay_ms: Some(self.retry_delay_ms.unwrap_or(10_000)),
+             retry_429: false,
+             retry_5xx: true,
+             retry_transport: true,
+@@ -600,6 +603,7 @@ other non-default provider fields are not supported"
+             // Use global defaults for retry/timeout unless overridden in config.toml.
+             request_max_retries: None,
+             stream_max_retries: None,
++            retry_delay_ms: None,
+             stream_idle_timeout_ms: None,
+             websocket_connect_timeout_ms: None,
+             requires_openai_auth: true,
+@@ -643,6 +647,7 @@ other non-default provider fields are not supported"
+             env_http_headers: None,
+             request_max_retries: None,
+             stream_max_retries: None,
++            retry_delay_ms: None,
+             stream_idle_timeout_ms: None,
+             websocket_connect_timeout_ms: None,
+             requires_openai_auth: false,
+@@ -683,6 +688,7 @@ other non-default provider fields are not supported"
+             env_http_headers: None,
+             request_max_retries: None,
+             stream_max_retries: None,
++            retry_delay_ms: None,
+             stream_idle_timeout_ms: None,
+             websocket_connect_timeout_ms: None,
+             requires_openai_auth: false,
+@@ -928,6 +934,7 @@ pub fn create_oss_provider_with_base_url(base_url: &str, wire_api: WireApi) -> M
+         env_http_headers: None,
+         request_max_retries: None,
+         stream_max_retries: None,
++        retry_delay_ms: None,
+         stream_idle_timeout_ms: None,
+         websocket_connect_timeout_ms: None,
+         requires_openai_auth: false,
+diff --git a/codex-rs/model-provider-info/src/model_provider_info_tests.rs b/codex-rs/model-provider-info/src/model_provider_info_tests.rs
+index 68b48aadc58475a4fa8c15a04aa651947f87648a..4f2cfaed8f1f9d1c70715addd9bfd354a1d0ba30 100644
+--- a/codex-rs/model-provider-info/src/model_provider_info_tests.rs
++++ b/codex-rs/model-provider-info/src/model_provider_info_tests.rs
+@@ -5,6 +5,27 @@ use pretty_assertions::assert_eq;
+ use std::num::NonZeroU64;
+ use tempfile::tempdir;
+ 
++#[test]
++fn retry_configuration_keeps_defaults_and_unlocks_1000() {
++    let defaults = ModelProviderInfo::default();
++    let provider = defaults.to_api_provider(None).unwrap();
++    assert_eq!(provider.retry.retry_delay_ms, Some(10_000));
++    for millis in [10_000, -10_000, 0] {
++        let config = format!(
++            "retry_delay_ms = {millis}\nrequest_max_retries = 1001\nstream_max_retries = 1001\n"
++        );
++        let info: ModelProviderInfo = toml::from_str(&config).unwrap();
++        assert_eq!(info.request_max_retries(), 1000);
++        assert_eq!(info.stream_max_retries(), 1000);
++        assert_eq!(
++            info.to_api_provider(None).unwrap().retry.retry_delay_ms,
++            Some(millis)
++        );
++    }
++    assert_eq!(defaults.request_max_retries(), DEFAULT_REQUEST_MAX_RETRIES);
++    assert_eq!(defaults.stream_max_retries(), DEFAULT_STREAM_MAX_RETRIES);
++}
++
+ #[test]
+ fn runtime_internal_metadata_opt_in_is_not_serialized_or_configurable() {
+     let trusted = ModelProviderInfo {
+@@ -91,6 +112,7 @@ base_url = "http://localhost:11434/v1"
+         env_http_headers: None,
+         request_max_retries: None,
+         stream_max_retries: None,
++        retry_delay_ms: None,
+         stream_idle_timeout_ms: None,
+         websocket_connect_timeout_ms: None,
+         requires_openai_auth: false,
+@@ -133,6 +155,7 @@ query_params = { api-version = "2025-04-01-preview" }
+         env_http_headers: None,
+         request_max_retries: None,
+         stream_max_retries: None,
++        retry_delay_ms: None,
+         stream_idle_timeout_ms: None,
+         websocket_connect_timeout_ms: None,
+         requires_openai_auth: false,
+@@ -179,6 +202,7 @@ supports_standalone_web_search = true
+         }),
+         request_max_retries: None,
+         stream_max_retries: None,
++        retry_delay_ms: None,
+         stream_idle_timeout_ms: None,
+         websocket_connect_timeout_ms: None,
+         requires_openai_auth: false,
+@@ -374,6 +398,7 @@ fn test_create_amazon_bedrock_provider() {
+             env_http_headers: None,
+             request_max_retries: None,
+             stream_max_retries: None,
++            retry_delay_ms: None,
+             stream_idle_timeout_ms: None,
+             websocket_connect_timeout_ms: None,
+             requires_openai_auth: false,
+diff --git a/codex-rs/model-provider/src/capabilities.rs b/codex-rs/model-provider/src/capabilities.rs
+index 311a83fe459c2e15e7e9d2690dd78f45cd062af0..ea1305600f0db78b9607d23a9dceb86836a68a77 100644
+--- a/codex-rs/model-provider/src/capabilities.rs
++++ b/codex-rs/model-provider/src/capabilities.rs
+@@ -31,7 +31,7 @@ impl Default for ProviderCapabilities {
+ }
+ 
+ impl ProviderCapabilities {
+-    pub(crate) fn from_config(info: &ModelProviderInfo) -> Self {
++    pub fn from_config(info: &ModelProviderInfo) -> Self {
+         let defaults = Self {
+             remote_compaction: if info.is_openai()
+                 || is_azure_responses_provider(&info.name, info.base_url.as_deref())
+diff --git a/codex-rs/otel/src/events/session_telemetry.rs b/codex-rs/otel/src/events/session_telemetry.rs
+index 43affe902d62d1e602b7cad941393ee2a649039a..55e749010893c447d61407b988039b320b34ccca 100644
+--- a/codex-rs/otel/src/events/session_telemetry.rs
++++ b/codex-rs/otel/src/events/session_telemetry.rs
+@@ -1404,6 +1404,8 @@ impl SessionTelemetry {
+ 
+     fn responses_type(event: &ResponseEvent) -> String {
+         match event {
++            ResponseEvent::RequestBytesSent(_) => "request_bytes_sent".into(),
++            ResponseEvent::ResponseBytesReceived(_) => "response_bytes_received".into(),
+             ResponseEvent::Created { .. } => "created".into(),
+             ResponseEvent::OutputItemDone(item) | ResponseEvent::OutputItemAdded(item) => {
+                 SessionTelemetry::responses_item_type(item)
+diff --git a/codex-rs/protocol/src/error.rs b/codex-rs/protocol/src/error.rs
+index e48cf5abd05cf5a818336abdb9fb591c93388848..d131037c46ee6ba69a3a7a9fd68bb760eaa82c91 100644
+--- a/codex-rs/protocol/src/error.rs
++++ b/codex-rs/protocol/src/error.rs
+@@ -454,10 +454,10 @@ impl CodexErr {
+             | CodexErrorDetails::CyberPolicy { .. }
+             | CodexErrorDetails::BioPolicy { .. }
+             | CodexErrorDetails::MisalignmentPolicyViolation { .. } => None,
+-            CodexErrorDetails::ServerOverloaded
+-            | CodexErrorDetails::PolicyCapacityUnavailable
+-            | CodexErrorDetails::RetryLimit(_) => self.server_retry_delay(),
+             CodexErrorDetails::Stream(..)
++            | CodexErrorDetails::ServerOverloaded
++            | CodexErrorDetails::PolicyCapacityUnavailable
++            | CodexErrorDetails::RetryLimit(_)
+             | CodexErrorDetails::ContentFilter
+             | CodexErrorDetails::RateLimitExceeded(_)
+             | CodexErrorDetails::Timeout
+diff --git a/codex-rs/protocol/src/error_tests.rs b/codex-rs/protocol/src/error_tests.rs
+index 8fb8ae872d245c4af84c5170ed67e644b88b2dcf..6f41773baad9c1d118007e82a623fd37120b0183 100644
+--- a/codex-rs/protocol/src/error_tests.rs
++++ b/codex-rs/protocol/src/error_tests.rs
+@@ -39,7 +39,7 @@ async fn codex_err_debug_preserves_legacy_shape() {
+ #[test]
+ fn retryability_preserves_error_details_distinctions() {
+     let errors = [
+-        (CodexErr::ServerOverloaded, false),
++        (CodexErr::ServerOverloaded, true),
+         (CodexErr::new(CodexErrorDetails::ContentFilter), true),
+         (
+             CodexErr::new(CodexErrorDetails::RateLimitExceeded("retry later".into())),
+@@ -50,7 +50,7 @@ fn retryability_preserves_error_details_distinctions() {
+                 status: StatusCode::TOO_MANY_REQUESTS,
+                 request_id: None,
+             }),
+-            false,
++            true,
+         ),
+         (
+             CodexErr::UnexpectedStatus(UnexpectedResponseError {
+diff --git a/codex-rs/protocol/src/protocol.rs b/codex-rs/protocol/src/protocol.rs
+index a0af620c340a0a98037795ca845bf0e855a56ad2..cf92a6af7cde983d68215aada9e82a15c6cca7cb 100644
+--- a/codex-rs/protocol/src/protocol.rs
++++ b/codex-rs/protocol/src/protocol.rs
+@@ -1568,6 +1568,10 @@ pub enum EventMsg {
+     #[serde(rename = "task_started", alias = "turn_started")]
+     TurnStarted(TurnStartedEvent),
+ 
++    /// Ephemeral byte progress for the active upstream model request. Never persisted
++    /// to the rollout; consumed by the UI to render transfer volume.
++    ModelRequestProgress(ModelRequestProgressEvent),
++
+     /// Persistent thread-settings overrides from the correlated submission have
+     /// been applied to the session configuration.
+     ThreadSettingsApplied(ThreadSettingsAppliedEvent),
+@@ -2411,6 +2415,25 @@ pub struct TurnCompleteEvent {
+     pub time_to_first_token_ms: Option<i64>,
+ }
+ 
++/// Direction of the byte counters reported by [`ModelRequestProgressEvent`].
++#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema, TS)]
++#[serde(rename_all = "snake_case")]
++#[ts(rename_all = "snake_case")]
++pub enum ModelRequestProgressPhase {
++    Sending,
++    Receiving,
++}
++
++/// Ephemeral byte counters for the active upstream model request.
++#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]
++pub struct ModelRequestProgressEvent {
++    pub phase: ModelRequestProgressPhase,
++    /// Cumulative request bytes sent for this request.
++    pub sent_bytes: u64,
++    /// Cumulative response bytes received for this request.
++    pub received_bytes: u64,
++}
++
+ #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]
+ pub struct TurnStartedEvent {
+     /// Provenance of a regular turn, persisted before startup work can be suspended.
+diff --git a/codex-rs/rollout-trace/src/protocol_event.rs b/codex-rs/rollout-trace/src/protocol_event.rs
+index a911b2b5f372ce1a51bb40e0f9ab2a7ebfcab18f..3b321ad3bdb003762db775c49453d17332d6e320 100644
+--- a/codex-rs/rollout-trace/src/protocol_event.rs
++++ b/codex-rs/rollout-trace/src/protocol_event.rs
+@@ -370,6 +370,7 @@ pub(crate) fn tool_runtime_trace_event(event: &EventMsg) -> Option<ToolRuntimeTr
+         }
+         EventMsg::SubAgentActivity(_) => None,
+         EventMsg::Error(_)
++        | EventMsg::ModelRequestProgress(_)
+         | EventMsg::Warning(_)
+         | EventMsg::AuthRecoveryStarted(_)
+         | EventMsg::AuthRecoveryCompleted(_)
+@@ -453,6 +454,7 @@ pub(crate) fn wrapped_protocol_event_type(event: &EventMsg) -> Option<&'static s
+         EventMsg::TurnAborted(_) => Some("turn_aborted"),
+         EventMsg::ThreadRolledBack(_) => Some("thread_rolled_back"),
+         EventMsg::Error(_) => Some("error"),
++        EventMsg::ModelRequestProgress(_) => Some("model_request_progress"),
+         EventMsg::Warning(_) => Some("warning"),
+         EventMsg::ShutdownComplete => Some("shutdown_complete"),
+         EventMsg::AuthRecoveryStarted(_)
+diff --git a/codex-rs/rollout/src/policy.rs b/codex-rs/rollout/src/policy.rs
+index e62c4232045679fb77ff5eefbc889ae6d157749c..253954bc39daf89462f76c3d645631b83b8120d4 100644
+--- a/codex-rs/rollout/src/policy.rs
++++ b/codex-rs/rollout/src/policy.rs
+@@ -160,6 +160,7 @@ fn persisted_event_msg(
+ 
+         // Transient, non-durable events.
+         EventMsg::Error(_)
++        | EventMsg::ModelRequestProgress(_)
+         | EventMsg::ThreadQueueChanged(_)
+         | EventMsg::GuardianAssessment(_)
+         | EventMsg::ExecCommandEnd(_)
+diff --git a/codex-rs/state/src/log_db.rs b/codex-rs/state/src/log_db.rs
+index ef03ad85731b25eff7e74465adeb8d8f5707c8a4..98fc40c819ef6f26c76d092f34ae123d2fb0ad20 100644
+--- a/codex-rs/state/src/log_db.rs
++++ b/codex-rs/state/src/log_db.rs
+@@ -60,7 +60,7 @@ const SQLX_LOG_TARGETS: [&str; 3] = ["sqlx", "sqlx_core", "sqlx_sqlite"];
+ 
+ pub fn default_filter() -> Targets {
+     Targets::new()
+-        .with_default(LevelFilter::TRACE)
++        .with_default(LevelFilter::INFO)
+         .with_target("h2", LevelFilter::WARN)
+         .with_target("hyper_util", LevelFilter::WARN)
+         .with_target("log", LevelFilter::OFF)
+diff --git a/codex-rs/tui/src/app/app_server_event_targets.rs b/codex-rs/tui/src/app/app_server_event_targets.rs
+index 8e7b3f7b8a1f8960f85e219716632ebb366662a3..bbcafa1ffd29754166c96309918a41fe074f2d7c 100644
+--- a/codex-rs/tui/src/app/app_server_event_targets.rs
++++ b/codex-rs/tui/src/app/app_server_event_targets.rs
+@@ -84,6 +84,9 @@ pub(super) fn server_notification_thread_target(
+             Some(notification.thread_id.as_str())
+         }
+         ServerNotification::TurnStarted(notification) => Some(notification.thread_id.as_str()),
++        ServerNotification::ModelRequestProgress(notification) => {
++            Some(notification.thread_id.as_str())
++        }
+         ServerNotification::HookStarted(notification) => Some(notification.thread_id.as_str()),
+         ServerNotification::TurnCompleted(notification) => Some(notification.thread_id.as_str()),
+         ServerNotification::HookCompleted(notification) => Some(notification.thread_id.as_str()),
+diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
+index ba6e3f8af0a5333e63b2789704e75a4c2e590268..f5235eab027fc954cea32292e1255233e7f4de5d 100644
+--- a/codex-rs/tui/src/app/event_dispatch.rs
++++ b/codex-rs/tui/src/app/event_dispatch.rs
+@@ -140,6 +140,7 @@ impl App {
+                         ..
+                     }
+                     | AppEvent::RevertSessionForPromptEdit { .. }
++                    | AppEvent::RollbackOutputFreeTurnForPromptRestore { .. }
+                     | AppEvent::SetThreadGoalDraft { .. }
+                     | AppEvent::SetThreadGoalStatus {
+                         status: ThreadGoalStatus::Active,
+@@ -734,6 +735,42 @@ impl App {
+                 }
+                 tui.frame_requester().schedule_frame();
+             }
++            AppEvent::RollbackOutputFreeTurnForPromptRestore { thread_id, turn_id } => {
++                if self.chat_widget.thread_id() != Some(thread_id) {
++                    return Ok(AppRunControl::Continue);
++                }
++                // The rollback anchor and the restored text must come from the same prompt, so
++                // derive both from the anchored cell instead of a cached submission.
++                let Some(nth) = crate::app_backtrack::user_count(&self.transcript_cells)
++                    .checked_sub(1)
++                else {
++                    return Ok(AppRunControl::Continue);
++                };
++                let Some(index) = crate::app_backtrack::nth_user_position(&self.transcript_cells, nth)
++                else {
++                    return Ok(AppRunControl::Continue);
++                };
++                let selected_cell = Arc::clone(&self.transcript_cells[index]);
++                let Some(user_cell) = selected_cell
++                    .as_any()
++                    .downcast_ref::<crate::history_cell::UserHistoryCell>()
++                else {
++                    return Ok(AppRunControl::Continue);
++                };
++                let prompt = crate::app_backtrack::user_message_from_history_cell(user_cell);
++                // The turn id was pinned when Esc was pressed. If a newer turn has started since,
++                // reverting would discard it, so restore the draft without touching history.
++                if self.chat_widget.last_turn_id().as_deref() != Some(turn_id.as_str()) {
++                    self.chat_widget.restore_user_message_to_composer(prompt);
++                    tui.frame_requester().schedule_frame();
++                    return Ok(AppRunControl::Continue);
++                }
++                self.app_event_tx.send(AppEvent::RevertSessionForPromptEdit {
++                    thread_id,
++                    selected_cell,
++                    prompt,
++                });
++            }
+             AppEvent::RevertSessionForPromptEdit {
+                 thread_id,
+                 selected_cell,
+diff --git a/codex-rs/tui/src/app/owned_transcript.rs b/codex-rs/tui/src/app/owned_transcript.rs
+index da20829facccd531553fc5e1c4c617775a1b72e7..3874f6840ce1668c6f479a3f0497e3953f0bbe76 100644
+--- a/codex-rs/tui/src/app/owned_transcript.rs
++++ b/codex-rs/tui/src/app/owned_transcript.rs
+@@ -862,6 +862,12 @@ impl App {
+             return self.handle_owned_backtrack_event(tui, event);
+         };
+         let resume_following = matches!(action, ViewAction::CopyAndFollow(_));
++        if let ViewAction::Quote(text) = &action {
++            self.chat_widget.append_transcript_quote(text);
++            // 退出选择时保留阅读锚点，不进入 Enter 的跟随最新输出分支。
++            self.transcript_view.end_select_mode();
++            self.transcript_view.end_selection(&self.transcript_cells);
++        }
+         if !matches!(action, ViewAction::ExitSelectMode) {
+             if let Some((characters, result)) = self.transcript_view.copy_action(
+                 tui,
+diff --git a/codex-rs/tui/src/app/tests/transcript_selection.rs b/codex-rs/tui/src/app/tests/transcript_selection.rs
+index 75462d38ed1346a499f335b20f95486ba319f4ab..e02475e24b8236274c7a8794b72bda69bc724899 100644
+--- a/codex-rs/tui/src/app/tests/transcript_selection.rs
++++ b/codex-rs/tui/src/app/tests/transcript_selection.rs
+@@ -4,6 +4,30 @@ use super::*;
+ use crate::chatwidget::UserMessage;
+ use pretty_assertions::assert_eq;
+ 
++#[tokio::test]
++async fn quote_appends_to_draft_tail_and_preserves_attachments() {
++    let (mut app, _, mut operations) = make_test_app_with_channels().await;
++    app.chat_widget
++        .restore_user_message_to_composer(UserMessage {
++            text: "draft".into(),
++            remote_image_urls: vec!["https://example.com/image.png".into()],
++            local_images: Vec::new(),
++            text_elements: Vec::new(),
++            mention_bindings: Vec::new(),
++        });
++    app.chat_widget.handle_key_event(KeyCode::Left.into());
++    let mut expected = app.chat_widget.capture_thread_input_state().unwrap();
++    expected
++        .composer
++        .as_mut()
++        .unwrap()
++        .text
++        .push_str("\n> 引用\n第二行\n");
++    app.chat_widget.append_transcript_quote("引用\n第二行");
++    assert_eq!(app.chat_widget.capture_thread_input_state(), Some(expected));
++    assert!(operations.try_recv().is_err());
++}
++
+ #[tokio::test]
+ async fn text_selection_temporarily_replaces_the_rendered_backtrack_highlight() -> Result<()> {
+     let (mut app, mut events, mut operations) = make_test_app_with_channels().await;
+diff --git a/codex-rs/tui/src/app/thread_events.rs b/codex-rs/tui/src/app/thread_events.rs
+index bddbd7719e951816164b20e260abd74b925beb49..44ebe0ed640766c3ecfa2850c1058b428921df96 100644
+--- a/codex-rs/tui/src/app/thread_events.rs
++++ b/codex-rs/tui/src/app/thread_events.rs
+@@ -294,6 +294,7 @@ impl ThreadEventStore {
+         if matches!(
+             notification.as_ref(),
+             ServerNotification::RawResponseItemCompleted(_)
++                | ServerNotification::ModelRequestProgress(_)
+                 | ServerNotification::FileChangePatchUpdated(_)
+                 | ServerNotification::ServerRequestResolved(_)
+                 | ServerNotification::McpToolCallProgress(_)
+diff --git a/codex-rs/tui/src/app_backtrack.rs b/codex-rs/tui/src/app_backtrack.rs
+index 03ede0382347977fdbe8cd5ce19c17bb29e2add3..3c6a0b8999e42b23b809cc1fc78696cfba8955b5 100644
+--- a/codex-rs/tui/src/app_backtrack.rs
++++ b/codex-rs/tui/src/app_backtrack.rs
+@@ -453,6 +453,7 @@ impl App {
+             let close_overlay = t.is_done();
+             let select_mode_closed = was_select_mode && (!t.is_select_mode() || close_overlay);
+             let pending_follow_id = t.pending_follow_id();
++            let quote = t.pending_quote.take();
+             if !close_overlay
+                 && active_key.is_some_and(|key| key.animation_tick.is_some())
+                 && t.is_scrolled_to_bottom()
+@@ -475,6 +476,10 @@ impl App {
+                     self.backtrack.pending_select_exit_key = None;
+                 }
+             }
++            if let Some(text) = quote {
++                self.chat_widget.append_transcript_quote(&text);
++                tui.frame_requester().schedule_frame();
++            }
+             if close_overlay {
+                 self.close_transcript_overlay(tui);
+                 tui.frame_requester().schedule_frame();
+@@ -532,27 +537,36 @@ impl App {
+         let selected = nth_user_position(&self.transcript_cells, nth_user_message)
+             .and_then(|idx| self.transcript_cells.get(idx))
+             .and_then(|cell| cell.as_any().downcast_ref::<UserHistoryCell>())?;
+-        let local_images = selected
+-            .local_image_paths
+-            .iter()
+-            .enumerate()
+-            .map(|(index, path)| LocalImageAttachment {
+-                placeholder: local_image_label_text(index + 1),
+-                path: path.clone(),
+-            })
+-            .collect();
+ 
+         Some(BacktrackSelection {
+             thread_id: base_id,
+             nth_user_message,
+-            prompt: UserMessage {
+-                text: selected.message.clone(),
+-                local_images,
+-                remote_image_urls: selected.remote_image_urls.clone(),
+-                text_elements: selected.text_elements.clone(),
+-                mention_bindings: Vec::new(),
+-            },
++            prompt: user_message_from_history_cell(selected),
++        })
++    }
++}
++
++/// Rebuild the editable prompt for a rendered user cell.
++///
++/// Used where a rollback must restore exactly the prompt that anchors it: deriving both from one
++/// cell keeps the composer text and the reverted range from disagreeing.
++pub(crate) fn user_message_from_history_cell(selected: &UserHistoryCell) -> UserMessage {
++    let local_images = selected
++        .local_image_paths
++        .iter()
++        .enumerate()
++        .map(|(index, path)| LocalImageAttachment {
++            placeholder: local_image_label_text(index + 1),
++            path: path.clone(),
+         })
++        .collect();
++
++    UserMessage {
++        text: selected.message.clone(),
++        local_images,
++        remote_image_urls: selected.remote_image_urls.clone(),
++        text_elements: selected.text_elements.clone(),
++        mention_bindings: Vec::new(),
+     }
+ }
+ 
+diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
+index 9c848858c6db4c4ccbb827bda612f6761fc69879..1b09e0187500a1e009176ec21f8b5669e8c55416 100644
+--- a/codex-rs/tui/src/app_event.rs
++++ b/codex-rs/tui/src/app_event.rs
+@@ -676,6 +676,15 @@ pub(crate) enum AppEvent {
+         selected_cell: Arc<dyn HistoryCell>,
+         prompt: UserMessage,
+     },
++    /// Roll back a turn that was interrupted before producing model output and restore its
++    /// prompt in the composer for editing.
++    ///
++    /// Only the turn id travels: the App layer resolves both the prompt text and the rollback
++    /// anchor from that one turn, so the restored text and the reverted range cannot disagree.
++    RollbackOutputFreeTurnForPromptRestore {
++        thread_id: ThreadId,
++        turn_id: String,
++    },
+     FinishPromptRevert {
+         thread_id: ThreadId,
+         nth_user_message: usize,
+diff --git a/codex-rs/tui/src/bottom_pane/mod.rs b/codex-rs/tui/src/bottom_pane/mod.rs
+index aef7c535b135f1143fc15f2ff79626b915d29fa9..3ecf4693ef7ebe2030e064cd208399ab57301256 100644
+--- a/codex-rs/tui/src/bottom_pane/mod.rs
++++ b/codex-rs/tui/src/bottom_pane/mod.rs
+@@ -325,6 +325,8 @@ pub(crate) struct BottomPane {
+ 
+     /// Inline status indicator shown above the composer while a task is running.
+     status: Option<StatusIndicatorWidget>,
++    /// Live byte counters kept across status-row rebuilds.
++    model_transfer: Option<crate::status_indicator_widget::ModelTransferStatus>,
+     /// Running-hook summary supplied by the lifecycle owner after its reveal delay.
+     hook_status_message: Option<String>,
+     inline_banner: Option<actionable_banner::InlineBanner>,
+@@ -419,6 +421,7 @@ impl BottomPane {
+             disable_paste_burst,
+             is_task_running: false,
+             status: None,
++            model_transfer: None,
+             hook_status_message: None,
+             inline_banner: None,
+             status_timer: crate::status_indicator_widget::StatusTimer::default(),
+@@ -1457,6 +1460,7 @@ impl BottomPane {
+                     self.keymap
+                         .primary_hint(KeymapContext::Chat, "interrupt_turn"),
+                 );
++                status.update_model_transfer(self.model_transfer);
+             }
+             self.sync_status_inline_message();
+             self.request_redraw();
+@@ -1812,6 +1816,18 @@ impl BottomPane {
+         }
+     }
+ 
++    /// Set or clear the live model-request byte counters in the status row.
++    pub(crate) fn update_model_transfer(
++        &mut self,
++        status: Option<crate::status_indicator_widget::ModelTransferStatus>,
++    ) {
++        self.model_transfer = status;
++        if let Some(widget) = self.status.as_mut() {
++            widget.update_model_transfer(status);
++            self.request_redraw();
++        }
++    }
++
+     pub(crate) fn composer_is_empty(&self) -> bool {
+         self.composer.is_empty()
+     }
+diff --git a/codex-rs/tui/src/chatwidget.rs b/codex-rs/tui/src/chatwidget.rs
+index d2962e8001347574e9a5bf680de4f18eb858dfea..ff75a37278a7283ca3bd29302d1995bc5b43eafd 100644
+--- a/codex-rs/tui/src/chatwidget.rs
++++ b/codex-rs/tui/src/chatwidget.rs
+@@ -95,6 +95,7 @@ use codex_app_server_protocol::ItemStartedNotification;
+ use codex_app_server_protocol::McpServerElicitationRequest;
+ use codex_app_server_protocol::McpServerElicitationRequestParams;
+ use codex_app_server_protocol::McpServerStatusDetail;
++use codex_app_server_protocol::ModelRequestProgressPhase as AppServerModelRequestProgressPhase;
+ use codex_app_server_protocol::ModelVerification as AppServerModelVerification;
+ use codex_app_server_protocol::RateLimitReachedType;
+ use codex_app_server_protocol::RateLimitSnapshot;
+@@ -250,6 +251,7 @@ use crate::render::renderable::RenderableItem;
+ use crate::slash_command::SlashCommand;
+ use crate::status::RateLimitSnapshotDisplay;
+ use crate::status::remote_connection::RemoteConnectionStatus;
++use crate::status_indicator_widget::ModelTransferPhase;
+ use crate::status_indicator_widget::STATUS_DETAILS_DEFAULT_MAX_LINES;
+ use crate::status_indicator_widget::StatusDetailsCapitalization;
+ use crate::text_formatting::truncate_text;
+@@ -804,6 +806,12 @@ pub(crate) struct ChatWidget {
+     // Keep fixture storage alive until all other widget fields have been dropped.
+     #[cfg(test)]
+     pub(crate) test_codex_home: Option<tempfile::TempDir>,
++    /// Turn id captured when Esc interrupted a turn that had produced no model output yet.
++    ///
++    /// Capturing the id at key-press time pins the rollback target. The interrupt notification
++    /// arrives after a network round trip, by which point the turn may already be streaming, so
++    /// re-deciding "was there output?" on arrival would silently drop the rollback.
++    pending_output_free_interrupt_turn_id: Option<String>,
+ }
+ 
+ #[cfg_attr(not(test), allow(dead_code))]
+diff --git a/codex-rs/tui/src/chatwidget/compaction.rs b/codex-rs/tui/src/chatwidget/compaction.rs
+index e05180a9eebfbe2c34e0a8a4deacf63be4f4a7f6..330b4e5639df6c896a84a8c9971d380431badb06 100644
+--- a/codex-rs/tui/src/chatwidget/compaction.rs
++++ b/codex-rs/tui/src/chatwidget/compaction.rs
+@@ -3,13 +3,46 @@
+ 
+ use super::*;
+ 
+-pub(super) const COMPACTION_HEADER: &str = "Compacting context";
+ pub(super) const COMPACTION_DETAILS: &str = "Making room to continue.";
+ 
++/// Which compaction implementation is producing the current status banner.
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub(super) enum CompactionStatusKind {
++    Local,
++    RemoteV2,
++}
++
++impl CompactionStatusKind {
++    pub(super) fn header(self) -> &'static str {
++        match self {
++            Self::Local => "Compacting locally",
++            Self::RemoteV2 => "Compacting remotely",
++        }
++    }
++
++    /// Resolve the implementation from the same inputs the core turn path uses:
++    /// token-budget compaction and providers without remote support both compact locally.
++    pub(super) fn resolve(
++        features: &crate::legacy_core::config::ManagedFeatures,
++        provider: &codex_model_provider_info::ModelProviderInfo,
++    ) -> Self {
++        // 与核心复用同一能力解析，包含用户对 provider capability 的覆盖。
++        if features.enabled(Feature::TokenBudget)
++            || codex_model_provider::ProviderCapabilities::from_config(provider).remote_compaction
++                == codex_model_provider_info::RemoteCompactionSupport::Unsupported
++        {
++            Self::Local
++        } else {
++            Self::RemoteV2
++        }
++    }
++}
++
+ #[derive(Debug)]
+ pub(super) struct ActiveCompaction {
+     pub(super) id: String,
+     pub(super) started_at: Instant,
++    pub(super) kind: CompactionStatusKind,
+ }
+ 
+ impl ChatWidget {
+@@ -25,10 +58,16 @@ impl ChatWidget {
+         self.flush_answer_stream_with_separator();
+         let now = Instant::now();
+         let started_at = now.checked_sub(elapsed).unwrap_or(now);
+-        self.status_state.compaction = Some(ActiveCompaction { id, started_at });
++        let kind =
++            CompactionStatusKind::resolve(&self.config.features, &self.config.model_provider);
++        self.status_state.compaction = Some(ActiveCompaction {
++            id,
++            started_at,
++            kind,
++        });
+         self.bottom_pane.set_status_timer_origin(Some(started_at));
+         self.bottom_pane.ensure_status_indicator();
+-        self.set_status_header(COMPACTION_HEADER.to_string());
++        self.set_status_header(kind.header().to_string());
+     }
+ 
+     pub(super) fn clear_context_compaction(&mut self) {
+diff --git a/codex-rs/tui/src/chatwidget/constructor.rs b/codex-rs/tui/src/chatwidget/constructor.rs
+index 6e405d201e550a151303851a2c4af4ba5089b947..51798229ba53bc78ef95ecd7d057a6b55c3014ae 100644
+--- a/codex-rs/tui/src/chatwidget/constructor.rs
++++ b/codex-rs/tui/src/chatwidget/constructor.rs
+@@ -302,6 +302,7 @@ impl ChatWidget {
+             last_non_retry_error: None,
+             #[cfg(test)]
+             test_codex_home: None,
++            pending_output_free_interrupt_turn_id: None,
+         };
+ 
+         widget.bottom_pane.set_mention_usage_home(
+diff --git a/codex-rs/tui/src/chatwidget/input_restore.rs b/codex-rs/tui/src/chatwidget/input_restore.rs
+index 559a851d0d05f8ccbfa1f79ea13460eb7f8b39cb..89a7d117a9abd767ba1071155cf5f0be3de94ce4 100644
+--- a/codex-rs/tui/src/chatwidget/input_restore.rs
++++ b/codex-rs/tui/src/chatwidget/input_restore.rs
+@@ -357,6 +357,20 @@ impl ChatWidget {
+     /// separated by newlines rather than auto-submitting the next one.
+     pub(super) fn on_interrupted_turn(&mut self, reason: TurnAbortReason) {
+         self.requeue_image_submission();
++        // An Esc interrupt before any model output should hand the prompt back for editing
++        // rather than leaving it stranded in the transcript. The turn id was pinned when Esc
++        // was pressed; re-testing for output here would miss a turn that started streaming
++        // during the interrupt round trip and silently drop the rollback.
++        let pinned_turn_id = self.pending_output_free_interrupt_turn_id.take();
++        let interrupted_pinned_turn = reason == TurnAbortReason::Interrupted
++            && pinned_turn_id.as_deref().is_some_and(|turn_id| {
++                self.turn_lifecycle.last_turn_id.as_deref() == Some(turn_id)
++            });
++        let rollback_turn_id = if interrupted_pinned_turn {
++            pinned_turn_id
++        } else {
++            None
++        };
+         // Finalize, log a gentle prompt, and clear running state.
+         self.finalize_turn();
+         // Cancellation means idle in the program-status protocol, not a failed task.
+@@ -367,7 +381,9 @@ impl ChatWidget {
+         let send_pending_steers_immediately =
+             self.input_queue.submit_pending_steers_after_interrupt;
+         self.input_queue.submit_pending_steers_after_interrupt = false;
+-        if self.interrupted_turn_notice_mode != InterruptedTurnNoticeMode::Suppress {
++        if self.interrupted_turn_notice_mode != InterruptedTurnNoticeMode::Suppress
++            && rollback_turn_id.is_none()
++        {
+             if send_pending_steers_immediately {
+                 self.add_to_history(history_cell::new_info_event(
+                     "Model interrupted to submit steer instructions.".to_owned(),
+@@ -441,10 +457,26 @@ impl ChatWidget {
+         } else if let Some(combined) = self.drain_pending_messages_for_restore() {
+             self.restore_composer_state(combined);
+         }
++        if let (Some(thread_id), Some(turn_id)) = (self.thread_id, rollback_turn_id) {
++            self.app_event_tx
++                .send(AppEvent::RollbackOutputFreeTurnForPromptRestore { thread_id, turn_id });
++        }
+         self.refresh_pending_input_preview();
+         self.request_redraw();
+     }
+ 
++    pub(super) fn current_turn_has_model_output(&self) -> bool {
++        // 回滚前同时检查答案、推理、计划与工具，保留已经可见的工作。
++        self.stream_controller.is_some()
++            || self.plan_stream_controller.is_some()
++            || !self.reasoning_buffer.is_empty()
++            || !self.reasoning_summary_parts.is_empty()
++            || self.transcript.saw_copy_source_this_turn
++            || self.transcript.saw_tool_item_this_turn
++            || self.transcript.saw_plan_update_this_turn
++            || self.transcript.saw_plan_item_this_turn
++    }
++
+     /// Merge pending steers, queued drafts, and the current composer state into a single message.
+     ///
+     /// Each pending message numbers attachments from `[Image #1]` relative to its own remote
+@@ -583,6 +615,20 @@ impl ChatWidget {
+         self.bottom_pane.set_composer_pending_pastes(pending_pastes);
+     }
+ 
++    pub(crate) fn append_transcript_quote(&mut self, text: &str) {
++        let draft = self.bottom_pane.composer_draft_snapshot();
++        // 只在末尾追加，沿用草稿恢复以保留附件、提及和折叠粘贴内容。
++        self.restore_composer_state(ThreadComposerState {
++            text: format!("{}\n> {text}\n", draft.text),
++            text_elements: draft.text_elements,
++            local_images: draft.local_images,
++            remote_image_urls: draft.remote_image_urls,
++            mention_bindings: draft.mention_bindings,
++            pending_pastes: draft.pending_pastes,
++        });
++        self.request_redraw();
++    }
++
+     fn composer_state_from_user_message(
+         user_message: UserMessage,
+         pending_pastes: Vec<(String, String)>,
+diff --git a/codex-rs/tui/src/chatwidget/interaction.rs b/codex-rs/tui/src/chatwidget/interaction.rs
+index 617253a793be7ecac3cb0ed8a465c446a6f9def3..717be23e48e051350fd59d29684c4d5d87dd81ba 100644
+--- a/codex-rs/tui/src/chatwidget/interaction.rs
++++ b/codex-rs/tui/src/chatwidget/interaction.rs
+@@ -308,6 +308,21 @@ impl ChatWidget {
+                 let had_modal_or_popup = !self.bottom_pane.no_modal_or_popup_active();
+                 let should_pause_active_goal =
+                     self.bottom_pane.should_interrupt_running_task(key_event);
++                // Interrupting a turn that has produced no model output yet should hand the
++                // prompt back for editing instead of leaving it stranded in the transcript.
++                // Record which turn was interrupted now: the completion notification arrives
++                // later, and by then the turn may already have streamed output.
++                // Require a rendered prompt for this turn, so a turn with no user prompt (for
++                // example a goal continuation) never rolls back someone else's message.
++                if should_pause_active_goal
++                    && key_event.code == KeyCode::Esc
++                    && !self.side_conversation_active()
++                    && !self.current_turn_has_model_output()
++                    && self.last_rendered_user_message_display.is_some()
++                {
++                    self.pending_output_free_interrupt_turn_id =
++                        self.turn_lifecycle.last_turn_id.clone();
++                }
+                 let input_result = self
+                     .bottom_pane
+                     .handle_key_event_with_activation_key(key_event, activation_key);
+diff --git a/codex-rs/tui/src/chatwidget/protocol.rs b/codex-rs/tui/src/chatwidget/protocol.rs
+index 7a084963739d14dd928e60f241259d42e1ec8725..54409ea7b1059a374be5af06d968b29d024f5df1 100644
+--- a/codex-rs/tui/src/chatwidget/protocol.rs
++++ b/codex-rs/tui/src/chatwidget/protocol.rs
+@@ -117,6 +117,24 @@ impl ChatWidget {
+                     }
+                 }
+             }
++            ServerNotification::ModelRequestProgress(notification) => {
++                if self.turn_lifecycle.last_turn_id.as_deref()
++                    != Some(notification.turn_id.as_str())
++                    || !self.bottom_pane.is_task_running()
++                {
++                    return;
++                }
++                let phase = match notification.phase {
++                    AppServerModelRequestProgressPhase::Sending => ModelTransferPhase::Sending,
++                    AppServerModelRequestProgressPhase::Receiving => ModelTransferPhase::Receiving,
++                };
++                let status = self.status_state.update_model_transfer(
++                    phase,
++                    notification.sent_bytes,
++                    notification.received_bytes,
++                );
++                self.bottom_pane.update_model_transfer(Some(status));
++            }
+             ServerNotification::TurnCompleted(notification) => {
+                 self.restore_realtime_transcripts_before_turn(&notification.turn.id);
+                 self.handle_turn_completed_notification(notification, replay_kind);
+@@ -578,6 +596,15 @@ impl ChatWidget {
+         replay_kind: Option<ReplayKind>,
+     ) {
+         self.restore_realtime_transcripts_before_turn(&notification.turn_id);
++        // 工具事件也是模型输出；执行过工具后不能再按“尚无输出”回滚提示词。
++        self.transcript.saw_tool_item_this_turn |= replay_kind.is_none()
++            && !matches!(
++                &notification.item.payload,
++                ThreadItemPayload::UserMessage { .. }
++                    | ThreadItemPayload::AgentMessage { .. }
++                    | ThreadItemPayload::Reasoning { .. }
++                    | ThreadItemPayload::ContextCompaction { .. }
++            );
+         match notification.item.payload {
+             ThreadItemPayload::UserMessage { content, .. } if replay_kind.is_none() => {
+                 self.note_realtime_user_item_started(&notification.turn_id, &content);
+@@ -670,6 +697,14 @@ impl ChatWidget {
+         replay_kind: Option<ReplayKind>,
+     ) {
+         self.restore_realtime_transcripts_before_turn(&notification.turn_id);
++        self.transcript.saw_tool_item_this_turn |= replay_kind.is_none()
++            && !matches!(
++                &notification.item.payload,
++                ThreadItemPayload::UserMessage { .. }
++                    | ThreadItemPayload::AgentMessage { .. }
++                    | ThreadItemPayload::Reasoning { .. }
++                    | ThreadItemPayload::ContextCompaction { .. }
++            );
+         if replay_kind.is_none()
+             && self.is_realtime_delegated_reasoning_turn(&notification.turn_id)
+             && realtime::is_private_realtime_agent_item(&notification.item.payload)
+diff --git a/codex-rs/tui/src/chatwidget/safety_recourse.rs b/codex-rs/tui/src/chatwidget/safety_recourse.rs
+index 602ddf46e51d4d739b9cada4cc185e23da20d423..f31ef27ed2c05afb179053062dbbb233a554085f 100644
+--- a/codex-rs/tui/src/chatwidget/safety_recourse.rs
++++ b/codex-rs/tui/src/chatwidget/safety_recourse.rs
+@@ -32,10 +32,12 @@ pub(super) fn on_metadata(chat: &mut ChatWidget, notification: TurnModerationMet
+     };
+     let pending = chat.safety_recourse.get_or_insert(PendingRecourse {
+         domain,
+-        notice: Box::new(match domain {
+-            Domain::Bio => history_cell::new_safety_access_block_event(),
+-            Domain::Cyber => history_cell::new_cyber_policy_error_event(chat.cyber_policy_notice()),
+-        }),
++        notice: match domain {
++            Domain::Bio => Box::new(history_cell::new_safety_access_block_event()),
++            Domain::Cyber => Box::new(history_cell::new_cyber_policy_error_event(
++                chat.cyber_policy_notice(),
++            )),
++        },
+         result: None,
+         deferred_error: None,
+     });
+@@ -106,8 +108,14 @@ pub(super) fn render_failure(
+             ..Default::default()
+         });
+     }
+-    let mut cell = match pending.domain {
+-        Domain::Bio => history_cell::new_safety_access_block_event(),
++    match pending.domain {
++        Domain::Bio => {
++            let mut cell = history_cell::new_safety_access_block_event();
++            cell.explanation = Some(result.explanation);
++            chat.input_queue.submit_pending_steers_after_interrupt = false;
++            chat.finalize_turn();
++            chat.add_to_history(cell);
++        }
+         Domain::Cyber => {
+             let notice = chat.cyber_policy_notice();
+             if notice == crate::daybreak::Notice::Disabled {
+@@ -123,13 +131,10 @@ pub(super) fn render_failure(
+                     ..Default::default()
+                 });
+             }
+-            history_cell::new_cyber_policy_error_event(notice)
++            // Cybersecurity refusals only surface as a warning: the turn is not force-ended.
++            chat.add_to_history(history_cell::new_cyber_policy_error_event(notice));
+         }
+-    };
+-    cell.explanation = Some(result.explanation);
+-    chat.input_queue.submit_pending_steers_after_interrupt = false;
+-    chat.finalize_turn();
+-    chat.add_to_history(cell);
++    }
+     if !items.is_empty() {
+         chat.bottom_pane.show_selection_view(SelectionViewParams {
+             view_id: Some(VIEW_ID),
+diff --git a/codex-rs/tui/src/chatwidget/slash_dispatch.rs b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
+index 44f3c879e27620cb7102161e286a310b2522d7cc..28f53fccd897d27d77c74a2e764512212313c741 100644
+--- a/codex-rs/tui/src/chatwidget/slash_dispatch.rs
++++ b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
+@@ -334,8 +334,12 @@ impl ChatWidget {
+                     self.bottom_pane.set_task_running(/*running*/ true);
+                 }
+                 self.bottom_pane.ensure_status_indicator();
++                let compaction_kind = compaction::CompactionStatusKind::resolve(
++                    &self.config.features,
++                    &self.config.model_provider,
++                );
+                 self.set_status(
+-                    compaction::COMPACTION_HEADER.to_string(),
++                    compaction_kind.header().to_string(),
+                     Some(compaction::COMPACTION_DETAILS.to_string()),
+                     StatusDetailsCapitalization::Preserve,
+                     STATUS_DETAILS_DEFAULT_MAX_LINES,
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running.snap
+index fff40163ad765dca7df245aeaa006e0a6bc99157..3be1f241b52041f390e8722ee167566e24d04158 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running.snap
+@@ -2,7 +2,7 @@
+ source: tui/src/chatwidget/tests/compaction_tests.rs
+ expression: "normalize_compaction_snapshot(render_bottom_popup(&chat, 80))"
+ ---
+-• Compacting context (<elapsed> • esc to interrupt)
++• Compacting remotely (<elapsed> • esc to interrupt)
+   └ Making room to continue.
+ 
+ 
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running_narrow.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running_narrow.snap
+index 161bd517c209a8aec5f12b82134592422ab9d1ff..2cb99477f53ba5b954f1885dbd2bb687972c6cf2 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running_narrow.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running_narrow.snap
+@@ -2,7 +2,7 @@
+ source: tui/src/chatwidget/tests/compaction_tests.rs
+ expression: "normalize_compaction_snapshot(render_bottom_popup(&chat, 40))"
+ ---
+-• Compacting context (<elapsed> • esc to i…
++• Compacting remotely (<elapsed> • esc to …
+   └ Making room to continue.
+ 
+ 
+diff --git a/codex-rs/tui/src/chatwidget/status_controls.rs b/codex-rs/tui/src/chatwidget/status_controls.rs
+index d08632d79e9cc7a22d061adfaffe8db0ebf6f1cd..49a539701470a2f0c1973d0a1433bcf7d48fb6ba 100644
+--- a/codex-rs/tui/src/chatwidget/status_controls.rs
++++ b/codex-rs/tui/src/chatwidget/status_controls.rs
+@@ -22,11 +22,14 @@ impl ChatWidget {
+     ) -> bool {
+         // Follow-up input and background activity must not obscure compaction.
+         // Retry errors still get their own status until the next notification.
+-        let (header, details, details_max_lines) = if self.status_state.compaction.is_some()
+-            && self.status_state.retry_status_header.is_none()
++        let (header, details, details_max_lines) = if let Some(active) = self
++            .status_state
++            .compaction
++            .as_ref()
++            .filter(|_| self.status_state.retry_status_header.is_none())
+         {
+             (
+-                compaction::COMPACTION_HEADER.to_string(),
++                active.kind.header().to_string(),
+                 Some(compaction::COMPACTION_DETAILS.to_string()),
+                 STATUS_DETAILS_DEFAULT_MAX_LINES,
+             )
+diff --git a/codex-rs/tui/src/chatwidget/status_state.rs b/codex-rs/tui/src/chatwidget/status_state.rs
+index fa686f10edb67d7b64f139667fb21c5552ba7de2..e444a75eb1deb47ce87f65400fc66726e7f7e752 100644
+--- a/codex-rs/tui/src/chatwidget/status_state.rs
++++ b/codex-rs/tui/src/chatwidget/status_state.rs
+@@ -1,5 +1,7 @@
+ //! Status indicator and terminal-title state for `ChatWidget`.
+ 
++use crate::status_indicator_widget::ModelTransferPhase;
++use crate::status_indicator_widget::ModelTransferStatus;
+ use crate::status_indicator_widget::STATUS_DETAILS_DEFAULT_MAX_LINES;
+ use crate::terminal_program_status::ProgramStatus;
+ 
+@@ -126,6 +128,61 @@ pub(super) struct StatusState {
+     pub(super) program_status_after_turn: ProgramStatus,
+     pub(super) retry_status_header: Option<String>,
+     pub(super) pending_status_indicator_restore: bool,
++    /// Accumulates byte counters across the consecutive model requests in a turn.
++    model_transfer: ModelTransferAccumulator,
++}
++
++/// Sums per-request byte counters so the status row reports whole-turn volume.
++///
++/// A single sampling turn issues several upstream requests (tool calls loop back
++/// through the model). Bytes from finished requests are folded into `completed_*`
++/// when the next `Sending` phase starts.
++#[derive(Debug, Default)]
++struct ModelTransferAccumulator {
++    phase: Option<ModelTransferPhase>,
++    completed_sent_bytes: u64,
++    completed_received_bytes: u64,
++    request_sent_bytes: u64,
++    request_received_bytes: u64,
++}
++
++impl ModelTransferAccumulator {
++    fn update(
++        &mut self,
++        phase: ModelTransferPhase,
++        request_sent_bytes: u64,
++        request_received_bytes: u64,
++    ) -> ModelTransferStatus {
++        match phase {
++            ModelTransferPhase::Sending => {
++                // A fresh request is starting: bank whatever the previous one used.
++                if self.phase.is_some() {
++                    self.completed_sent_bytes = self
++                        .completed_sent_bytes
++                        .saturating_add(self.request_sent_bytes);
++                    self.completed_received_bytes = self
++                        .completed_received_bytes
++                        .saturating_add(self.request_received_bytes);
++                }
++                self.request_sent_bytes = request_sent_bytes;
++                self.request_received_bytes = 0;
++            }
++            ModelTransferPhase::Receiving => {
++                self.request_sent_bytes = request_sent_bytes;
++                self.request_received_bytes = request_received_bytes;
++            }
++        }
++        self.phase = Some(phase);
++        ModelTransferStatus {
++            phase,
++            sent_bytes: self
++                .completed_sent_bytes
++                .saturating_add(self.request_sent_bytes),
++            received_bytes: self
++                .completed_received_bytes
++                .saturating_add(self.request_received_bytes),
++        }
++    }
+ }
+ 
+ impl Default for StatusState {
+@@ -141,6 +198,7 @@ impl Default for StatusState {
+             program_status_after_turn: ProgramStatus::Idle,
+             retry_status_header: None,
+             pending_status_indicator_restore: false,
++            model_transfer: ModelTransferAccumulator::default(),
+         }
+     }
+ }
+@@ -150,6 +208,22 @@ impl StatusState {
+         self.current_status = status;
+     }
+ 
++    /// Clear accumulated transfer counters at the start of a new turn.
++    pub(super) fn reset_model_transfer(&mut self) {
++        self.model_transfer = ModelTransferAccumulator::default();
++    }
++
++    /// Fold a progress notification into the turn's running byte totals.
++    pub(super) fn update_model_transfer(
++        &mut self,
++        phase: ModelTransferPhase,
++        request_sent_bytes: u64,
++        request_received_bytes: u64,
++    ) -> ModelTransferStatus {
++        self.model_transfer
++            .update(phase, request_sent_bytes, request_received_bytes)
++    }
++
+     pub(super) fn take_retry_status_header(&mut self) -> Option<String> {
+         self.retry_status_header.take()
+     }
+@@ -196,4 +270,72 @@ mod tests {
+         );
+         assert_eq!(state.take_retry_status_header(), None);
+     }
++
++    #[test]
++    fn model_transfer_accumulates_across_requests() {
++        let mut state = ModelTransferAccumulator::default();
++        state.update(
++            ModelTransferPhase::Sending,
++            /*request_sent_bytes*/ 0,
++            /*request_received_bytes*/ 0,
++        );
++        state.update(
++            ModelTransferPhase::Receiving,
++            /*request_sent_bytes*/ 100,
++            /*request_received_bytes*/ 50,
++        );
++        // A second request in the same turn banks the first request's bytes.
++        let between_requests = state.update(
++            ModelTransferPhase::Sending,
++            /*request_sent_bytes*/ 0,
++            /*request_received_bytes*/ 0,
++        );
++        let second_request = state.update(
++            ModelTransferPhase::Receiving,
++            /*request_sent_bytes*/ 25,
++            /*request_received_bytes*/ 10,
++        );
++
++        assert_eq!(
++            between_requests,
++            ModelTransferStatus {
++                phase: ModelTransferPhase::Sending,
++                sent_bytes: 100,
++                received_bytes: 50,
++            }
++        );
++        assert_eq!(
++            second_request,
++            ModelTransferStatus {
++                phase: ModelTransferPhase::Receiving,
++                sent_bytes: 125,
++                received_bytes: 60,
++            }
++        );
++    }
++
++    #[test]
++    fn reset_model_transfer_drops_accumulated_bytes() {
++        let mut state = StatusState::default();
++        state.update_model_transfer(
++            ModelTransferPhase::Receiving,
++            /*request_sent_bytes*/ 10,
++            /*request_received_bytes*/ 20,
++        );
++
++        state.reset_model_transfer();
++
++        assert_eq!(
++            state.update_model_transfer(
++                ModelTransferPhase::Receiving,
++                /*request_sent_bytes*/ 1,
++                /*request_received_bytes*/ 2,
++            ),
++            ModelTransferStatus {
++                phase: ModelTransferPhase::Receiving,
++                sent_bytes: 1,
++                received_bytes: 2,
++            }
++        );
++    }
+ }
+diff --git a/codex-rs/tui/src/chatwidget/tests/compaction_tests.rs b/codex-rs/tui/src/chatwidget/tests/compaction_tests.rs
+index 291dc844f40957af725f78dee245815e81c161b2..f567b34f8830ab30e8a273bb645d0c7609a63cf6 100644
+--- a/codex-rs/tui/src/chatwidget/tests/compaction_tests.rs
++++ b/codex-rs/tui/src/chatwidget/tests/compaction_tests.rs
+@@ -1,6 +1,22 @@
+ use super::*;
+ use pretty_assertions::assert_eq;
+ 
++#[tokio::test]
++async fn compaction_banner_respects_provider_capability_override() {
++    use codex_model_provider_info::ModelProviderCapabilities;
++    use codex_model_provider_info::RemoteCompactionSupport;
++    let (mut chat, _, _) = make_chatwidget_manual(None).await;
++    chat.config.model_provider.capabilities = Some(ModelProviderCapabilities {
++        remote_compaction: Some(RemoteCompactionSupport::Unsupported),
++        ..Default::default()
++    });
++    chat.dispatch_command(SlashCommand::Compact);
++    assert_eq!(
++        chat.bottom_pane.status_widget().unwrap().header(),
++        "Compacting locally"
++    );
++}
++
+ fn normalize_compaction_snapshot(text: String) -> String {
+     let elapsed = regex_lite::Regex::new(r"\b\d+(?:h \d+m \d+s|m \d+s|s)\b").unwrap();
+     elapsed
+@@ -70,7 +86,7 @@ async fn compaction_status_survives_follow_up_and_preserves_turn_time() {
+     assert_eq!(chat.input_queue.pending_steers.len(), 1);
+     assert_eq!(
+         chat.bottom_pane.status_widget().unwrap().header(),
+-        "Compacting context"
++        "Compacting remotely"
+     );
+     drain_insert_history(&mut rx);
+ 
+@@ -96,7 +112,7 @@ async fn manual_compaction_shows_status_before_backend_events() {
+     assert!(chat.bottom_pane.status_indicator_visible());
+     assert_eq!(
+         chat.bottom_pane.status_widget().unwrap().header(),
+-        "Compacting context"
++        "Compacting remotely"
+     );
+     assert!(chat.handle_turn_start_rejection("Could not start compaction".to_string()));
+     assert!(!chat.bottom_pane.status_indicator_visible());
+@@ -172,7 +188,7 @@ async fn compaction_snapshot_restores_elapsed_time_and_clears_on_replayed_comple
+     );
+     assert_eq!(
+         chat.bottom_pane.status_widget().unwrap().header(),
+-        "Compacting context"
++        "Compacting remotely"
+     );
+     assert!(
+         chat.status_state
+@@ -226,6 +242,6 @@ async fn compaction_retry_status_returns_to_compacting() {
+     chat.handle_server_notification(compaction_started("compact-1"), /*replay_kind*/ None);
+     assert_eq!(
+         chat.bottom_pane.status_widget().unwrap().header(),
+-        "Compacting context"
++        "Compacting remotely"
+     );
+ }
+diff --git a/codex-rs/tui/src/chatwidget/tests/exec_flow.rs b/codex-rs/tui/src/chatwidget/tests/exec_flow.rs
+index 5d2f4693dcb2af2d4c520b57081fa61571ccdb0d..ae28f0532b2ebca116fa2b3535644abaa35424ca 100644
+--- a/codex-rs/tui/src/chatwidget/tests/exec_flow.rs
++++ b/codex-rs/tui/src/chatwidget/tests/exec_flow.rs
+@@ -2,6 +2,42 @@ use super::*;
+ use codex_app_server_protocol::ThreadItem;
+ use pretty_assertions::assert_eq;
+ 
++#[tokio::test]
++async fn esc_restores_only_turns_without_answer_or_tool_output() {
++    for tool_completed in [false, true] {
++        let (mut chat, mut events, mut operations) = make_chatwidget_manual(None).await;
++        chat.thread_id = Some(ThreadId::new());
++        chat.submit_user_message(UserMessage::from("prompt"));
++        let _ = next_submit_op(&mut operations);
++        handle_turn_started(&mut chat, "turn-1");
++        if tool_completed {
++            let mut item =
++                begin_unified_exec_startup(&mut chat, "call-1", "process-1", "echo done");
++            if let AppServerThreadItemPayload::CommandExecution { status, .. } = &mut item {
++                *status = AppServerCommandExecutionStatus::Completed;
++            }
++            chat.handle_server_notification(
++                ServerNotification::ItemCompleted(ItemCompletedNotification::new(
++                    chat.thread_id.unwrap().to_string(),
++                    "turn-1".into(),
++                    item,
++                    None,
++                    0,
++                )),
++                None,
++            );
++        }
++        while events.try_recv().is_ok() {}
++        chat.handle_key_event(KeyCode::Esc.into());
++        next_interrupt_op(&mut operations);
++        handle_turn_interrupted(&mut chat, "turn-1");
++        let rollback = std::iter::from_fn(|| events.try_recv().ok()).any(|event| matches!(
++            event, AppEvent::RollbackOutputFreeTurnForPromptRestore { turn_id, .. } if turn_id == "turn-1"
++        ));
++        assert_eq!(rollback, !tool_completed);
++    }
++}
++
+ #[tokio::test]
+ async fn external_writer_snapshot_freezes_active_command_and_mcp_rows() {
+     let mut rendered = Vec::new();
+diff --git a/codex-rs/tui/src/chatwidget/transcript.rs b/codex-rs/tui/src/chatwidget/transcript.rs
+index ef2aba3bd04dae249dfcea5be67ea1afcd75531f..729cc6847b4924a42673c5e231b91003cfd91382 100644
+--- a/codex-rs/tui/src/chatwidget/transcript.rs
++++ b/codex-rs/tui/src/chatwidget/transcript.rs
+@@ -56,6 +56,7 @@ pub(super) struct TranscriptState {
+     pub(super) latest_proposed_plan_markdown: Option<String>,
+     /// Whether this turn already produced a copyable response.
+     pub(super) saw_copy_source_this_turn: bool,
++    pub(super) saw_tool_item_this_turn: bool,
+     /// Whether the current turn emitted a plan update.
+     pub(super) saw_plan_update_this_turn: bool,
+     /// Whether the current turn emitted a proposed plan item that has not been superseded by a
+@@ -110,6 +111,7 @@ impl TranscriptState {
+ 
+     pub(super) fn reset_turn_flags(&mut self) {
+         self.saw_copy_source_this_turn = false;
++        self.saw_tool_item_this_turn = false;
+         self.last_completed_agent_message = None;
+         self.active_streamed_agent_message = None;
+         self.last_flushed_agent_message = None;
+diff --git a/codex-rs/tui/src/chatwidget/turn_runtime.rs b/codex-rs/tui/src/chatwidget/turn_runtime.rs
+index ef5954a853e340b35fc1bf3470c495af1091cf06..b7111faff605f2ea5617a1e203e728cf6b73726f 100644
+--- a/codex-rs/tui/src/chatwidget/turn_runtime.rs
++++ b/codex-rs/tui/src/chatwidget/turn_runtime.rs
+@@ -91,6 +91,11 @@ impl ChatWidget {
+         self.bottom_pane.dismiss_composer_sparkle();
+         self.clear_context_compaction();
+         self.input_queue.user_turn_pending_start = false;
++        // A new turn clears any pending output-free interrupt rollback.
++        self.pending_output_free_interrupt_turn_id = None;
++        // Byte counters are per-turn; start the accumulator fresh.
++        self.status_state.reset_model_transfer();
++        self.bottom_pane.update_model_transfer(None);
+         self.reset_safety_buffering_for_turn_start();
+         self.turn_lifecycle.start(Instant::now());
+         self.transcript.reset_turn_flags();
+@@ -353,6 +358,9 @@ impl ChatWidget {
+         self.clear_context_compaction();
+         self.clear_safety_buffering();
+         self.safety_recourse = None;
++        // Live transfer counters belong to the finished turn.
++        self.status_state.reset_model_transfer();
++        self.bottom_pane.update_model_transfer(None);
+         // Drop preview-only stream tail content on any termination path before
+         // failed-cell finalization, so transient tail cells are never persisted.
+         self.clear_active_stream_tail();
+@@ -439,8 +447,8 @@ impl ChatWidget {
+ 
+     pub(super) fn on_cyber_policy_error(&mut self) {
+         let notice = self.cyber_policy_notice();
+-        self.input_queue.submit_pending_steers_after_interrupt = false;
+-        self.finalize_turn();
++        // Cybersecurity refusals only surface as a warning: the turn is not force-ended
++        // here, and no extra follow-up prompt is forced on the user.
+         self.add_to_history(history_cell::new_cyber_policy_error_event(notice));
+         if notice == crate::daybreak::Notice::Disabled
+             && !self.thread_usage.replaying_turn_completion
+@@ -472,9 +480,6 @@ impl ChatWidget {
+             self.defer_input_until_settings_applied();
+         }
+         self.request_redraw();
+-
+-        // After an error ends the turn, try sending the next queued input.
+-        self.maybe_send_next_queued_input();
+     }
+ 
+     pub(super) fn on_rate_limit_error(&mut self, error_kind: RateLimitErrorKind, message: String) {
+diff --git a/codex-rs/tui/src/history_cell/notices.rs b/codex-rs/tui/src/history_cell/notices.rs
+index 9f5e2137f0ecb1b70c7a17b3ed14659d5b308b7a..ce6a54b8b72e80dd5273e8e0a517b5bacbf22b59 100644
+--- a/codex-rs/tui/src/history_cell/notices.rs
++++ b/codex-rs/tui/src/history_cell/notices.rs
+@@ -167,41 +167,23 @@ pub(crate) fn new_safety_access_block_event() -> SafetyAccessBlockCell {
+     }
+ }
+ 
+-pub(crate) fn new_cyber_policy_error_event(
+-    notice: crate::daybreak::Notice,
+-) -> SafetyAccessBlockCell {
++pub(crate) fn new_cyber_policy_error_event(notice: crate::daybreak::Notice) -> WarningHistoryCell {
+     use crate::daybreak::Notice;
+-    let (body, actions): (_, &'static [(&str, &str)]) = match notice {
+-        Notice::Apply => (
+-            "If you’re doing authorized security work, apply for Daybreak to get broader access.",
+-            &[
+-                ("Learn more", SAFETY_ACCESS_BLOCK_LEARN_MORE_URL),
+-                (
+-                    "Apply for Daybreak",
+-                    "https://openai.com/form/enterprise-trusted-access-for-cyber/",
+-                ),
+-            ],
+-        ),
+-        Notice::Disabled => (
+-            "Daybreak is currently off. If you’re doing authorized security work, turn it on and try your request again.",
+-            &[("Learn more", SAFETY_ACCESS_BLOCK_LEARN_MORE_URL)],
+-        ),
+-        Notice::Astra => (
+-            "Daybreak isn’t available for Astra. Some cybersecurity requests may still be limited.",
+-            &[("Learn more", SAFETY_ACCESS_BLOCK_LEARN_MORE_URL)],
+-        ),
+-        Notice::Enabled => (
+-            "Some cybersecurity requests are still limited, even when Daybreak is on.",
+-            &[("Learn more", SAFETY_ACCESS_BLOCK_LEARN_MORE_URL)],
+-        ),
++    let message = match notice {
++        Notice::Apply => {
++            "We take extra precaution with cybersecurity requests. If you’re doing authorized security work, you may be able to apply for Trusted Access: https://openai.com/form/enterprise-trusted-access-for-cyber/"
++        }
++        Notice::Disabled => {
++            "Daybreak is currently off. If you’re doing authorized security work, turn it on and try your request again."
++        }
++        Notice::Astra => {
++            "Daybreak isn’t available for Astra. Some cybersecurity requests may still be limited."
++        }
++        Notice::Enabled => {
++            "Some cybersecurity requests are still limited, even when Daybreak is on."
++        }
+     };
+-    SafetyAccessBlockCell {
+-        title: "This content can’t be shown",
+-        explanation: (notice == Notice::Apply)
+-            .then(|| "We take extra care with some cybersecurity requests.".into()),
+-        body,
+-        actions,
+-    }
++    new_warning_event(message.to_string())
+ }
+ 
+ impl SafetyAccessBlockCell {
+diff --git a/codex-rs/tui/src/pager_overlay/transcript.rs b/codex-rs/tui/src/pager_overlay/transcript.rs
+index c8af27c6e59cf9ada034e13824e83ecdbff86c63..ecaa957fb9420b30a7f6330c90bccc1a2023b8d8 100644
+--- a/codex-rs/tui/src/pager_overlay/transcript.rs
++++ b/codex-rs/tui/src/pager_overlay/transcript.rs
+@@ -29,6 +29,7 @@ pub(crate) struct TranscriptOverlay {
+     find_transcript: Vec<crate::key_hint::KeyBinding>,
+     select_transcript: Vec<crate::key_hint::KeyBinding>,
+     pub(super) pending_follow_close: Option<(u64, bool)>,
++    pub(crate) pending_quote: Option<String>,
+     pending_select_mode: bool,
+     is_done: bool,
+ }
+@@ -70,6 +71,7 @@ impl TranscriptOverlay {
+             find_transcript: Vec::new(),
+             select_transcript: Vec::new(),
+             pending_follow_close: None,
++            pending_quote: None,
+             pending_select_mode: false,
+             is_done: false,
+         }
+@@ -521,7 +523,11 @@ impl TranscriptOverlay {
+         self.notice = None;
+         let resume_following = matches!(action, ViewAction::CopyAndFollow(_));
+         let close_overlay = self.view.is_select_mode() || self.browsing_footer.is_some();
+-        if matches!(action, ViewAction::ExitSelectMode) {
++        if let ViewAction::Quote(text) = &action {
++            self.pending_quote = Some(text.clone());
++            self.view.end_select_mode();
++            self.view.end_selection(&self.cells);
++        } else if matches!(action, ViewAction::ExitSelectMode) {
+             self.is_done = true;
+         } else if let Some((_, result)) = self.view.copy_action(
+             tui,
+diff --git a/codex-rs/tui/src/pager_overlay/transcript_tests.rs b/codex-rs/tui/src/pager_overlay/transcript_tests.rs
+index 1853aff3abd5704ac65d7aa44854c2215aa98df9..817066c9851e6b229982d6f4b65e452ccd56c38a 100644
+--- a/codex-rs/tui/src/pager_overlay/transcript_tests.rs
++++ b/codex-rs/tui/src/pager_overlay/transcript_tests.rs
+@@ -323,7 +323,7 @@ async fn focus_loss_stops_edge_drag_and_preserves_selection_after_focus_returns(
+     row 05
+     row 06
+     row 07
+-    enter copy & follow · esc clear
++    enter copy · space quote · esc
+     ");
+     overlay.view.jump_to_latest();
+     overlay.render(area, &mut Buffer::empty(area));
+diff --git a/codex-rs/tui/src/resume_picker.rs b/codex-rs/tui/src/resume_picker.rs
+index 8b8401ccb71f2540c683b82684f5cc84915a9d86..30338776f55bc4a04032809ce620f05cecbcfc56 100644
+--- a/codex-rs/tui/src/resume_picker.rs
++++ b/codex-rs/tui/src/resume_picker.rs
+@@ -867,13 +867,11 @@ fn local_picker_cwd_filter(
+ }
+ 
+ async fn picker_provider_filter(
+-    config: &Config,
+-    app_server: &AppServerSession,
++    _config: &Config,
++    _app_server: &AppServerSession,
+ ) -> Result<ProviderFilter> {
+-    Ok(app_server
+-        .history_model_provider(config)
+-        .await?
+-        .map_or(ProviderFilter::Any, ProviderFilter::MatchDefault))
++    // 显式请求所有 provider；保留目录过滤以及其他调用方的原过滤能力。
++    Ok(ProviderFilter::All)
+ }
+ 
+ fn picker_runtime_keymap(config: &crate::local_settings::LocalSettings) -> Result<RuntimeKeymap> {
+diff --git a/codex-rs/tui/src/status_indicator_widget.rs b/codex-rs/tui/src/status_indicator_widget.rs
+index 3cb54b2cf73b665e2606e99b827e06973e695ac1..141d5c93564b675be27b5ffaa16467c0c734ebe0 100644
+--- a/codex-rs/tui/src/status_indicator_widget.rs
++++ b/codex-rs/tui/src/status_indicator_widget.rs
+@@ -60,6 +60,8 @@ pub(crate) struct StatusIndicatorWidget {
+     details_max_lines: usize,
+     /// Optional suffix rendered after the elapsed/interrupt segment.
+     inline_message: Option<String>,
++    /// Live byte counters for the active model request, when known.
++    model_transfer: Option<ModelTransferStatus>,
+     /// Hook activity may move below the status row when it cannot fit in full.
+     hook_status_message: Option<String>,
+     show_interrupt_hint: bool,
+@@ -71,6 +73,21 @@ pub(crate) struct StatusIndicatorWidget {
+     effects: codex_config::types::TuiEffects,
+ }
+ 
++/// Direction of the transfer counters shown in the status line.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub(crate) enum ModelTransferPhase {
++    Sending,
++    Receiving,
++}
++
++/// Cumulative byte counters for the active model request.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub(crate) struct ModelTransferStatus {
++    pub(crate) phase: ModelTransferPhase,
++    pub(crate) sent_bytes: u64,
++    pub(crate) received_bytes: u64,
++}
++
+ // Format elapsed seconds into a compact human-friendly form used by the status line.
+ // Examples: 0s, 59s, 1m 00s, 59m 59s, 1h 00m 00s, 2h 03m 09s
+ pub fn fmt_elapsed_compact(elapsed_secs: u64) -> String {
+@@ -101,6 +118,7 @@ impl StatusIndicatorWidget {
+             details: None,
+             details_max_lines: STATUS_DETAILS_DEFAULT_MAX_LINES,
+             inline_message: None,
++            model_transfer: None,
+             hook_status_message: None,
+             show_interrupt_hint: true,
+             interrupt_binding: Some(key_hint::plain(KeyCode::Esc).into()),
+@@ -162,6 +180,11 @@ impl StatusIndicatorWidget {
+         self.hook_status_message = message;
+     }
+ 
++    /// Set or clear the live byte counters rendered inside the elapsed segment.
++    pub(crate) fn update_model_transfer(&mut self, status: Option<ModelTransferStatus>) {
++        self.model_transfer = status;
++    }
++
+     pub(crate) fn header(&self) -> &str {
+         &self.header
+     }
+@@ -259,10 +282,30 @@ impl StatusIndicator<'_> {
+         {
+             spans.push(format!("({pretty_elapsed} • ").dim());
+             spans.extend(interrupt_binding.spans());
+-            spans.push(" to interrupt)".dim());
++            spans.push(" to interrupt".dim());
+         } else {
+-            spans.push(format!("({pretty_elapsed})").dim());
++            spans.push(format!("({pretty_elapsed}").dim());
++        }
++        if let Some(transfer) = row.model_transfer {
++            // Show live upstream/downstream volume inside the elapsed segment.
++            // The active direction is bold so it is readable at a glance.
++            spans.push(" • ".dim());
++            let sent = fmt_bytes(transfer.sent_bytes);
++            let received = fmt_bytes(transfer.received_bytes);
++            let sent_arrow = match transfer.phase {
++                ModelTransferPhase::Sending => "↑".bold(),
++                ModelTransferPhase::Receiving => "↑".dim(),
++            };
++            spans.push(sent_arrow);
++            spans.push(format!(" {sent} ").dim());
++            let received_arrow = match transfer.phase {
++                ModelTransferPhase::Sending => "↓".dim(),
++                ModelTransferPhase::Receiving => "↓".bold(),
++            };
++            spans.push(received_arrow);
++            spans.push(format!(" {received}").dim());
+         }
++        spans.push(")".dim());
+         if let Some(message) = &row.inline_message {
+             // Keep optional context after elapsed/interrupt text so that core
+             // interrupt affordances stay in a fixed visual location.
+@@ -320,6 +363,23 @@ impl Renderable for StatusIndicator<'_> {
+     }
+ }
+ 
++/// Render a byte count compactly, e.g. `512 B`, `2.00 KiB`, `1.25 MiB`.
++fn fmt_bytes(bytes: u64) -> String {
++    const KIB: u64 = 1024;
++    const MIB: u64 = KIB * 1024;
++
++    let (divisor, unit) = if bytes >= MIB {
++        (MIB, "MiB")
++    } else if bytes >= KIB {
++        (KIB, "KiB")
++    } else {
++        return format!("{bytes} B");
++    };
++    let whole = bytes / divisor;
++    let hundredths = bytes % divisor * 100 / divisor;
++    format!("{whole}.{hundredths:02} {unit}")
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -432,6 +492,69 @@ mod tests {
+         insta::assert_snapshot!(terminal.backend());
+     }
+ 
++    #[test]
++    fn fmt_bytes_scales_units() {
++        assert_eq!(fmt_bytes(0), "0 B");
++        assert_eq!(fmt_bytes(512), "512 B");
++        assert_eq!(fmt_bytes(1024), "1.00 KiB");
++        assert_eq!(fmt_bytes(2048), "2.00 KiB");
++        assert_eq!(fmt_bytes(1024 * 1024), "1.00 MiB");
++        assert_eq!(fmt_bytes(1024 * 1024 + 256 * 1024), "1.25 MiB");
++    }
++
++    #[test]
++    fn renders_receiving_transfer_progress() {
++        let (tx_raw, _rx) = unbounded_channel::<AppEvent>();
++        let tx = AppEventSender::new(tx_raw);
++        let mut w = StatusIndicatorWidget::new(
++            tx,
++            crate::tui::FrameRequester::test_dummy(),
++            /*animations_enabled*/ false,
++            Default::default(),
++        );
++        w.update_model_transfer(Some(ModelTransferStatus {
++            phase: ModelTransferPhase::Receiving,
++            sent_bytes: 2048,
++            received_bytes: 1024 * 1024,
++        }));
++
++        let mut timer = StatusTimer::default();
++        timer.pause_at(timer.last_resume_at);
++
++        let mut terminal = Terminal::new(TestBackend::new(80, 1)).expect("terminal");
++        terminal
++            .draw(|f| w.with_timer(&timer).render(f.area(), f.buffer_mut()))
++            .expect("draw");
++        let rendered = terminal.backend().to_string();
++        assert!(rendered.contains("↑ 2.00 KiB"));
++        assert!(rendered.contains("↓ 1.00 MiB"));
++    }
++
++    #[test]
++    fn renders_without_transfer_counters_by_default() {
++        let (tx_raw, _rx) = unbounded_channel::<AppEvent>();
++        let tx = AppEventSender::new(tx_raw);
++        let w = StatusIndicatorWidget::new(
++            tx,
++            crate::tui::FrameRequester::test_dummy(),
++            /*animations_enabled*/ false,
++            Default::default(),
++        );
++
++        let mut timer = StatusTimer::default();
++        timer.pause_at(timer.last_resume_at);
++
++        let mut terminal = Terminal::new(TestBackend::new(80, 1)).expect("terminal");
++        terminal
++            .draw(|f| w.with_timer(&timer).render(f.area(), f.buffer_mut()))
++            .expect("draw");
++        let rendered = terminal.backend().to_string();
++        assert!(
++            !rendered.contains("↑") && !rendered.contains("↓"),
++            "status row should not show transfer arrows without progress: {rendered:?}"
++        );
++    }
++
+     #[test]
+     fn renders_without_spinner_when_animations_disabled() {
+         let (tx_raw, _rx) = unbounded_channel::<AppEvent>();
+diff --git a/codex-rs/tui/src/transcript_view/footer.rs b/codex-rs/tui/src/transcript_view/footer.rs
+index addb462eb1cf30bcee9b24cd1287c3fb22eb6eb5..741025dd403d064bddb0362f0909220c4703c624 100644
+--- a/codex-rs/tui/src/transcript_view/footer.rs
++++ b/codex-rs/tui/src/transcript_view/footer.rs
+@@ -57,13 +57,15 @@ impl TranscriptView {
+                 let copy = crate::key_hint::ctrl(KeyCode::Char('c')).display_label();
+                 [
+                     format!(
+-                        "arrows/hjkl/w/b/e/shift+arrows move · home/end/0/$/g/G/⌃home/⌃end ends · pgup/pgdn/⌃b/⌃f/⌃u/⌃d page · v/space/V mark · o swap · / find · y/{copy} copy · enter copy & latest · esc clear · q close"
++                        "arrows/hjkl/w/b/e/shift+arrows move · home/end/0/$/g/G/⌃home/⌃end ends · pgup/pgdn/⌃b/⌃f/⌃u/⌃d page · v/V mark · o swap · / find · y/{copy} copy · enter copy & latest · space quote · esc clear · q close"
+                     ),
+                     format!(
+-                        "arrows/hjkl move · o swap · y/{copy} copy · enter copy & latest · esc clear · q close"
++                        "arrows/hjkl move · o swap · y/{copy} copy · enter copy & latest · space quote · esc clear · q close"
+                     ),
+-                    format!("y/{copy} copy · enter copy & latest · esc clear · q close"),
+-                    "enter copy · q close".to_owned(),
++                    format!(
++                        "y/{copy} copy · enter copy & latest · space quote · esc clear · q close"
++                    ),
++                    "space quote · q close".to_owned(),
+                 ]
+             } else {
+                 [
+@@ -95,11 +97,15 @@ impl TranscriptView {
+                         [
+                             self.status_line_with_navigation(
+                                 &format!(
+-                                    "{} copy · enter copy & follow · esc clear",
++                                    "{} copy · enter copy & follow · space quote · esc clear",
+                                     crate::key_hint::ctrl(KeyCode::Char('c')).display_label()
+                                 ),
+                                 motion,
+                             ),
++                            self.status_line_with_navigation(
++                                "enter copy & follow · space quote · esc clear",
++                                motion,
++                            ),
+                             selection_hint(width),
+                         ],
+                         width,
+@@ -247,10 +253,11 @@ fn selection_hint(width: u16) -> Line<'static> {
+     first_fitting_line(
+         [
+             &format!(
+-                "{} copy · enter copy & follow · esc clear",
++                "{} copy · enter copy & follow · space quote · esc clear",
+                 crate::key_hint::ctrl(KeyCode::Char('c')).display_label()
+             ),
+-            "enter copy & follow · esc clear",
++            "enter copy & follow · space quote · esc clear",
++            "enter copy · space quote · esc",
+             "enter copy+↓ · esc",
+             "esc clear",
+         ]
+@@ -271,6 +278,7 @@ pub(super) fn navigation_line(navigation: &str) -> Line<'static> {
+         }
+         let action = [
+             " copy & follow",
++            " quote",
+             " copy & latest",
+             " clear selection",
+             " copy+↓",
+diff --git a/codex-rs/tui/src/transcript_view/footer_tests.rs b/codex-rs/tui/src/transcript_view/footer_tests.rs
+index 60167612cdced1eae40f2d91daa72b0366f34d39..332bf4fcbc40154c1cc59d5836ab1f4f039bd262 100644
+--- a/codex-rs/tui/src/transcript_view/footer_tests.rs
++++ b/codex-rs/tui/src/transcript_view/footer_tests.rs
+@@ -102,14 +102,14 @@ fn selection_at_bottom_restores_footer_without_resuming_following() {
+         ));
+     }
+     insta::assert_snapshot!(observations.join("\n"), @"
+-    Partial, selected at bottom: ⌃c copy · enter copy & follow · esc clear
++    Partial, selected at bottom: ⌃c copy · enter copy & follow · space quote · esc clear
+     Partial, clicked away: <composer hints>
+     Partial, scrolled down at bottom: <composer hints>
+-    Partial, selected above bottom: Earlier messages available.  ⌃c copy · enter copy & follow · esc clear
+-    Complete, selected at bottom: ⌃c copy · enter copy & follow · esc clear
++    Partial, selected above bottom: Earlier messages available.  ⌃c copy · enter copy & follow · space quote · esc clear
++    Complete, selected at bottom: ⌃c copy · enter copy & follow · space quote · esc clear
+     Complete, clicked away: <composer hints>
+     Complete, scrolled down at bottom: <composer hints>
+-    Complete, selected above bottom: ⌃c copy · enter copy & follow · esc clear
++    Complete, selected above bottom: ⌃c copy · enter copy & follow · space quote · esc clear
+     ");
+ }
+ 
+@@ -191,7 +191,7 @@ fn loading_preserves_selected_content_and_copy_action() {
+             .expect("loading selection footer");
+         assert_eq!((footer.cursor_column, footer.is_interactive), (None, true));
+         insta::allow_duplicates! {
+-            insta::assert_snapshot!(footer.text.to_string(), @"↑ Loading earlier messages… · ⌃c copy · enter copy & follow · esc clear");
++            insta::assert_snapshot!(footer.text.to_string(), @"↑ Loading earlier messages… · enter copy & follow · space quote · esc clear");
+         }
+         let Some(ViewAction::Copy(copied)) = view.handle_key(
+             KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+@@ -209,7 +209,7 @@ fn loading_preserves_selected_content_and_copy_action() {
+     let footer = view
+         .footer(/*width*/ 80, MotionMode::Reduced)
+         .expect("selection footer after loading");
+-    insta::assert_snapshot!(footer.text.to_string(), @"⌃c copy · enter copy & follow · esc clear");
++    insta::assert_snapshot!(footer.text.to_string(), @"⌃c copy · enter copy & follow · space quote · esc clear");
+     assert_eq!(
+         view.selected_text(&cells),
+         Some("selected words".to_string())
+@@ -221,12 +221,12 @@ fn loading_preserves_selected_content_and_copy_action() {
+             .text
+             .to_string(),
+         format!(
+-            "⌃c copy · enter copy & follow · esc clear · Retry: {}",
++            "⌃c copy · enter copy & follow · space quote · esc clear · Retry: {}",
+             JumpTarget::Beginning.hint_label(),
+         ),
+     );
+     insta::assert_snapshot!(view.footer(/*width*/ 38, MotionMode::Reduced).unwrap().text.to_string(),
+-        @"enter copy & follow · esc clear");
++        @"enter copy · space quote · esc");
+ }
+ 
+ #[test]
+diff --git a/codex-rs/tui/src/transcript_view/input.rs b/codex-rs/tui/src/transcript_view/input.rs
+index 59183c42acf7a1395f6a3edddf41b951c566384d..f2e44ed9428d9b1b1d4eb3f8761109961dc003c5 100644
+--- a/codex-rs/tui/src/transcript_view/input.rs
++++ b/codex-rs/tui/src/transcript_view/input.rs
+@@ -26,6 +26,7 @@ pub(crate) enum ViewAction {
+     CopyOnSelect(String),
+     PrimarySelection(String),
+     CopyAndFollow(String),
++    Quote(String),
+     OpenLink(String),
+ }
+ 
+@@ -106,6 +107,7 @@ impl TranscriptView {
+             | ViewAction::ExitSelectMode
+             | ViewAction::Copy(_)
+             | ViewAction::CopyAndFollow(_)
++            | ViewAction::Quote(_)
+             | ViewAction::OpenLink(_) => SelectionCopy::EXPLICIT,
+         }
+     }
+@@ -169,10 +171,14 @@ impl TranscriptView {
+         if self.select_mode.is_some() {
+             return true;
+         }
+-        if self.selection.is_some() {
++        if let Some(selection) = &self.selection {
+             return crate::text_selection::is_copy_key(key)
+                 || code == KeyCode::Esc
+                 || (code == KeyCode::Enter && modifiers == KeyModifiers::NONE)
++                || (code == KeyCode::Char(' ')
++                    && modifiers == KeyModifiers::NONE
++                    && (selection.start.key, selection.start.offset)
++                        != (selection.end.key, selection.end.offset))
+                 || (matches!(modifiers, KeyModifiers::NONE | KeyModifiers::SHIFT)
+                     && matches!(
+                         code,
+@@ -435,6 +441,15 @@ impl TranscriptView {
+         key: KeyEvent,
+         cells: &[Arc<dyn HistoryCell>],
+     ) -> Option<ViewAction> {
++        if key.kind == KeyEventKind::Press
++            && key.modifiers == KeyModifiers::NONE
++            && key.code == KeyCode::Char(' ')
++        {
++            return self
++                .selected_text(cells)
++                .filter(|text| !text.is_empty())
++                .map(ViewAction::Quote);
++        }
+         if crate::text_selection::is_copy_key(key)
+             || (key.modifiers == KeyModifiers::NONE && key.code == KeyCode::Enter)
+         {
+diff --git a/codex-rs/tui/src/transcript_view/select_mode.rs b/codex-rs/tui/src/transcript_view/select_mode.rs
+index 1cdc1df87884d79e3b27329763add704e55010bd..b9dc12ed911f834e4a05bfa4ee94b717d62c9d0c 100644
+--- a/codex-rs/tui/src/transcript_view/select_mode.rs
++++ b/codex-rs/tui/src/transcript_view/select_mode.rs
+@@ -170,6 +170,13 @@ impl TranscriptView {
+         }
+         let (code, modifiers) = crate::key_hint::normalize_key_parts(key.code, key.modifiers);
+         let pressed = key.kind == KeyEventKind::Press;
++        if pressed
++            && code == KeyCode::Char(' ')
++            && modifiers == KeyModifiers::NONE
++            && let Some(text) = self.selected_text(cells).filter(|text| !text.is_empty())
++        {
++            return Some(ViewAction::Quote(text));
++        }
+         if crate::text_selection::is_copy_key(key)
+             || (code == KeyCode::Char('y') && modifiers == KeyModifiers::NONE)
+             || (code == KeyCode::Enter
+diff --git a/codex-rs/tui/src/transcript_view/select_mode_tests.rs b/codex-rs/tui/src/transcript_view/select_mode_tests.rs
+index 457a2a2a7d0ac67dffdc1c28e35718542bc845e0..c88e7bc1bd405610b931415ca2a54eaadd891553 100644
+--- a/codex-rs/tui/src/transcript_view/select_mode_tests.rs
++++ b/codex-rs/tui/src/transcript_view/select_mode_tests.rs
+@@ -33,6 +33,22 @@ fn press(view: &mut TranscriptView, cells: &[Arc<dyn HistoryCell>], code: KeyCod
+     ));
+ }
+ 
++#[test]
++fn space_starts_selection_then_quotes_in_select_mode() {
++    let cells = vec![cell(&["abc"])];
++    let mut view = TranscriptView::default();
++    render(&mut view, &cells);
++    assert!(view.begin_select_mode(&cells));
++    press(&mut view, &cells, KeyCode::Char(' '));
++    assert!(
++        matches!(view.handle_key(KeyCode::Char(' ').into(), &cells), Some(ViewAction::Quote(text)) if text == "a")
++    );
++    let position = view.position;
++    view.end_select_mode();
++    assert_eq!(view.position, position);
++    assert!(view.selection.is_none());
++}
++
+ #[test]
+ fn entry_starts_on_the_last_selectable_visible_line() {
+     for (cells, expected) in [
+diff --git a/codex-rs/tui/src/transcript_view/selection.rs b/codex-rs/tui/src/transcript_view/selection.rs
+index 9cd97930341d31f6b3fc93efe0a636d44174e486..a1df8defa209f6f93181ecc71fbd3dfc8634e4b3 100644
+--- a/codex-rs/tui/src/transcript_view/selection.rs
++++ b/codex-rs/tui/src/transcript_view/selection.rs
+@@ -449,7 +449,10 @@ impl TranscriptView {
+             | ViewAction::CopyOnSelect(text)
+             | ViewAction::PrimarySelection(text)
+             | ViewAction::CopyAndFollow(text) => text.as_str(),
+-            ViewAction::Changed | ViewAction::ExitSelectMode | ViewAction::OpenLink(_) => {
++            ViewAction::Changed
++            | ViewAction::ExitSelectMode
++            | ViewAction::OpenLink(_)
++            | ViewAction::Quote(_) => {
+                 return None;
+             }
+         };
+diff --git a/codex-rs/tui/src/transcript_view/selection_tests.rs b/codex-rs/tui/src/transcript_view/selection_tests.rs
+index 17ef0b03e3d24a2e67a41b161e7c0c6156b3f57e..0c9d0c86ded16f7193a7744a40314eb75409c87b 100644
+--- a/codex-rs/tui/src/transcript_view/selection_tests.rs
++++ b/codex-rs/tui/src/transcript_view/selection_tests.rs
+@@ -18,6 +18,38 @@ use crossterm::event::MouseEventKind;
+ use pretty_assertions::assert_eq;
+ use std::time::Instant;
+ 
++#[test]
++fn space_quotes_a_selection_and_is_unhandled_without_one() {
++    let cells: Vec<Arc<dyn HistoryCell>> = vec![Arc::new(PlainHistoryCell::new(vec![
++        "selected".into(),
++        "two".into(),
++        "three".into(),
++        "four".into(),
++        "five".into(),
++        "six".into(),
++    ]))];
++    let mut view = TranscriptView::default();
++    render(&mut view, &cells, 32, 3);
++    let space = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE);
++    assert!(!view.owns_interaction_key(space));
++    assert!(view.handle_key(space, &cells).is_none());
++    view.begin_selection(&cells, 0, 0, 1);
++    assert!(!view.owns_interaction_key(space));
++    assert!(view.handle_key(space, &cells).is_none());
++    view.end_selection(&cells);
++    view.scroll(&cells, -3);
++    render(&mut view, &cells, 32, 3);
++    view.begin_selection(&cells, 0, 0, 3);
++    assert!(view.owns_interaction_key(space));
++    assert!(
++        matches!(view.handle_key(space, &cells), Some(ViewAction::Quote(text)) if text == "selected")
++    );
++    let position = view.position;
++    view.end_selection(&cells);
++    assert_eq!(view.position, position);
++    assert!(view.selection.is_none());
++}
++
+ #[test]
+ fn selection_highlights_hard_breaks_within_and_between_entries() {
+     let mut frames = Vec::new();
+diff --git a/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__footer__tests__narrow_selection_and_search_keep_complete_exit_hints.snap b/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__footer__tests__narrow_selection_and_search_keep_complete_exit_hints.snap
+index 56398918e693b423a9bd32ed9e52facbabe35327..4003f9998a79d134cfbbff505b22656d527b284d 100644
+--- a/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__footer__tests__narrow_selection_and_search_keep_complete_exit_hints.snap
++++ b/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__footer__tests__narrow_selection_and_search_keep_complete_exit_hints.snap
+@@ -4,8 +4,8 @@ expression: "snapshots.join(\"\\n\")"
+ ---
+ search=false, 12 columns: esc clear
+ search=false, 20 columns: enter copy+↓ · esc
+-search=false, 32 columns: enter copy & follow · esc clear
+-search=false, 80 columns: ⌃c copy · enter copy & follow · esc clear
++search=false, 32 columns: enter copy · space quote · esc
++search=false, 80 columns: ⌃c copy · enter copy & follow · space quote · esc clear
+ search=true, 12 columns: esc cancel
+ search=true, 20 columns: enter accept · esc
+ search=true, 32 columns: enter accept · esc cancel
+diff --git a/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__footer__tests__selection_hint_threshold.snap b/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__footer__tests__selection_hint_threshold.snap
+index 2c65d8bf160cde5fc0e45555102d6ebcb66fb030..87a86ba3c1950d54641da210fb15da58b884ae48 100644
+--- a/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__footer__tests__selection_hint_threshold.snap
++++ b/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__footer__tests__selection_hint_threshold.snap
+@@ -6,7 +6,7 @@ searching=false · mouse down
+ <composer hints>
+ 
+ searching=false · one character
+-⌃c copy · enter copy & follow · esc clear
++⌃c copy · enter copy & follow · space quote · esc clear
+ 
+ searching=false · back to anchor
+ <composer hints>
+@@ -20,7 +20,7 @@ Searching… · full transcript · esc cancel
+ 
+ searching=true · one character
+ Find:
+-⌃c copy · enter copy & follow · esc clear
++⌃c copy · enter copy & follow · space quote · esc clear
+ 
+ searching=true · back to anchor
+ Find:
+diff --git a/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__select_mode__tests__select_mode_renders_cursor_and_scannable_footer_hints.snap b/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__select_mode__tests__select_mode_renders_cursor_and_scannable_footer_hints.snap
+index 2c0e63cbf15fa3bbb66478e32bebd25e857729b0..7585c8b74fede1f30c37df066f6b56369e9b8e4e 100644
+--- a/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__select_mode__tests__select_mode_renders_cursor_and_scannable_footer_hints.snap
++++ b/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__select_mode__tests__select_mode_renders_cursor_and_scannable_footer_hints.snap
+@@ -56,8 +56,8 @@ Buffer {
+         x: 6, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+     ]
+ }
+-marked wide: arrows/hjkl/w/b/e/shift+arrows move · home/end/0/$/g/G/⌃home/⌃end ends · pgup/pgdn/⌃b/⌃f/⌃u/⌃d page · v/space/V mark · o swap · / find · y/⌃c copy · enter copy & latest · esc clear · q close
+-marked: y/⌃c copy · enter copy & latest · esc clear · q close
++marked wide: arrows/hjkl/w/b/e/shift+arrows move · home/end/0/$/g/G/⌃home/⌃end ends · pgup/pgdn/⌃b/⌃f/⌃u/⌃d page · v/V mark · o swap · / find · y/⌃c copy · enter copy & latest · space quote · esc clear · q close
++marked: space quote · q close
+ find:
+ Buffer {
+     area: Rect { x: 0, y: 0, width: 32, height: 6 },

@@ -1,0 +1,22 @@
+From 143239044dae7180e9816eb7cb499ebd68833e49 Mon Sep 17 00:00:00 2001
+From: owwkmidream <159dreaml@gmail.com>
+Date: Mon, 9 Nov 2026 03:39:30 +0800
+Subject: [PATCH 04/11] chore(logging): retain INFO in SQLite log storage
+
+---
+ codex-rs/state/src/log_db.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/codex-rs/state/src/log_db.rs b/codex-rs/state/src/log_db.rs
+index ef03ad85731b25eff7e74465adeb8d8f5707c8a4..98fc40c819ef6f26c76d092f34ae123d2fb0ad20 100644
+--- a/codex-rs/state/src/log_db.rs
++++ b/codex-rs/state/src/log_db.rs
+@@ -60,7 +60,7 @@ const SQLX_LOG_TARGETS: [&str; 3] = ["sqlx", "sqlx_core", "sqlx_sqlite"];
+ 
+ pub fn default_filter() -> Targets {
+     Targets::new()
+-        .with_default(LevelFilter::TRACE)
++        .with_default(LevelFilter::INFO)
+         .with_target("h2", LevelFilter::WARN)
+         .with_target("hyper_util", LevelFilter::WARN)
+         .with_target("log", LevelFilter::OFF)

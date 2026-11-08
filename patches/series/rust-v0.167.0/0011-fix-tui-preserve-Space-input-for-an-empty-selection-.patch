@@ -1,0 +1,47 @@
+From 0e35e8a65a8ad5bbeb4ceac9516e6b39019260ce Mon Sep 17 00:00:00 2001
+From: owwkmidream <159dreaml@gmail.com>
+Date: Mon, 9 Nov 2026 04:08:18 +0800
+Subject: [PATCH 11/11] fix(tui): preserve Space input for an empty selection
+ anchor
+
+---
+ codex-rs/tui/src/transcript_view/input.rs           | 7 +++++--
+ codex-rs/tui/src/transcript_view/selection_tests.rs | 4 ++++
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/codex-rs/tui/src/transcript_view/input.rs b/codex-rs/tui/src/transcript_view/input.rs
+index 25b2da097a9b90a3a0fc46528b91cfa75e46aba8..f2e44ed9428d9b1b1d4eb3f8761109961dc003c5 100644
+--- a/codex-rs/tui/src/transcript_view/input.rs
++++ b/codex-rs/tui/src/transcript_view/input.rs
+@@ -171,11 +171,14 @@ impl TranscriptView {
+         if self.select_mode.is_some() {
+             return true;
+         }
+-        if self.selection.is_some() {
++        if let Some(selection) = &self.selection {
+             return crate::text_selection::is_copy_key(key)
+                 || code == KeyCode::Esc
+                 || (code == KeyCode::Enter && modifiers == KeyModifiers::NONE)
+-                || (code == KeyCode::Char(' ') && modifiers == KeyModifiers::NONE)
++                || (code == KeyCode::Char(' ')
++                    && modifiers == KeyModifiers::NONE
++                    && (selection.start.key, selection.start.offset)
++                        != (selection.end.key, selection.end.offset))
+                 || (matches!(modifiers, KeyModifiers::NONE | KeyModifiers::SHIFT)
+                     && matches!(
+                         code,
+diff --git a/codex-rs/tui/src/transcript_view/selection_tests.rs b/codex-rs/tui/src/transcript_view/selection_tests.rs
+index 9c7d42b85d6b75c565e26e474d2f940222734a91..0c9d0c86ded16f7193a7744a40314eb75409c87b 100644
+--- a/codex-rs/tui/src/transcript_view/selection_tests.rs
++++ b/codex-rs/tui/src/transcript_view/selection_tests.rs
+@@ -33,6 +33,10 @@ fn space_quotes_a_selection_and_is_unhandled_without_one() {
+     let space = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE);
+     assert!(!view.owns_interaction_key(space));
+     assert!(view.handle_key(space, &cells).is_none());
++    view.begin_selection(&cells, 0, 0, 1);
++    assert!(!view.owns_interaction_key(space));
++    assert!(view.handle_key(space, &cells).is_none());
++    view.end_selection(&cells);
+     view.scroll(&cells, -3);
+     render(&mut view, &cells, 32, 3);
+     view.begin_selection(&cells, 0, 0, 3);

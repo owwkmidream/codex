@@ -1,208 +1,140 @@
 # codex-patched-build
 
-自动把对应 tag 的补丁（`patches/<tag>.patch`）应用到官方 codex 源码上，编译出打了补丁的
-**Windows x64 版 `codex.exe`**，发到本仓库的 Release。
+把官方 tag 对应的补丁应用到 Codex 源码，构建 Windows x64 `codex.exe`，由 Actions 发布 Release。本仓库保存补丁，不常驻保存上游源码。
 
-**本仓库不包含任何 codex 源代码。** 源码在 CI 里临时拉取。
+## 安装与手动更新
 
-## 用法
+1. 先安装对应版本 npm 包，例如 `npm install -g @openai/codex@0.167.0`。
+2. 从 [Releases](../../releases) 下载同版本的补丁构建，备份原文件后覆盖 npm 包中的 `codex.exe`：
 
-1. 打开 [Releases](../../releases)，下载最新的 `codex-<tag>-windows-x64.zip`
-2. 解压，把 `codex.exe` 覆盖到 npm 包的 vendor 目录：
-
-```
+```text
 <nodejs>\node_modules\@openai\codex\node_modules\@openai\codex-win32-x64\
   vendor\x86_64-pc-windows-msvc\bin\codex.exe
 ```
 
-例如本机路径是：
+本机曾使用的目录：
 
-```
+```text
 D:\Workspace\nvm\nodejs\node_modules\@openai\codex\node_modules\
   @openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\bin\codex.exe
 ```
 
-3. 验证：
+3. 运行 `codex --version`，核对 zip 中 `BUILD-INFO.txt` 的 `upstream_tag`。
+4. 使用独立守护进程时，将当前 CLI 的完整包同步过去：
 
-```bash
-codex --version
+```powershell
+codex app-server daemon update --from-cli
+codex app-server daemon version
+codex app-server daemon status
 ```
 
-覆盖前建议备份原文件（原文件约 323 MB）。
+`update --from-cli` 是 0.167.0 上游提供的手动入口，会先显示安装确认，复制当前 CLI 的完整包并固定该选择；已有守护进程运行时会重启它。请在会话空闲时执行。不要加普通 `update` 来更新补丁版：不带 `--from-cli` 会恢复官方生产更新通道。
 
-### ⚠️ 版本必须和 npm 包一致
+CLI 与守护进程通常使用不同的磁盘副本。只覆盖 npm 目录不会更新已有守护进程包；后者位于 `$CODEX_HOME/packages/app-server-daemon`，旧安装也可能使用其他受管目录。以命令输出的 `managed_codex_path` 为准。
 
-`codex.exe` 运行时会调用同目录下的辅助程序：
+关闭自动更新的设置在 `$CODEX_HOME/app-server-daemon/settings.json` 的 `updater.autoUpdateEnabled`，与模型的 `config.toml` 分开。保留现有 JSON 的其他设置，只调整该字段。手动维护顺序为：升级 npm → 覆盖同版本补丁二进制 → `update --from-cli` → 核对运行版本。
 
-```
+以上步骤是部署说明；维护补丁不会自动替换本机二进制或修改运行设置。
+
+### CLI 与辅助程序必须同版本
+
+替换的 `codex.exe` 会使用 npm 包中的辅助程序，本仓库不构建这些文件：
+
+```text
 codex-resources\codex-command-runner.exe
 codex-resources\codex-windows-sandbox-setup.exe
 codex-path\rg.exe
 ```
 
-这些**不由本仓库编译**，用的是 npm 包自带的原版。所以替换的 `codex.exe`
-必须和 npm 包**同属一个官方版本**：
+跨版本更新时先升级完整 npm 包，再覆盖补丁文件；回滚时恢复同版本完整包及其补丁，随后重新执行 `update --from-cli`。
 
-| 情况 | 做法 |
+## 0.167.0 补丁的行为
+
+| 功能 | 实现与边界 |
 |---|---|
-| npm 包是 0.156.1，替换 0.156.1 的补丁版 | ✅ 直接替换 |
-| npm 包是 0.156.1，想换 0.157.1 的补丁版 | ⚠️ 先把 npm 包升到 0.157.1 |
+| 请求活动计数 | 按轮次清零，同轮多个请求累计请求体/响应体字节；SSE 与 WebSocket 均接入。计数表示收发活动，不含 TLS/HTTP 头等开销。 |
+| 本次新增 token | 流式接口无法持续提供准确值，保留字节计数。完成事件的 usage 包含整次请求上下文，不能直接当作实时新增输入 token。 |
+| 压缩横幅 | 显示本地/远程压缩，复用上游 `ProviderCapabilities::from_config`，包含 capability 覆盖与 TokenBudget 条件。 |
+| 重试次数 | `request_max_retries`、`stream_max_retries` 的允许上限从 100 解锁到 1000；默认次数保持上游值。 |
+| 重试等待 | provider 下新增有符号 `retry_delay_ms`，适用于模型 HTTP、流重连和本地压缩重试；传输回退也遵循该等待规则。 |
+| 可重试错误 | ServerOverloaded、PolicyCapacityUnavailable、RetryLimit 在没有服务端建议时仍可重试。 |
+| Cyber 提示 | 保留警告展示，UI 不因该提示主动结束 turn；Bio 的原有处理保留。 |
+| resume | 仅在选择器入口请求所有 provider，保留目录过滤、上游枚举及其他调用方的过滤能力。0.167.0 中必须使用 All，Any 仍可能触发服务端默认 provider 过滤。 |
+| 无输出 Esc | 固定中断时的 turn ID，复用已有回滚与草稿恢复；已出现答案、推理、计划或工具调用时保留原中断行为。 |
+| SQLite 日志 | 保留 INFO 及以上级别；此项控制 SQLite 日志过滤。 |
+| Space 引用 | 有选区时在当前 prompt 尾部追加 `\n> 选中文字\n`，保留草稿附件、提及、粘贴内容，清除选区并保持阅读位置；无选区时沿用原 Space 行为。 |
+| 模型上下文 | 已移除 353000 覆盖，使用上游模型目录。 |
 
-```bash
-npm install -g @openai/codex@0.157.1   # 先升级
-# 再替换 codex.exe
+Ctrl+C 保持复制功能；Enter 保持“复制并跟随最新输出”。Space 不操作剪贴板，也不跟随最新输出。多行选中文字按原文追加，仅在整体前面加一个 `> `。
+
+### 配置重试
+
+在现有 provider 表中加入字段，不要重复创建同名表：
+
+```toml
+[model_providers.openai]
+request_max_retries = 1000
+stream_max_retries = 1000
+retry_delay_ms = 10000
 ```
 
-zip 里的 `BUILD-INFO.txt` 记录了 `upstream_tag`，可用来核对版本。
-
-## 工作流程
-
-```mermaid
-flowchart TB
-  C["每天 06:00 UTC<br/>检查官方新 release"] --> N{"tag 已构建过？"}
-  N -->|是| S["跳过"]
-  N -->|否| K{"patches/<tag>.patch<br/>存在？"}
-  K -->|是| P["拉官方源码<br/>应用该 tag 专属补丁"]
-  K -->|否| F["回退到版本号最大的<br/>已有补丁试跑"]
-  F --> P
-  P --> A1["1. git apply"]
-  A1 -->|失败| A2["2. patch --fuzz=3<br/>吸收行号漂移"]
-  A2 -->|失败| A3["3. git apply --3way"]
-  A3 -->|失败| I["开 Issue<br/>列出失败 hunk"]
-  A1 -->|成功| L["对齐 Cargo.lock<br/>0.0.0 -> 目标版本"]
-  A2 -->|成功| L
-  A3 -->|成功| L
-  L --> B["cargo build --locked<br/>--release --bin codex"]
-  B --> Z["打包 zip"]
-  Z --> R["发 Release"]
-  R --> M["把 tag 记入<br/>built-tags.txt"]
-```
-
-## 补丁文件
-
-补丁**按 tag 分文件存放**，一个官方版本对应一份。**都不含 `Cargo.lock`**
-（版本号由 workflow 对齐，见下）：
-
-| 补丁文件 | 对应官方 tag | 规模 |
+| 值 | 有服务端重试建议 | 没有建议 |
 |---|---|---|
-| `patches/rust-v0.156.1.patch` | `rust-v0.156.1` | 41 文件 / 156 hunk |
-| `patches/rust-v0.157.1.patch` | `rust-v0.157.1` | 41 文件 / 156 hunk |
-| `patches/rust-v0.158.0.patch` | `rust-v0.158.0` | 41 文件 / 156 hunk |
-| `patches/rust-v0.159.0.patch` | `rust-v0.159.0` | 41 文件 / 156 hunk |
-| `patches/rust-v0.159.1.patch` | `rust-v0.159.1` | 41 文件 / 156 hunk |
-| `patches/rust-v0.159.2.patch` | `rust-v0.159.2` | 41 文件 / 156 hunk |
-| `patches/rust-v0.159.3.patch` | `rust-v0.159.3` | 41 文件 / 156 hunk |
-| `patches/rust-v0.160.0.patch` | `rust-v0.160.0` | 41 文件 / 156 hunk |
+| 未配置或 `10000` | 遵从建议 | 等待 10 秒 |
+| `2000` | 遵从建议 | 等待 2 秒 |
+| `-10000` | 忽略建议，等待 10 秒 | 等待 10 秒 |
+| `0` | 遵从建议 | 立即重试 |
 
-每份补丁都按自己的目标 tag 重新锚定：在对应的干净浅克隆上
-`git apply --check` 直接返回 0，不需要 `--3way`、也不需要基线 tag 的对象。
-交叉误用会被拒绝（例如 158 的补丁打到 156/157/160 都是 `check exit=1`）。
-落地后 `codex-rs/Cargo.lock` 与官方完全一致（只有版本行不同）。
+重试等待不改变重试资格、预算与取消语义。未显式配置的非模型 HTTP 客户端保留上游退避行为。
 
-workflow 按待构建的 tag 自动选中 `patches/<tag>.patch`。官方刚发新版、专属
-补丁还没写出来时，会回退到版本号最大的那份补丁先试跑（成功则照常构建，
-失败才开冲突 Issue）。
+## 按功能维护历史
 
-**补丁不含 `Cargo.lock`。** 官方 tag 自带的 `Cargo.lock` 里，workspace 成员
-版本是 `0.0.0`，而 `Cargo.toml` 写的是版本号（如 `0.160.0`）；编译用
-`cargo build --locked`，两者必须一致。`prepare` 阶段会把 lock 里所有
-`version = "0.0.0"` 改写成目标 tag 的版本号。
+历史的 `patches/rust-v0.156.1.patch` 至 `rust-v0.166.0.patch` 保留原样。0.167.0 提供两种等价交付：
 
-> 这一步以前是补丁在做，占掉 303 个 hunk 里的 147 个（近一半），而且每次换
-> tag 版本号就变、必然冲突。现在交给 workflow：写法上先校验「lock 里的
-> `0.0.0` 行数 == `version.workspace = true` 的包数」再改，相等才动 —— 保证
-> 改的只是 workspace 成员，不会误伤第三方依赖；不等就报错退出，不猜。
+- `patches/rust-v0.167.0.patch`：Actions 继续使用的合并补丁。
+- `patches/series/rust-v0.167.0/*.patch`：按功能拆分的 Git 邮件补丁，保存提交顺序、说明与真实基线，供后续迁移。
 
-已构建的 tag 见 `built-tags.txt`。注意它只控制"是否跳过"：某 tag 已记录后，
-想重建必须显式勾选 `force`。这个文件只在 workflow 里追加，
-手动 dispatch 时若目标 tag 已在其中，会被判定为 `skip` 而什么都不做。
-
-### 补丁应用的兜底顺序
-
-`prepare` 阶段按下面的顺序尝试，前一档能过就不走后面：
-
-| 顺序 | 手段 | 能自动处理的情况 |
-|---|---|---|
-| 1 | `git apply` | 上下文完全一致 |
-| 2 | `patch -p1 --fuzz=3` | **上游在锚点附近插了几行**，上下文整体偏移但语义没变 |
-| 3 | `git apply --3way` | 需要 pre-image blob；浅克隆得先 `fetch --unshallow` |
-
-第 2 档是关键：实测把 157.1 的补丁直接打到 158.0~160.0 上，300 个 hunk 里
-靠 fuzz 能自动吸收到只剩 3~5 个真失败。它先 `--dry-run` 统计失败 hunk，
-**只有全部 hunk 都能落地才真正应用**，避免出现"大部分应用、少数 hunk 被
-静默跳过"的半成品源码。
-
-走到第 3 档仍失败，才是真正的语义冲突，此时开的 Issue 会列出具体失败的
-hunk（不是笼统的"上下文被破坏"）。
-
-### 新增一个 tag 的补丁
-
-官方发了新 tag、CI 开了冲突 Issue 时：
+在干净上游仓库中恢复这些提交：
 
 ```bash
-git clone --depth 1 -b <新tag> https://github.com/openai/codex.git
+git clone --branch rust-v0.167.0 https://github.com/openai/codex.git
 cd codex
-patch -p1 --fuzz=3 --dry-run --forward < /path/to/patches/<上一个tag>.patch  # 看哪些 hunk 真失败
-git apply --3way /path/to/patches/<上一个tag>.patch                          # 看冲突块
-# 按新代码结构重写补丁，另存为 patches/<新tag>.patch
+git switch -c patched/rust-v0.167.0
+git am /path/to/codex-patched-build/patches/series/rust-v0.167.0/*.patch
 ```
 
-要点：**不要把 `Cargo.lock` 写进补丁**（版本号由 workflow 对齐）。
-改完确认 `built-tags.txt` 里没有该 tag（否则会被跳过），需要时用 `force` 重建。
+补丁只保存协议源码，不保存上游生成的 JSON、TypeScript 和压缩导出。应用后，先执行 workflow 的“重建并校验协议导出”步骤，再运行其他测试和构建。该步骤调用上游 `schema_fixtures_tests::write_schema_fixtures_from_env`，分别设置 `CODEX_APP_SERVER_SCHEMA_EXPERIMENTAL=0/1`，生成稳定版和实验版导出，再运行上游一致性测试。
 
-### 已知的冲突落点（156→160 一直漂移的四处）
+后续升级时保留该分支，再迁移到新 tag；只处理确实发生变化的功能：
 
-上游改这些位置时，补丁的锚点会失配。都是「上游新增」与「补丁新增」并存，
-保留两边即可，不需要重新实现功能：
+```bash
+git fetch origin tag <新tag>
+git switch -c patched/<新tag>
+git rebase --onto <新tag> rust-v0.167.0
+# 逐个处理冲突，运行受影响的测试，再导出新版本。
+git diff --binary --full-index <新tag> HEAD -- . ':!codex-rs/Cargo.lock' > /path/to/patches/<新tag>.patch
+git format-patch --binary --full-index --no-signature -o /path/to/patches/series/<新tag> <新tag>..HEAD
+```
 
-| 文件 | 冲突形态 | 合并方式 |
-|---|---|---|
-| `protocol/src/error.rs` | 补丁把 `ServerOverloaded` / `RetryLimit` 从不可重试臂移到可重试臂 | 移臂，同时保留上游新增的 `FlexUnavailable` / `ContentFilter` |
-| `protocol/src/error.rs` | `retry_delay` 改用固定 10 秒 | 保留补丁语义，但注意上游把 `server_retry_delay` 从字段改成了方法（`self.server_retry_delay()`） |
-| `tui/src/chatwidget.rs` + `constructor.rs` | 补丁新增 `pending_output_free_interrupt_turn_id` | 与上游新增的 `test_codex_home` 并存，字段声明与 `None` 初始化两处都要留 |
-| `tui/src/resume_picker.rs` | 补丁让 resume 忽略 provider 过滤 | 上游把函数改成 `async` 且换用 `app_server`，需按新签名重写函数体后返回 `ProviderFilter::Any`（仅 160.0 出现） |
+新功能放在独立提交中，修订既有功能时整理到对应提交；不要再对整份补丁做跨版本字符串替换。上游已实现同等能力时，可以删除相应功能提交，但应先核对行为和配置兼容。
 
-> ⚠️ 解 `resume_picker.rs` 时注意：`picker_provider_filter` 的结尾 `}` 在冲突标记
-> **之外**（属于公共上下文）。替换整段函数体时**不要**再写一个 `}`，否则会多出
-> 右花括号 → `unexpected closing delimiter`。
+生成的 `codex-rs/app-server-protocol/schema/` 留在构建工作区，不纳入功能提交。导出命令中的 `HEAD` 用于排除这些未提交的生成物，避免每次升级都迁移压缩二进制差异。
 
-### 已知的编译级陷阱（apply 成功也编不过）
+## Actions 构建流程
 
-下面几处 `git apply` 完全成功，**只有编译才会暴露**。重做补丁后务必确认语义：
+每天 06:00 UTC 检查官方正式 Release；`built-tags.txt` 控制是否跳过已构建版本。
 
-| 位置 | 症状 | 处理 |
-|---|---|---|
-| `model-provider-info/src/lib.rs` | `error[E0433]: cannot find module or crate 'codex_api'` | 上游 `f5960fcc2`（Reduce dependency coupling）起，`codex-model-provider-info` 不再依赖 `codex-api`。补丁新增的 `supports_remote_compaction()` 调用 `codex_api::is_azure_responses_provider` 会失败。该判定是纯字符串匹配，**内联**进来即可；不要把依赖加回去（那还会改 `Cargo.lock` 的依赖列表，与 `--locked` 冲突） |
-| `tui/src/resume_picker.rs` | `error: unexpected closing delimiter: '}'` | 见上一条注释：解冲突时多写了一个 `}` |
-| `tui/src/chatwidget/safety_recourse.rs` | `error[E0308]: match arms have incompatible types` | 上游 0.166.0 新增 `safety_recourse` 模块，在 match 中统一处理为 `SafetyAccessBlockCell`。补丁将 `new_cyber_policy_error_event` 改为返回 `WarningHistoryCell` 导致类型冲突。需按 `pending.domain` 分流处理，Bio 保留原逻辑，Cyber 保持弹 Warning 且不中断会话 |
+1. 优先选 `patches/<tag>.patch`；尚无专属补丁时尝试版本号最大的已有补丁。
+2. 依次尝试 `git apply`、`patch -p1 --fuzz=3`、`git apply --3way`。fuzz 先 dry-run，全部 hunk 成功才应用。
+3. 无法自动匹配时创建冲突 Issue。上下文变化、缺失 pre-image 与语义冲突都需按具体输出区分；应用成功还需编译与行为检查。
+4. 对齐 Cargo.lock 的 workspace 版本，重建并校验稳定版/实验版协议导出，再 `cargo build --locked --release --bin codex`。
+5. 打包并发布 Windows x64 zip，记录已构建 tag。
 
-## 补丁内容
+补丁不包含 Cargo.lock。官方 tag 的 lock 中 workspace 包版本为 0.0.0，而 Cargo.toml 已使用发布版本。workflow 校验 0.0.0 行数与 `version.workspace = true` 包数相等后，才按目标版本替换。
 
-| # | 改动 |
-|---|---|
-| 1 | 模型请求进度用数据包体积代替 token 估算 |
-| 2 | 压缩横幅区分「本地压缩 / 远程压缩」 |
-| 3 | 重试上限 1000 次 |
-| 4 | 重试固定 10 秒，去掉指数退避 |
-| 5 | `ServerOverloaded` 等改为可重试 |
-| 6 | cyber 警告只弹 Warning，不强制中断会话 |
-| 7 | `resume` 忽略 provider 过滤，只按文件夹过滤 |
-| 8 | GPT-5.6 上下文改回 353k |
-| 9 | 模型无输出时按 Esc 快速改提示词 |
-| 10 | 日志等级改 INFO |
+Actions → `build-windows-codex` → Run workflow：
 
-> 未包含原始 `codex.patch` 里的「砍掉 desktop / mcp server 支持」那组改动 ——
-> 那部分针对的代码结构在 0.156 已重构，需要单独处理。
+- `tag`：目标官方 tag，留空使用最新正式版。
+- `force`：忽略已构建记录，强制重建；已记录 tag 不加 force 会跳过。
 
-## 手动触发
-
-Actions → `build-windows-codex` → Run workflow，可指定：
-
-- `tag`：构建哪个官方 tag（留空 = 最新正式版）
-- `force`：忽略已构建记录，强制重建
-
-## 为什么只编 `codex`
-
-`codex` CLI 不依赖 `codex-code-mode`，因此不触发 V8 产物下载。官方 release
-workflow 还会编 `codex-code-mode-host` / `codex-app-server` / `bwrap`，那些
-需要自建 runner 和 `openai/codex` 的预编译 V8，fork 里跑不了，本仓库也不需要。
+CLI 构建不使用 V8 运行时，但 Cargo 解析 workspace 依赖时仍可能获取 V8 Git 源码。本次本机验证遇到其子模块的 Windows 长路径错误，记录见 [验证记录](patches/series/rust-v0.167.0/VALIDATION.md)。发布前应在可构建环境补齐 Rust 测试、协议导出一致性检查和 Windows TUI 验证。

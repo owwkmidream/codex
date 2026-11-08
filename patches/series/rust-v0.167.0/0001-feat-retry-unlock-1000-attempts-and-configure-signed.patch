@@ -1,0 +1,716 @@
+From 4e71dc1a622d689c72564fdddf549f6c08893824 Mon Sep 17 00:00:00 2001
+From: owwkmidream <159dreaml@gmail.com>
+Date: Mon, 9 Nov 2026 03:38:10 +0800
+Subject: [PATCH 01/11] feat(retry): unlock 1000 attempts and configure signed
+ retry delay
+
+---
+ codex-rs/codex-api/src/endpoint/images.rs     |  1 +
+ codex-rs/codex-api/src/endpoint/memories.rs   |  1 +
+ codex-rs/codex-api/src/endpoint/models.rs     |  1 +
+ .../codex-api/src/endpoint/realtime_call.rs   |  1 +
+ .../endpoint/realtime_websocket/methods.rs    |  6 +++
+ codex-rs/codex-api/src/endpoint/search.rs     |  1 +
+ codex-rs/codex-api/tests/clients.rs           |  1 +
+ .../codex-api/tests/models_integration.rs     |  1 +
+ .../codex-api/tests/realtime_websocket_e2e.rs |  1 +
+ .../codex-api/tests/realtime_websocket_tls.rs |  1 +
+ .../tests/responses_websocket_probe.rs        |  1 +
+ codex-rs/codex-api/tests/sse_end_to_end.rs    |  1 +
+ codex-rs/codex-client/src/lib.rs              |  1 +
+ codex-rs/codex-client/src/provider.rs         |  2 +
+ codex-rs/codex-client/src/retry.rs            | 46 ++++++++++++++++++-
+ .../proto/codex.thread_config.v1.proto        |  1 +
+ .../proto/codex.thread_config.v1.rs           |  2 +
+ codex-rs/config/src/thread_config/remote.rs   |  3 ++
+ codex-rs/core/config.schema.json              |  7 ++-
+ codex-rs/core/src/compact.rs                  | 10 +++-
+ codex-rs/core/src/responses_retry.rs          | 37 ++++++---------
+ codex-rs/core/tests/suite/retry_after.rs      |  2 +
+ codex-rs/model-provider-info/src/lib.rs       | 11 ++++-
+ .../src/model_provider_info_tests.rs          | 25 ++++++++++
+ codex-rs/protocol/src/error.rs                |  6 +--
+ codex-rs/protocol/src/error_tests.rs          |  4 +-
+ 26 files changed, 140 insertions(+), 34 deletions(-)
+
+diff --git a/codex-rs/codex-api/src/endpoint/images.rs b/codex-rs/codex-api/src/endpoint/images.rs
+index ec4b3f8608b5fc865322032fda4d376c51acacbc..2be289ff48711e83846345bb5bb9bc602d6e8bf7 100644
+--- a/codex-rs/codex-api/src/endpoint/images.rs
++++ b/codex-rs/codex-api/src/endpoint/images.rs
+@@ -189,6 +189,7 @@ mod tests {
+             retry: RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: true,
+                 retry_transport: true,
+diff --git a/codex-rs/codex-api/src/endpoint/memories.rs b/codex-rs/codex-api/src/endpoint/memories.rs
+index 979f96bb640e2ffe0ec952f236bbd11eec179e30..2df0b33ea3aac2d452df6ea10bf97de32d1bc580 100644
+--- a/codex-rs/codex-api/src/endpoint/memories.rs
++++ b/codex-rs/codex-api/src/endpoint/memories.rs
+@@ -146,6 +146,7 @@ mod tests {
+             retry: RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: true,
+                 retry_transport: true,
+diff --git a/codex-rs/codex-api/src/endpoint/models.rs b/codex-rs/codex-api/src/endpoint/models.rs
+index 99016987069c9d14b541a6e3a03dafe344f77e36..cf5f60cfb0ccbf8a3148d6e5651dc695285dc67d 100644
+--- a/codex-rs/codex-api/src/endpoint/models.rs
++++ b/codex-rs/codex-api/src/endpoint/models.rs
+@@ -222,6 +222,7 @@ mod tests {
+             retry: RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: true,
+                 retry_transport: true,
+diff --git a/codex-rs/codex-api/src/endpoint/realtime_call.rs b/codex-rs/codex-api/src/endpoint/realtime_call.rs
+index 745d0b04055c04bde448e55730526d6c74c93bb8..95528d068250fa17b51e940ec6135faee2d03b41 100644
+--- a/codex-rs/codex-api/src/endpoint/realtime_call.rs
++++ b/codex-rs/codex-api/src/endpoint/realtime_call.rs
+@@ -378,6 +378,7 @@ mod tests {
+             retry: RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: true,
+                 retry_transport: true,
+diff --git a/codex-rs/codex-api/src/endpoint/realtime_websocket/methods.rs b/codex-rs/codex-api/src/endpoint/realtime_websocket/methods.rs
+index e7a8bf1bd4362c24df33bdc38cfa13727d903244..af73d46b8ad3ee8d7a0251ee430619219bda82ee 100644
+--- a/codex-rs/codex-api/src/endpoint/realtime_websocket/methods.rs
++++ b/codex-rs/codex-api/src/endpoint/realtime_websocket/methods.rs
+@@ -2355,6 +2355,7 @@ mod tests {
+             retry: RetryConfig {
+                 max_attempts: 0,
+                 base_delay: Duration::ZERO,
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: false,
+                 retry_transport: false,
+@@ -2551,6 +2552,7 @@ mod tests {
+             retry: crate::provider::RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: false,
+                 retry_transport: false,
+@@ -2877,6 +2879,7 @@ mod tests {
+             retry: crate::provider::RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: false,
+                 retry_transport: false,
+@@ -3004,6 +3007,7 @@ mod tests {
+             retry: crate::provider::RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: false,
+                 retry_transport: false,
+@@ -3110,6 +3114,7 @@ mod tests {
+             retry: crate::provider::RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: false,
+                 retry_transport: false,
+@@ -3202,6 +3207,7 @@ mod tests {
+             retry: crate::provider::RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: false,
+                 retry_transport: false,
+diff --git a/codex-rs/codex-api/src/endpoint/search.rs b/codex-rs/codex-api/src/endpoint/search.rs
+index ee47b906a74bf2d6de6efaac6e26d8ec1b39cef1..7484e6019dc905b31730fe2c719195e36211c3e1 100644
+--- a/codex-rs/codex-api/src/endpoint/search.rs
++++ b/codex-rs/codex-api/src/endpoint/search.rs
+@@ -127,6 +127,7 @@ mod tests {
+             retry: RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: true,
+                 retry_transport: true,
+diff --git a/codex-rs/codex-api/tests/clients.rs b/codex-rs/codex-api/tests/clients.rs
+index 664697da323ab6963d080b9e33f0558382b0cb0a..21a260789dc2215f9de33f70d66851decf76e623 100644
+--- a/codex-rs/codex-api/tests/clients.rs
++++ b/codex-rs/codex-api/tests/clients.rs
+@@ -147,6 +147,7 @@ fn provider(name: &str) -> Provider {
+         retry: codex_api::RetryConfig {
+             max_attempts: 1,
+             base_delay: Duration::from_millis(1),
++            retry_delay_ms: None,
+             retry_429: false,
+             retry_5xx: false,
+             retry_transport: true,
+diff --git a/codex-rs/codex-api/tests/models_integration.rs b/codex-rs/codex-api/tests/models_integration.rs
+index 05d1806c1f7e60ea0d613062bb59de1104372cb6..be1484f25fcb20a6f50fce8faf4b87bc93b7e751 100644
+--- a/codex-rs/codex-api/tests/models_integration.rs
++++ b/codex-rs/codex-api/tests/models_integration.rs
+@@ -42,6 +42,7 @@ fn provider(base_url: &str) -> Provider {
+         retry: RetryConfig {
+             max_attempts: 1,
+             base_delay: std::time::Duration::from_millis(1),
++            retry_delay_ms: None,
+             retry_429: false,
+             retry_5xx: true,
+             retry_transport: true,
+diff --git a/codex-rs/codex-api/tests/realtime_websocket_e2e.rs b/codex-rs/codex-api/tests/realtime_websocket_e2e.rs
+index d42d4ec7d901ca4712722f103cbca08b99b6b44b..dffb7adf7e6224059f1ab3337631194cc2a26a2a 100644
+--- a/codex-rs/codex-api/tests/realtime_websocket_e2e.rs
++++ b/codex-rs/codex-api/tests/realtime_websocket_e2e.rs
+@@ -77,6 +77,7 @@ fn test_provider(base_url: String) -> Provider {
+         retry: RetryConfig {
+             max_attempts: 1,
+             base_delay: Duration::from_millis(1),
++            retry_delay_ms: None,
+             retry_429: false,
+             retry_5xx: false,
+             retry_transport: false,
+diff --git a/codex-rs/codex-api/tests/realtime_websocket_tls.rs b/codex-rs/codex-api/tests/realtime_websocket_tls.rs
+index 5668ff669c334844ed9da65b85b5a65c29471905..28f1ce76895bdd1245effe0dc2405f4f5919b6b3 100644
+--- a/codex-rs/codex-api/tests/realtime_websocket_tls.rs
++++ b/codex-rs/codex-api/tests/realtime_websocket_tls.rs
+@@ -125,6 +125,7 @@ async fn check_connection(address: String) {
+             retry: RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(/*millis*/ 1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: false,
+                 retry_transport: false,
+diff --git a/codex-rs/codex-api/tests/responses_websocket_probe.rs b/codex-rs/codex-api/tests/responses_websocket_probe.rs
+index 278f7ac995ea48c63fdd0e054392363a332c19f4..a3a3bfffad6ebbe42dc4f8a62c69c362e5b6c757 100644
+--- a/codex-rs/codex-api/tests/responses_websocket_probe.rs
++++ b/codex-rs/codex-api/tests/responses_websocket_probe.rs
+@@ -37,6 +37,7 @@ fn probe_client(base_url: String) -> ResponsesWebsocketClient {
+             retry: RetryConfig {
+                 max_attempts: 1,
+                 base_delay: Duration::from_millis(/*millis*/ 1),
++                retry_delay_ms: None,
+                 retry_429: false,
+                 retry_5xx: false,
+                 retry_transport: false,
+diff --git a/codex-rs/codex-api/tests/sse_end_to_end.rs b/codex-rs/codex-api/tests/sse_end_to_end.rs
+index 0a7f14801d6de9eebc4409ee48b1b1b5c498fa11..df882876d2b46d807a540e21fca67bb54c5c3e70 100644
+--- a/codex-rs/codex-api/tests/sse_end_to_end.rs
++++ b/codex-rs/codex-api/tests/sse_end_to_end.rs
+@@ -70,6 +70,7 @@ fn provider(name: &str) -> Provider {
+         retry: codex_api::RetryConfig {
+             max_attempts: 1,
+             base_delay: Duration::from_millis(1),
++            retry_delay_ms: None,
+             retry_429: false,
+             retry_5xx: false,
+             retry_transport: true,
+diff --git a/codex-rs/codex-client/src/lib.rs b/codex-rs/codex-client/src/lib.rs
+index e634a2b2947c0a5dede108ab5cf1f4e599cc0d1f..db27e71b17d43dcc5518132612c4fbc7296fbd6d 100644
+--- a/codex-rs/codex-client/src/lib.rs
++++ b/codex-rs/codex-client/src/lib.rs
+@@ -9,6 +9,7 @@ pub use crate::retry::RetryOn;
+ pub use crate::retry::RetryOperation;
+ pub use crate::retry::RetryPolicy;
+ pub use crate::retry::backoff;
++pub use crate::retry::configured_retry_delay;
+ pub use crate::retry::run_with_retry;
+ pub use crate::sse::sse_stream;
+ pub use crate::telemetry::RequestTelemetry;
+diff --git a/codex-rs/codex-client/src/provider.rs b/codex-rs/codex-client/src/provider.rs
+index 9feb92fb2cb1d5d759aea0ecdf9ee2ff6b55578b..a908faced82f91a58044b8cbffe5d92800d5cae4 100644
+--- a/codex-rs/codex-client/src/provider.rs
++++ b/codex-rs/codex-client/src/provider.rs
+@@ -18,6 +18,7 @@ use url::Url;
+ pub struct RetryConfig {
+     pub max_attempts: u64,
+     pub base_delay: Duration,
++    pub retry_delay_ms: Option<i64>,
+     pub retry_429: bool,
+     pub retry_5xx: bool,
+     pub retry_transport: bool,
+@@ -28,6 +29,7 @@ impl RetryConfig {
+         RetryPolicy {
+             max_attempts: self.max_attempts,
+             base_delay: self.base_delay,
++            retry_delay_ms: self.retry_delay_ms,
+             retry_on: RetryOn {
+                 retry_429: self.retry_429,
+                 retry_5xx: self.retry_5xx,
+diff --git a/codex-rs/codex-client/src/retry.rs b/codex-rs/codex-client/src/retry.rs
+index b10fa50794de347b73a76c83d0b6b36e055a7842..f4025e41c2073769b3d41a41dc6a32eb5a36181d 100644
+--- a/codex-rs/codex-client/src/retry.rs
++++ b/codex-rs/codex-client/src/retry.rs
+@@ -9,6 +9,7 @@ use std::time::Duration;
+ pub struct RetryPolicy {
+     pub max_attempts: u64,
+     pub base_delay: Duration,
++    pub retry_delay_ms: Option<i64>,
+     pub retry_on: RetryOn,
+ }
+ 
+@@ -51,6 +52,13 @@ pub fn backoff(base: Duration, attempt: u64) -> Duration {
+     Duration::from_millis((raw as f64 * jitter) as u64)
+ }
+ 
++/// 正数优先采用服务端建议；负数固定等待其绝对值，包含 i64::MIN。
++pub fn configured_retry_delay(millis: i64, server_delay: Option<Duration>) -> Duration {
++    server_delay
++        .filter(|_| millis >= 0)
++        .unwrap_or_else(|| Duration::from_millis(millis.unsigned_abs()))
++}
++
+ /// Identifies a retry path and its associated trace-event layer.
+ #[derive(Debug, Clone, Copy)]
+ pub enum RetryOperation {
+@@ -100,10 +108,17 @@ where
+                     .should_retry(&err, attempt, policy.max_attempts) =>
+             {
+                 let retry_attempt = attempt + 1;
+-                let retry_after = err.retry_after();
++                let retry_after = err
++                    .retry_after()
++                    .filter(|_| policy.retry_delay_ms.is_none_or(|millis| millis >= 0));
+                 let delay = retry_after
+                     .map(RetryAfter::remaining_delay)
+-                    .unwrap_or_else(|| backoff(policy.base_delay, retry_attempt));
++                    .unwrap_or_else(|| {
++                        policy.retry_delay_ms.map_or_else(
++                            || backoff(policy.base_delay, retry_attempt),
++                            |millis| configured_retry_delay(millis, None),
++                        )
++                    });
+                 crate::record_retry!(retry_attempt, delay, RetryOperation::HttpRequest);
+                 if let Some(retry_after) = retry_after {
+                     tokio::time::sleep_until(retry_after.deadline()).await;
+@@ -116,3 +131,30 @@ where
+     }
+     Err(TransportError::RetryLimit)
+ }
++
++#[cfg(test)]
++mod configured_retry_tests {
++    use super::*;
++
++    #[test]
++    fn configured_delay_obeys_sign_and_server_advice() {
++        let advice = Some(Duration::from_secs(30));
++        assert_eq!(
++            configured_retry_delay(10_000, advice),
++            Duration::from_secs(30)
++        );
++        assert_eq!(
++            configured_retry_delay(-10_000, advice),
++            Duration::from_secs(10)
++        );
++        assert_eq!(
++            configured_retry_delay(10_000, None),
++            Duration::from_secs(10)
++        );
++        assert_eq!(configured_retry_delay(0, None), Duration::ZERO);
++        assert_eq!(
++            configured_retry_delay(i64::MIN, None),
++            Duration::from_millis(1_u64 << 63)
++        );
++    }
++}
+diff --git a/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.proto b/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.proto
+index 1e7d72bf33f8512696dacd6693139a2227883a2c..cdff7a6bd97733bbcb509eb0eba3e023e8244ff2 100644
+--- a/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.proto
++++ b/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.proto
+@@ -54,6 +54,7 @@ message ModelProvider {
+   optional string location = 21;
+   optional string credential_file = 22;
+   optional ModelProviderCapabilities capabilities = 23;
++  optional int64 retry_delay_ms = 24;
+ }
+ 
+ message ModelProviderCapabilities {
+diff --git a/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.rs b/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.rs
+index c6e5b161960dfab0d894cb770324ae5fc3589616..8a5b4dddcfead0fe293922c3a1686960e0013a6b 100644
+--- a/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.rs
++++ b/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.rs
+@@ -87,6 +87,8 @@ pub struct ModelProvider {
+     pub credential_file: ::core::option::Option<::prost::alloc::string::String>,
+     #[prost(message, optional, tag = "23")]
+     pub capabilities: ::core::option::Option<ModelProviderCapabilities>,
++    #[prost(int64, optional, tag = "24")]
++    pub retry_delay_ms: ::core::option::Option<i64>,
+ }
+ #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+ pub struct ModelProviderCapabilities {
+diff --git a/codex-rs/config/src/thread_config/remote.rs b/codex-rs/config/src/thread_config/remote.rs
+index fd616daa271de69d8a56f23cd281120abd278314..563ee008173c03d531ec9fe6b1bdb42cca85fd81 100644
+--- a/codex-rs/config/src/thread_config/remote.rs
++++ b/codex-rs/config/src/thread_config/remote.rs
+@@ -190,6 +190,7 @@ fn model_provider_from_proto(
+         env_http_headers: provider.env_http_headers.map(|map| map.values),
+         request_max_retries: provider.request_max_retries,
+         stream_max_retries: provider.stream_max_retries,
++        retry_delay_ms: provider.retry_delay_ms,
+         stream_idle_timeout_ms: provider.stream_idle_timeout_ms,
+         websocket_connect_timeout_ms: provider.websocket_connect_timeout_ms,
+         requires_openai_auth: provider.requires_openai_auth,
+@@ -232,6 +233,7 @@ fn model_provider_to_proto(
+         env_http_headers,
+         request_max_retries,
+         stream_max_retries,
++        retry_delay_ms,
+         stream_idle_timeout_ms,
+         websocket_connect_timeout_ms,
+         requires_openai_auth,
+@@ -261,6 +263,7 @@ fn model_provider_to_proto(
+         env_http_headers: env_http_headers.map(|values| proto::StringMap { values }),
+         request_max_retries,
+         stream_max_retries,
++        retry_delay_ms,
+         stream_idle_timeout_ms,
+         websocket_connect_timeout_ms,
+         requires_openai_auth,
+diff --git a/codex-rs/core/config.schema.json b/codex-rs/core/config.schema.json
+index f5149c6efdf7ab9f1550aa0639dd5f2401205f25..ebbaab0364c74b49a5f9458fbeb8c288910cf699 100644
+--- a/codex-rs/core/config.schema.json
++++ b/codex-rs/core/config.schema.json
+@@ -3180,6 +3180,11 @@
+           "description": "Does this provider require an OpenAI API key or ChatGPT login token? If true, the user is presented with a login screen on first run, and credentials are stored using the backend selected by `cli_auth_credentials_store`. If false (the default), the login screen is skipped, and the API key (if needed) comes from the environment variable specified by `env_key`.",
+           "type": "boolean"
+         },
++        "retry_delay_ms": {
++          "description": "模型重试等待毫秒数，默认 10000；负数忽略服务端建议并取绝对值。",
++          "format": "int64",
++          "type": "integer"
++        },
+         "stream_idle_timeout_ms": {
+           "description": "Idle timeout (in milliseconds) to wait for activity on a streaming response before treating the connection as lost.",
+           "format": "uint64",
+@@ -8679,4 +8684,4 @@
+   },
+   "title": "ConfigToml",
+   "type": "object"
+-}
+\ No newline at end of file
++}
+diff --git a/codex-rs/core/src/compact.rs b/codex-rs/core/src/compact.rs
+index 2f6a91de7054cf67bcda1dc9ee5955d82e9d14dc..92b7c89e84b61e59c59500478168f5501cdb2438 100644
+--- a/codex-rs/core/src/compact.rs
++++ b/codex-rs/core/src/compact.rs
+@@ -25,7 +25,6 @@ use crate::session::step_context::StepContext;
+ use crate::session::turn::get_last_assistant_message_from_turn;
+ use crate::session::turn_context::TurnContext;
+ use crate::state::AutoCompactWindowIds;
+-use crate::util::backoff;
+ use codex_analytics::CodexCompactionEvent;
+ use codex_analytics::CompactionImplementation;
+ use codex_analytics::CompactionPhase;
+@@ -375,7 +374,14 @@ async fn run_compact_task_inner_impl(
+             Err(e) => {
+                 if retries < max_retries {
+                     retries += 1;
+-                    let delay = backoff(retries);
++                    let delay = codex_client::configured_retry_delay(
++                        turn_context
++                            .provider
++                            .info()
++                            .retry_delay_ms
++                            .unwrap_or(10_000),
++                        e.server_retry_delay(),
++                    );
+                     sess.notify_stream_error(
+                         turn_context.as_ref(),
+                         format!("Reconnecting... {retries}/{max_retries}"),
+diff --git a/codex-rs/core/src/responses_retry.rs b/codex-rs/core/src/responses_retry.rs
+index 6a4214609c9f9d2ddb61026d17a232497bd792d9..f78f12cffaaf74d2d62f8c9be552860addc6b10e 100644
+--- a/codex-rs/core/src/responses_retry.rs
++++ b/codex-rs/core/src/responses_retry.rs
+@@ -1,6 +1,6 @@
+ //! Shared retry and transport fallback decisions for Responses requests.
+ //! Content-filter guidance is recorded for sampling requests before retry decisions.
+-//! Server advice controls timing without extending configured retry limits.
++//! Provider retry_delay_ms controls timing without extending configured retry limits.
+ 
+ use std::time::Duration;
+ 
+@@ -20,29 +20,16 @@ use codex_protocol::protocol::WarningEvent;
+ use tokio::time::Instant;
+ use tracing::warn;
+ 
+-const INITIAL_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(5);
+-const MAX_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(60);
+-
+ #[derive(Debug, Clone, Copy)]
+ pub(crate) enum ResponsesStreamRequest {
+     Sampling,
+     RemoteCompactionV2,
+ }
+ 
++#[derive(Default)]
+ pub(crate) struct ResponsesStreamRetryState {
+     retries: u64,
+     connection_retries: u64,
+-    connection_retry_delay: Duration,
+-}
+-
+-impl Default for ResponsesStreamRetryState {
+-    fn default() -> Self {
+-        Self {
+-            retries: 0,
+-            connection_retries: 0,
+-            connection_retry_delay: INITIAL_CONNECTION_RETRY_DELAY,
+-        }
+-    }
+ }
+ 
+ /// Server retry advice retained after stream retries are exhausted. The turn ID
+@@ -86,10 +73,17 @@ pub(crate) async fn handle_response_stream_error(
+         ResponsesStreamRequest::RemoteCompactionV2 => RetryOperation::RemoteCompactionV2,
+     };
+     let retry_count = retry_state.retries.saturating_add(1);
+-    let Some(delay) = err.retry_delay(retry_count) else {
++    let Some(_) = err.retry_delay(retry_count) else {
+         return Err(err);
+     };
+-    let retry_after = err.retry_after();
++    let millis = turn_context
++        .provider
++        .info()
++        .retry_delay_ms
++        .unwrap_or(10_000);
++    // 同时处理普通重试、传输回退及耗尽后的建议，负数不残留服务端截止时间。
++    let retry_after = err.retry_after().filter(|_| millis >= 0);
++    let delay = codex_client::configured_retry_delay(millis, err.server_retry_delay());
+ 
+     if turn_context
+         .config
+@@ -100,7 +94,7 @@ pub(crate) async fn handle_response_stream_error(
+         && !turn_context.session_source.is_internal()
+         && !turn_context.provider.info().is_amazon_bedrock()
+     {
+-        let retry_delay = retry_state.connection_retry_delay;
++        let retry_delay = delay;
+         warn!(
+             turn_id = %turn_context.sub_id,
+             error = %err,
+@@ -112,9 +106,6 @@ pub(crate) async fn handle_response_stream_error(
+         retry_state.connection_retries = retry_state.connection_retries.saturating_add(1);
+         codex_client::record_retry!(retry_state.connection_retries, retry_delay, operation);
+         tokio::time::sleep(retry_delay).await;
+-        retry_state.connection_retry_delay = retry_delay
+-            .saturating_mul(2)
+-            .min(MAX_CONNECTION_RETRY_DELAY);
+         return Ok(());
+     }
+ 
+@@ -124,9 +115,11 @@ pub(crate) async fn handle_response_stream_error(
+             turn_context.model_info(),
+         )
+     {
+-        // Changing transport must not bypass the server's retry deadline.
++        // 切换传输也采用同一等待配置，避免绕过固定等待或服务端截止时间。
+         if let Some(retry_after) = retry_after {
+             tokio::time::sleep_until(retry_after.deadline()).await;
++        } else {
++            tokio::time::sleep(delay).await;
+         }
+         sess.send_event(
+             turn_context,
+diff --git a/codex-rs/core/tests/suite/retry_after.rs b/codex-rs/core/tests/suite/retry_after.rs
+index 81bc8bc349cbae00373dff817b269dde3e3e4443..b283697a8477f75444ebcdab3e88359981a66582 100644
+--- a/codex-rs/core/tests/suite/retry_after.rs
++++ b/codex-rs/core/tests/suite/retry_after.rs
+@@ -408,6 +408,7 @@ async fn http_retry_backoff_exhausts_attempts() {
+         RetryPolicy {
+             max_attempts: 2,
+             base_delay: Duration::from_millis(200),
++            retry_delay_ms: None,
+             retry_on: RetryOn {
+                 retry_429: false,
+                 retry_5xx: true,
+@@ -463,6 +464,7 @@ async fn exhausted_http_retries_preserve_deadline_through_error_mapping() {
+         RetryPolicy {
+             max_attempts: 1,
+             base_delay: Duration::from_millis(200),
++            retry_delay_ms: None,
+             retry_on: RetryOn {
+                 retry_429: false,
+                 retry_5xx: true,
+diff --git a/codex-rs/model-provider-info/src/lib.rs b/codex-rs/model-provider-info/src/lib.rs
+index 96408491631e40298676bb79a6766b79a5abefad..4088f7a23d3e4c2a37a3ceda6c195d6f2c36b467 100644
+--- a/codex-rs/model-provider-info/src/lib.rs
++++ b/codex-rs/model-provider-info/src/lib.rs
+@@ -76,9 +76,9 @@ const DEFAULT_AWS_CREDENTIAL_EXPORT_TIMEOUT_MS: u64 = 30_000;
+ const DEFAULT_AWS_AUTH_REFRESH_TIMEOUT_MS: u64 = 300_000;
+ pub const DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS: u64 = 15_000;
+ /// Hard cap for user-configured `stream_max_retries`.
+-const MAX_STREAM_MAX_RETRIES: u64 = 100;
++const MAX_STREAM_MAX_RETRIES: u64 = 1000;
+ /// Hard cap for user-configured `request_max_retries`.
+-const MAX_REQUEST_MAX_RETRIES: u64 = 100;
++const MAX_REQUEST_MAX_RETRIES: u64 = 1000;
+ 
+ const OPENAI_PROVIDER_NAME: &str = "OpenAI";
+ const OPENAI_ACTOR_AUTHORIZATION_HEADER: &str = "x-openai-actor-authorization";
+@@ -209,6 +209,8 @@ pub struct ModelProviderInfo {
+     pub request_max_retries: Option<u64>,
+     /// Number of times to retry reconnecting a dropped streaming response before failing.
+     pub stream_max_retries: Option<u64>,
++    /// 模型重试等待毫秒数，默认 10000；负数忽略服务端建议并取绝对值。
++    pub retry_delay_ms: Option<i64>,
+     /// Idle timeout (in milliseconds) to wait for activity on a streaming response before treating
+     /// the connection as lost.
+     pub stream_idle_timeout_ms: Option<u64>,
+@@ -496,6 +498,7 @@ other non-default provider fields are not supported"
+         let retry = ApiRetryConfig {
+             max_attempts: self.request_max_retries(),
+             base_delay: Duration::from_millis(200),
++            retry_delay_ms: Some(self.retry_delay_ms.unwrap_or(10_000)),
+             retry_429: false,
+             retry_5xx: true,
+             retry_transport: true,
+@@ -600,6 +603,7 @@ other non-default provider fields are not supported"
+             // Use global defaults for retry/timeout unless overridden in config.toml.
+             request_max_retries: None,
+             stream_max_retries: None,
++            retry_delay_ms: None,
+             stream_idle_timeout_ms: None,
+             websocket_connect_timeout_ms: None,
+             requires_openai_auth: true,
+@@ -643,6 +647,7 @@ other non-default provider fields are not supported"
+             env_http_headers: None,
+             request_max_retries: None,
+             stream_max_retries: None,
++            retry_delay_ms: None,
+             stream_idle_timeout_ms: None,
+             websocket_connect_timeout_ms: None,
+             requires_openai_auth: false,
+@@ -683,6 +688,7 @@ other non-default provider fields are not supported"
+             env_http_headers: None,
+             request_max_retries: None,
+             stream_max_retries: None,
++            retry_delay_ms: None,
+             stream_idle_timeout_ms: None,
+             websocket_connect_timeout_ms: None,
+             requires_openai_auth: false,
+@@ -928,6 +934,7 @@ pub fn create_oss_provider_with_base_url(base_url: &str, wire_api: WireApi) -> M
+         env_http_headers: None,
+         request_max_retries: None,
+         stream_max_retries: None,
++        retry_delay_ms: None,
+         stream_idle_timeout_ms: None,
+         websocket_connect_timeout_ms: None,
+         requires_openai_auth: false,
+diff --git a/codex-rs/model-provider-info/src/model_provider_info_tests.rs b/codex-rs/model-provider-info/src/model_provider_info_tests.rs
+index 68b48aadc58475a4fa8c15a04aa651947f87648a..4f2cfaed8f1f9d1c70715addd9bfd354a1d0ba30 100644
+--- a/codex-rs/model-provider-info/src/model_provider_info_tests.rs
++++ b/codex-rs/model-provider-info/src/model_provider_info_tests.rs
+@@ -5,6 +5,27 @@ use pretty_assertions::assert_eq;
+ use std::num::NonZeroU64;
+ use tempfile::tempdir;
+ 
++#[test]
++fn retry_configuration_keeps_defaults_and_unlocks_1000() {
++    let defaults = ModelProviderInfo::default();
++    let provider = defaults.to_api_provider(None).unwrap();
++    assert_eq!(provider.retry.retry_delay_ms, Some(10_000));
++    for millis in [10_000, -10_000, 0] {
++        let config = format!(
++            "retry_delay_ms = {millis}\nrequest_max_retries = 1001\nstream_max_retries = 1001\n"
++        );
++        let info: ModelProviderInfo = toml::from_str(&config).unwrap();
++        assert_eq!(info.request_max_retries(), 1000);
++        assert_eq!(info.stream_max_retries(), 1000);
++        assert_eq!(
++            info.to_api_provider(None).unwrap().retry.retry_delay_ms,
++            Some(millis)
++        );
++    }
++    assert_eq!(defaults.request_max_retries(), DEFAULT_REQUEST_MAX_RETRIES);
++    assert_eq!(defaults.stream_max_retries(), DEFAULT_STREAM_MAX_RETRIES);
++}
++
+ #[test]
+ fn runtime_internal_metadata_opt_in_is_not_serialized_or_configurable() {
+     let trusted = ModelProviderInfo {
+@@ -91,6 +112,7 @@ base_url = "http://localhost:11434/v1"
+         env_http_headers: None,
+         request_max_retries: None,
+         stream_max_retries: None,
++        retry_delay_ms: None,
+         stream_idle_timeout_ms: None,
+         websocket_connect_timeout_ms: None,
+         requires_openai_auth: false,
+@@ -133,6 +155,7 @@ query_params = { api-version = "2025-04-01-preview" }
+         env_http_headers: None,
+         request_max_retries: None,
+         stream_max_retries: None,
++        retry_delay_ms: None,
+         stream_idle_timeout_ms: None,
+         websocket_connect_timeout_ms: None,
+         requires_openai_auth: false,
+@@ -179,6 +202,7 @@ supports_standalone_web_search = true
+         }),
+         request_max_retries: None,
+         stream_max_retries: None,
++        retry_delay_ms: None,
+         stream_idle_timeout_ms: None,
+         websocket_connect_timeout_ms: None,
+         requires_openai_auth: false,
+@@ -374,6 +398,7 @@ fn test_create_amazon_bedrock_provider() {
+             env_http_headers: None,
+             request_max_retries: None,
+             stream_max_retries: None,
++            retry_delay_ms: None,
+             stream_idle_timeout_ms: None,
+             websocket_connect_timeout_ms: None,
+             requires_openai_auth: false,
+diff --git a/codex-rs/protocol/src/error.rs b/codex-rs/protocol/src/error.rs
+index e48cf5abd05cf5a818336abdb9fb591c93388848..d131037c46ee6ba69a3a7a9fd68bb760eaa82c91 100644
+--- a/codex-rs/protocol/src/error.rs
++++ b/codex-rs/protocol/src/error.rs
+@@ -454,10 +454,10 @@ impl CodexErr {
+             | CodexErrorDetails::CyberPolicy { .. }
+             | CodexErrorDetails::BioPolicy { .. }
+             | CodexErrorDetails::MisalignmentPolicyViolation { .. } => None,
+-            CodexErrorDetails::ServerOverloaded
+-            | CodexErrorDetails::PolicyCapacityUnavailable
+-            | CodexErrorDetails::RetryLimit(_) => self.server_retry_delay(),
+             CodexErrorDetails::Stream(..)
++            | CodexErrorDetails::ServerOverloaded
++            | CodexErrorDetails::PolicyCapacityUnavailable
++            | CodexErrorDetails::RetryLimit(_)
+             | CodexErrorDetails::ContentFilter
+             | CodexErrorDetails::RateLimitExceeded(_)
+             | CodexErrorDetails::Timeout
+diff --git a/codex-rs/protocol/src/error_tests.rs b/codex-rs/protocol/src/error_tests.rs
+index 8fb8ae872d245c4af84c5170ed67e644b88b2dcf..6f41773baad9c1d118007e82a623fd37120b0183 100644
+--- a/codex-rs/protocol/src/error_tests.rs
++++ b/codex-rs/protocol/src/error_tests.rs
+@@ -39,7 +39,7 @@ async fn codex_err_debug_preserves_legacy_shape() {
+ #[test]
+ fn retryability_preserves_error_details_distinctions() {
+     let errors = [
+-        (CodexErr::ServerOverloaded, false),
++        (CodexErr::ServerOverloaded, true),
+         (CodexErr::new(CodexErrorDetails::ContentFilter), true),
+         (
+             CodexErr::new(CodexErrorDetails::RateLimitExceeded("retry later".into())),
+@@ -50,7 +50,7 @@ fn retryability_preserves_error_details_distinctions() {
+                 status: StatusCode::TOO_MANY_REQUESTS,
+                 request_id: None,
+             }),
+-            false,
++            true,
+         ),
+         (
+             CodexErr::UnexpectedStatus(UnexpectedResponseError {

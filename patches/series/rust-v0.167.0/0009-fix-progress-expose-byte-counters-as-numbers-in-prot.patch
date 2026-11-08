@@ -1,0 +1,47 @@
+From abdfebf22994e35fad5dcd7480b5101480203f37 Mon Sep 17 00:00:00 2001
+From: owwkmidream <159dreaml@gmail.com>
+Date: Mon, 9 Nov 2026 03:56:21 +0800
+Subject: [PATCH 09/11] fix(progress): expose byte counters as numbers in
+ protocol exports
+
+---
+ codex-rs/app-server-protocol/src/protocol/v2/turn.rs |  2 ++
+ codex-rs/tui/src/transcript_view/selection_tests.rs  | 10 ++++++++--
+ 2 files changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/codex-rs/app-server-protocol/src/protocol/v2/turn.rs b/codex-rs/app-server-protocol/src/protocol/v2/turn.rs
+index c5216f8d42eae5de0a8393082436935bafe86948..905821a56a5d88235b8ff3203614487d98cccba3 100644
+--- a/codex-rs/app-server-protocol/src/protocol/v2/turn.rs
++++ b/codex-rs/app-server-protocol/src/protocol/v2/turn.rs
+@@ -616,8 +616,10 @@ pub struct ModelRequestProgressNotification {
+     pub turn_id: String,
+     pub phase: ModelRequestProgressPhase,
+     /// Cumulative request bytes sent for this request.
++    #[ts(type = "number")]
+     pub sent_bytes: u64,
+     /// Cumulative response bytes received for this request.
++    #[ts(type = "number")]
+     pub received_bytes: u64,
+ }
+ 
+diff --git a/codex-rs/tui/src/transcript_view/selection_tests.rs b/codex-rs/tui/src/transcript_view/selection_tests.rs
+index 2a8d512020223c86f74d591d7a1f701eb4048c59..9c7d42b85d6b75c565e26e474d2f940222734a91 100644
+--- a/codex-rs/tui/src/transcript_view/selection_tests.rs
++++ b/codex-rs/tui/src/transcript_view/selection_tests.rs
+@@ -20,8 +20,14 @@ use std::time::Instant;
+ 
+ #[test]
+ fn space_quotes_a_selection_and_is_unhandled_without_one() {
+-    let cells: Vec<Arc<dyn HistoryCell>> =
+-        vec![Arc::new(PlainHistoryCell::new(vec!["selected".into(), "two".into(), "three".into(), "four".into(), "five".into(), "six".into()]))];
++    let cells: Vec<Arc<dyn HistoryCell>> = vec![Arc::new(PlainHistoryCell::new(vec![
++        "selected".into(),
++        "two".into(),
++        "three".into(),
++        "four".into(),
++        "five".into(),
++        "six".into(),
++    ]))];
+     let mut view = TranscriptView::default();
+     render(&mut view, &cells, 32, 3);
+     let space = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE);

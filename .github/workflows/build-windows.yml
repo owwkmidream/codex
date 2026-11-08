@@ -153,7 +153,7 @@ jobs:
           cd upstream
 
           # 补丁已不含 Cargo.lock（版本串由本步骤末尾按目标 tag 对齐），
-          # 所以这里失败一定是真正的代码语义冲突，不会是 lock 版本漂移。
+          # 应用失败仍可能是上下文变化或语义冲突，需要检查具体 hunk。
           target_version="${tag#rust-v}"
 
           echo "::group::尝试 1：git apply（精确匹配）"
@@ -187,8 +187,7 @@ jobs:
               echo "::endgroup::"
               echo "fuzz 兜底仍有 ${fuzz_failed} 个 hunk 失败，转三方合并"
 
-              # 尝试 3：三方合并。前面的 fuzz 已经排除了纯漂移，走到这里说明是
-              # 语义冲突，--3way 能把冲突块标出来供人工参考。
+              # 尝试 3：三方合并。仍可能存在上下文变化，冲突块供人工核对。
               echo "::group::尝试 3：git apply --3way（需补全历史）"
               git fetch --unshallow 2>/dev/null || git fetch --all
               git apply --3way "${patch}" > /dev/null 2>&1 || true
@@ -284,8 +283,8 @@ jobs:
               echo "官方已发 ${tag}，但还没有它的专属补丁，本次已自动回退到最新可用补丁尝试应用。"
             fi
             echo "自动流程已依次尝试 \`git apply\` → \`patch --fuzz=3\` → \`git apply --3way\`："
-            echo "行号漂移会被前两步自动吸收，所以剩下的失败是**真正的语义冲突**，"
-            echo "需要人工合并（通常只有几处 hunk）。"
+            echo "自动匹配未成功；请逐项核对上下文变化和行为差异，"
+            echo "并在合并后执行相关测试。应用成功本身不能证明行为兼容。"
             echo
             echo "### 冲突详情"
             echo
@@ -481,6 +480,26 @@ jobs:
               sys.exit(1)
           print("all migration files are pure CRLF; checksums will match the official exe")
           PY
+
+      - name: 重建并校验协议导出
+        working-directory: upstream/codex-rs
+        shell: bash
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          # 新版把协议导出嵌入压缩文件；从源码生成，避免二进制补丁随每版失效。
+          # 旧 tag 尚无这个上游入口，保留其原有构建路径。
+          if [[ ! -f app-server-protocol/src/schema_fixtures.rs ]]; then
+            echo "This tag predates the schema fixture generator; skipping."
+            exit 0
+          fi
+          export CODEX_APP_SERVER_SCHEMA_ROOT="$(cygpath -m "$PWD/app-server-protocol/schema")"
+          for api in 0 1; do
+            CODEX_APP_SERVER_SCHEMA_EXPERIMENTAL="$api" \
+              cargo test --locked -p codex-app-server-protocol --lib \
+                schema_fixtures_tests::write_schema_fixtures_from_env -- --exact --ignored
+          done
+          cargo test --locked -p codex-app-server-protocol --lib schema_fixtures_tests::
 
       # ── 诊断：编译前 ───────────────────────────────────────────────
       # 一次性采集全部可能影响耗时的信息，避免反复重跑。
