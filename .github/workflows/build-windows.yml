@@ -270,6 +270,8 @@ jobs:
       CARGO_HOME: "C:\\cargo"
       CARGO_NET_GIT_FETCH_WITH_CLI: "true"
       SCCACHE_GHA_ENABLED: "true"
+      # 缓存服务断连时由 CI runner 直接编译，仍保留 rustc 的真实退出码。
+      SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
     steps:
       - name: 启用 Windows 长路径
         shell: bash
@@ -320,10 +322,14 @@ jobs:
 
       - uses: mozilla-actions/sccache-action@v0.0.11
         id: sccache
+        continue-on-error: true
         with:
           version: "v0.16.0"
+          # 统计由下方步骤处理，避免安装失败后 post 再执行不存在的程序。
+          disable_annotations: true
 
       - name: 启用项目编译缓存
+        if: steps.sccache.outcome == 'success'
         shell: bash
         run: echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
 
@@ -496,6 +502,7 @@ jobs:
 
       - name: 编译缓存统计
         if: always() && steps.sccache.outcome == 'success'
+        continue-on-error: true
         shell: bash
         run: sccache --show-stats
 
@@ -559,6 +566,7 @@ jobs:
       CARGO_HOME: "C:\\cargo"
       CARGO_NET_GIT_FETCH_WITH_CLI: "true"
       SCCACHE_GHA_ENABLED: "true"
+      SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
       CARGO_PROFILE_CI_TEST_DEBUG: "0"
       LIBSQLITE3_FLAGS: SQLITE_DISABLE_INTRINSIC
     steps:
@@ -605,10 +613,13 @@ jobs:
 
       - uses: mozilla-actions/sccache-action@v0.0.11
         id: sccache
+        continue-on-error: true
         with:
           version: "v0.16.0"
+          disable_annotations: true
 
       - name: 启用项目编译缓存
+        if: steps.sccache.outcome == 'success'
         shell: bash
         run: echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
 
@@ -627,6 +638,7 @@ jobs:
 
       - name: 编译缓存统计
         if: always() && steps.sccache.outcome == 'success'
+        continue-on-error: true
         shell: bash
         run: sccache --show-stats
 
