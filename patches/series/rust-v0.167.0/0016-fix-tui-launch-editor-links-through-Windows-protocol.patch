@@ -1,0 +1,118 @@
+From c6b58246b22ffbb7d4a968912c0ad955701cd474 Mon Sep 17 00:00:00 2001
+From: owwkmidream <159dreaml@gmail.com>
+Date: Mon, 9 Nov 2026 22:32:45 +0800
+Subject: [PATCH] fix(tui): launch editor links through Windows protocol
+ handler
+
+---
+ codex-rs/tui/src/app/footer_selection.rs     |  5 +-
+ codex-rs/tui/src/app/owned_transcript.rs     |  5 +-
+ codex-rs/tui/src/pager_overlay/transcript.rs |  2 +-
+ codex-rs/tui/src/terminal_hyperlinks.rs      | 49 ++++++++++++++++++++
+ 4 files changed, 58 insertions(+), 3 deletions(-)
+
+diff --git a/codex-rs/tui/src/app/footer_selection.rs b/codex-rs/tui/src/app/footer_selection.rs
+index 411a476707afccbee531ea011e99f44d86ee7c01..3048642cb8e669eb7ea072432eeeef64c6297c02 100644
+--- a/codex-rs/tui/src/app/footer_selection.rs
++++ b/codex-rs/tui/src/app/footer_selection.rs
+@@ -74,7 +74,10 @@ impl App {
+                 if let Some((characters, result)) = copied {
+                     self.transcript_view.show_copy_feedback(&result, characters);
+                 } else if let ViewAction::OpenLink(url) = action {
+-                    self.open_url_in_browser(url);
++                    if let Err(err) = crate::terminal_hyperlinks::open_link(&url) {
++                        self.chat_widget
++                            .add_error_message(format!("Could not open link: {err}"));
++                    }
+                 }
+             }
+         }
+diff --git a/codex-rs/tui/src/app/owned_transcript.rs b/codex-rs/tui/src/app/owned_transcript.rs
+index 3874f6840ce1668c6f479a3f0497e3953f0bbe76..e23550da4d009dd1c3f0a1cb86e49c26ac06ba9f 100644
+--- a/codex-rs/tui/src/app/owned_transcript.rs
++++ b/codex-rs/tui/src/app/owned_transcript.rs
+@@ -894,7 +894,10 @@ impl App {
+                     }
+                 }
+             } else if let ViewAction::OpenLink(url) = action {
+-                self.open_url_in_browser(url);
++                if let Err(err) = crate::terminal_hyperlinks::open_link(&url) {
++                    self.chat_widget
++                        .add_error_message(format!("Could not open link: {err}"));
++                }
+             }
+         }
+         if was_select_mode && !self.transcript_view.is_select_mode() {
+diff --git a/codex-rs/tui/src/pager_overlay/transcript.rs b/codex-rs/tui/src/pager_overlay/transcript.rs
+index ecaa957fb9420b30a7f6330c90bccc1a2023b8d8..2dcbb63585a30957af6c77de3c02e65c10f02eca 100644
+--- a/codex-rs/tui/src/pager_overlay/transcript.rs
++++ b/codex-rs/tui/src/pager_overlay/transcript.rs
+@@ -556,7 +556,7 @@ impl TranscriptOverlay {
+                 Err(error) => error,
+             });
+         } else if let ViewAction::OpenLink(url) = action
+-            && let Err(error) = webbrowser::open(&url)
++            && let Err(error) = crate::terminal_hyperlinks::open_link(&url)
+         {
+             self.notice = Some(format!("Could not open link: {error}"));
+         }
+diff --git a/codex-rs/tui/src/terminal_hyperlinks.rs b/codex-rs/tui/src/terminal_hyperlinks.rs
+index e32a59a8cef4e98cfdb415929ecf23beee27bffe..6eadadaa1643e78d8e49fca145925f59ee8f9a54 100644
+--- a/codex-rs/tui/src/terminal_hyperlinks.rs
++++ b/codex-rs/tui/src/terminal_hyperlinks.rs
+@@ -738,6 +738,55 @@ fn sanitized_destination(destination: &str) -> Option<String> {
+     Some(destination.chars().filter(|ch| !ch.is_control()).collect())
+ }
+ 
++pub(crate) fn open_link(destination: &str) -> std::io::Result<()> {
++    #[cfg(windows)]
++    if let Some(script) = editor_launch_script(destination) {
++        use std::os::windows::process::CommandExt;
++
++        // 编辑器 URI 必须交给系统协议处理器，不能强制传给浏览器。
++        let output = std::process::Command::new("powershell.exe")
++            .creation_flags(0x08000000) // CREATE_NO_WINDOW
++            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
++            .output()?;
++        return if output.status.success() {
++            Ok(())
++        } else {
++            Err(std::io::Error::other(
++                String::from_utf8_lossy(&output.stderr).into_owned(),
++            ))
++        };
++    }
++    webbrowser::open(destination)
++}
++
++#[cfg(any(windows, test))]
++fn editor_launch_script(destination: &str) -> Option<String> {
++    let destination = editor_destination(destination)?;
++    Some(format!(
++        "$ErrorActionPreference = 'Stop'; Start-Process -FilePath '{}'",
++        destination.replace('\'', "''")
++    ))
++}
++
++#[test]
++fn editor_links_launch_registered_protocol_and_quote_paths() {
++    for scheme in ["vscode", "vscode-insiders", "windsurf", "cursor"] {
++        let uri = format!("{scheme}://file/C:/O'Brien/a%20b.rs:19:3");
++        let script = editor_launch_script(&uri).expect("editor protocol");
++        assert!(script.contains(&format!(
++            "Start-Process -FilePath '{scheme}://file/C:/O''Brien/a%20b.rs:19:3'"
++        )));
++    }
++    for uri in [
++        "https://example.com",
++        "file:///C:/a.rs",
++        "vscode://command/run",
++        "vscode://file/C:/a.rs?command=run",
++    ] {
++        assert_eq!(editor_launch_script(uri), None);
++    }
++}
++
+ pub(crate) fn osc8_hyperlink(destination: &str, text: &str) -> String {
+     let Some(safe_destination) = web_destination(destination) else {
+         return text.to_string();

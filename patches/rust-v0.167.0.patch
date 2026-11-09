@@ -2113,8 +2113,24 @@ index ba6e3f8af0a5333e63b2789704e75a4c2e590268..f5235eab027fc954cea32292e1255233
              AppEvent::RevertSessionForPromptEdit {
                  thread_id,
                  selected_cell,
+diff --git a/codex-rs/tui/src/app/footer_selection.rs b/codex-rs/tui/src/app/footer_selection.rs
+index 411a476707afccbee531ea011e99f44d86ee7c01..3048642cb8e669eb7ea072432eeeef64c6297c02 100644
+--- a/codex-rs/tui/src/app/footer_selection.rs
++++ b/codex-rs/tui/src/app/footer_selection.rs
+@@ -74,7 +74,10 @@ impl App {
+                 if let Some((characters, result)) = copied {
+                     self.transcript_view.show_copy_feedback(&result, characters);
+                 } else if let ViewAction::OpenLink(url) = action {
+-                    self.open_url_in_browser(url);
++                    if let Err(err) = crate::terminal_hyperlinks::open_link(&url) {
++                        self.chat_widget
++                            .add_error_message(format!("Could not open link: {err}"));
++                    }
+                 }
+             }
+         }
 diff --git a/codex-rs/tui/src/app/owned_transcript.rs b/codex-rs/tui/src/app/owned_transcript.rs
-index da20829facccd531553fc5e1c4c617775a1b72e7..3874f6840ce1668c6f479a3f0497e3953f0bbe76 100644
+index da20829facccd531553fc5e1c4c617775a1b72e7..e23550da4d009dd1c3f0a1cb86e49c26ac06ba9f 100644
 --- a/codex-rs/tui/src/app/owned_transcript.rs
 +++ b/codex-rs/tui/src/app/owned_transcript.rs
 @@ -862,6 +862,12 @@ impl App {
@@ -2130,6 +2146,18 @@ index da20829facccd531553fc5e1c4c617775a1b72e7..3874f6840ce1668c6f479a3f0497e395
          if !matches!(action, ViewAction::ExitSelectMode) {
              if let Some((characters, result)) = self.transcript_view.copy_action(
                  tui,
+@@ -888,7 +894,10 @@ impl App {
+                     }
+                 }
+             } else if let ViewAction::OpenLink(url) = action {
+-                self.open_url_in_browser(url);
++                if let Err(err) = crate::terminal_hyperlinks::open_link(&url) {
++                    self.chat_widget
++                        .add_error_message(format!("Could not open link: {err}"));
++                }
+             }
+         }
+         if was_select_mode && !self.transcript_view.is_select_mode() {
 diff --git a/codex-rs/tui/src/app/session_lifecycle.rs b/codex-rs/tui/src/app/session_lifecycle.rs
 index 9203adf62c15a00dda8090f2e82fa2b9c287e776..32a82d9977cccc964f4f7f546f85322f15ca3253 100644
 --- a/codex-rs/tui/src/app/session_lifecycle.rs
@@ -3876,7 +3904,7 @@ index f4c0ae8f5e60672ee910d6f30520585c99642f97..0b10c5000438a236c133aad519769860
              render(
                  markdown,
 diff --git a/codex-rs/tui/src/pager_overlay/transcript.rs b/codex-rs/tui/src/pager_overlay/transcript.rs
-index c8af27c6e59cf9ada034e13824e83ecdbff86c63..ecaa957fb9420b30a7f6330c90bccc1a2023b8d8 100644
+index c8af27c6e59cf9ada034e13824e83ecdbff86c63..2dcbb63585a30957af6c77de3c02e65c10f02eca 100644
 --- a/codex-rs/tui/src/pager_overlay/transcript.rs
 +++ b/codex-rs/tui/src/pager_overlay/transcript.rs
 @@ -29,6 +29,7 @@ pub(crate) struct TranscriptOverlay {
@@ -3908,6 +3936,15 @@ index c8af27c6e59cf9ada034e13824e83ecdbff86c63..ecaa957fb9420b30a7f6330c90bccc1a
              self.is_done = true;
          } else if let Some((_, result)) = self.view.copy_action(
              tui,
+@@ -550,7 +556,7 @@ impl TranscriptOverlay {
+                 Err(error) => error,
+             });
+         } else if let ViewAction::OpenLink(url) = action
+-            && let Err(error) = webbrowser::open(&url)
++            && let Err(error) = crate::terminal_hyperlinks::open_link(&url)
+         {
+             self.notice = Some(format!("Could not open link: {error}"));
+         }
 diff --git a/codex-rs/tui/src/pager_overlay/transcript_tests.rs b/codex-rs/tui/src/pager_overlay/transcript_tests.rs
 index 1853aff3abd5704ac65d7aa44854c2215aa98df9..817066c9851e6b229982d6f4b65e452ccd56c38a 100644
 --- a/codex-rs/tui/src/pager_overlay/transcript_tests.rs
@@ -4126,7 +4163,7 @@ index 3cb54b2cf73b665e2606e99b827e06973e695ac1..141d5c93564b675be27b5ffaa16467c0
      fn renders_without_spinner_when_animations_disabled() {
          let (tx_raw, _rx) = unbounded_channel::<AppEvent>();
 diff --git a/codex-rs/tui/src/terminal_hyperlinks.rs b/codex-rs/tui/src/terminal_hyperlinks.rs
-index ff9c9188a42db0ca89d6f566480229d3f8b2eb3a..e32a59a8cef4e98cfdb415929ecf23beee27bffe 100644
+index ff9c9188a42db0ca89d6f566480229d3f8b2eb3a..6eadadaa1643e78d8e49fca145925f59ee8f9a54 100644
 --- a/codex-rs/tui/src/terminal_hyperlinks.rs
 +++ b/codex-rs/tui/src/terminal_hyperlinks.rs
 @@ -50,6 +50,7 @@ pub(crate) struct TerminalHyperlink {
@@ -4192,7 +4229,63 @@ index ff9c9188a42db0ca89d6f566480229d3f8b2eb3a..e32a59a8cef4e98cfdb415929ecf23be
  fn sanitized_destination(destination: &str) -> Option<String> {
      if destination.len() > MAX_HYPERLINK_DESTINATION_BYTES {
          return None;
-@@ -960,6 +995,51 @@ mod tests {
+@@ -703,6 +738,55 @@ fn sanitized_destination(destination: &str) -> Option<String> {
+     Some(destination.chars().filter(|ch| !ch.is_control()).collect())
+ }
+ 
++pub(crate) fn open_link(destination: &str) -> std::io::Result<()> {
++    #[cfg(windows)]
++    if let Some(script) = editor_launch_script(destination) {
++        use std::os::windows::process::CommandExt;
++
++        // 编辑器 URI 必须交给系统协议处理器，不能强制传给浏览器。
++        let output = std::process::Command::new("powershell.exe")
++            .creation_flags(0x08000000) // CREATE_NO_WINDOW
++            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
++            .output()?;
++        return if output.status.success() {
++            Ok(())
++        } else {
++            Err(std::io::Error::other(
++                String::from_utf8_lossy(&output.stderr).into_owned(),
++            ))
++        };
++    }
++    webbrowser::open(destination)
++}
++
++#[cfg(any(windows, test))]
++fn editor_launch_script(destination: &str) -> Option<String> {
++    let destination = editor_destination(destination)?;
++    Some(format!(
++        "$ErrorActionPreference = 'Stop'; Start-Process -FilePath '{}'",
++        destination.replace('\'', "''")
++    ))
++}
++
++#[test]
++fn editor_links_launch_registered_protocol_and_quote_paths() {
++    for scheme in ["vscode", "vscode-insiders", "windsurf", "cursor"] {
++        let uri = format!("{scheme}://file/C:/O'Brien/a%20b.rs:19:3");
++        let script = editor_launch_script(&uri).expect("editor protocol");
++        assert!(script.contains(&format!(
++            "Start-Process -FilePath '{scheme}://file/C:/O''Brien/a%20b.rs:19:3'"
++        )));
++    }
++    for uri in [
++        "https://example.com",
++        "file:///C:/a.rs",
++        "vscode://command/run",
++        "vscode://file/C:/a.rs?command=run",
++    ] {
++        assert_eq!(editor_launch_script(uri), None);
++    }
++}
++
+ pub(crate) fn osc8_hyperlink(destination: &str, text: &str) -> String {
+     let Some(safe_destination) = web_destination(destination) else {
+         return text.to_string();
+@@ -960,6 +1044,51 @@ mod tests {
      use pretty_assertions::assert_eq;
      use ratatui::style::Style;
  
