@@ -1,0 +1,43 @@
+From b9c781026e4e0d741d0fbe6cea117b66ae819b36 Mon Sep 17 00:00:00 2001
+From: owwkmidream <159dreaml@gmail.com>
+Date: Mon, 9 Nov 2026 11:58:22 +0800
+Subject: [PATCH] fix(tui): prefix every selected line in Space quotes
+
+---
+ codex-rs/tui/src/app/tests/transcript_selection.rs | 5 +++--
+ codex-rs/tui/src/chatwidget/input_restore.rs       | 4 +++-
+ 2 files changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/codex-rs/tui/src/app/tests/transcript_selection.rs b/codex-rs/tui/src/app/tests/transcript_selection.rs
+index e02475e24b8236274c7a8794b72bda69bc724899..c4f321c57cb3dd654b5204b16710e8207dc3d834 100644
+--- a/codex-rs/tui/src/app/tests/transcript_selection.rs
++++ b/codex-rs/tui/src/app/tests/transcript_selection.rs
+@@ -22,8 +22,9 @@ async fn quote_appends_to_draft_tail_and_preserves_attachments() {
+         .as_mut()
+         .unwrap()
+         .text
+-        .push_str("\n> 引用\n第二行\n");
+-    app.chat_widget.append_transcript_quote("引用\n第二行");
++        .push_str("\n> 引用\n> \n>   第二行\n> \n");
++    app.chat_widget
++        .append_transcript_quote("引用\n\n  第二行\n");
+     assert_eq!(app.chat_widget.capture_thread_input_state(), Some(expected));
+     assert!(operations.try_recv().is_err());
+ }
+diff --git a/codex-rs/tui/src/chatwidget/input_restore.rs b/codex-rs/tui/src/chatwidget/input_restore.rs
+index 89a7d117a9abd767ba1071155cf5f0be3de94ce4..906378f3a03014415b157fc68df9f59a7fadcbb0 100644
+--- a/codex-rs/tui/src/chatwidget/input_restore.rs
++++ b/codex-rs/tui/src/chatwidget/input_restore.rs
+@@ -617,9 +617,11 @@ impl ChatWidget {
+ 
+     pub(crate) fn append_transcript_quote(&mut self, text: &str) {
+         let draft = self.bottom_pane.composer_draft_snapshot();
++        // 每一行（含空行）都添加引用前缀，保留原文的换行和缩进。
++        let quote = text.replace('\n', "\n> ");
+         // 只在末尾追加，沿用草稿恢复以保留附件、提及和折叠粘贴内容。
+         self.restore_composer_state(ThreadComposerState {
+-            text: format!("{}\n> {text}\n", draft.text),
++            text: format!("{}\n> {quote}\n", draft.text),
+             text_elements: draft.text_elements,
+             local_images: draft.local_images,
+             remote_image_urls: draft.remote_image_urls,
