@@ -272,6 +272,8 @@ jobs:
       SCCACHE_GHA_ENABLED: "true"
       # 缓存服务断连时由 CI runner 直接编译，仍保留 rustc 的真实退出码。
       SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
+      # sccache 官方诊断日志；只写入构建临时目录并作为 CI 附件保存。
+      SCCACHE_LOG: "debug"
     steps:
       - name: 启用 Windows 长路径
         shell: bash
@@ -312,6 +314,11 @@ jobs:
           rustup override set 1.95.0 --path upstream/codex-rs
           rustc --version
           cargo --version
+
+      - name: 启动缓存诊断采样
+        continue-on-error: true
+        shell: pwsh
+        run: ./scripts/ci-cache-diagnostics.ps1 -Action Start
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -500,11 +507,26 @@ jobs:
             echo "- 编译缓存统计见 sccache 步骤；各 crate 耗时见 cargo-timings artifact。"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: 收集缓存诊断
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: ./scripts/ci-cache-diagnostics.ps1 -Action Finish
+
       - name: 编译缓存统计
         if: always() && steps.sccache.outcome == 'success'
         continue-on-error: true
         shell: bash
-        run: sccache --show-stats
+        run: sccache --show-stats | tee "$RUNNER_TEMP/cache-diagnostics/sccache-stats.txt"
+
+      - name: 保存缓存诊断
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cache-diagnostics-build
+          path: ${{ runner.temp }}/cache-diagnostics/
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: 上传编译耗时
         if: always()
@@ -567,6 +589,7 @@ jobs:
       CARGO_NET_GIT_FETCH_WITH_CLI: "true"
       SCCACHE_GHA_ENABLED: "true"
       SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
+      SCCACHE_LOG: "debug"
       CARGO_PROFILE_CI_TEST_DEBUG: "0"
       LIBSQLITE3_FLAGS: SQLITE_DISABLE_INTRINSIC
     steps:
@@ -603,6 +626,11 @@ jobs:
           rustc --version
           cargo --version
 
+      - name: 启动缓存诊断采样
+        continue-on-error: true
+        shell: pwsh
+        run: ./scripts/ci-cache-diagnostics.ps1 -Action Start
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: upstream/codex-rs
@@ -636,11 +664,26 @@ jobs:
             2>&1 | tee "$RUNNER_TEMP/tui-tests.log"
           echo "TUI tests: $(($(date +%s) - start)) seconds" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: 收集缓存诊断
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: ./scripts/ci-cache-diagnostics.ps1 -Action Finish
+
       - name: 编译缓存统计
         if: always() && steps.sccache.outcome == 'success'
         continue-on-error: true
         shell: bash
-        run: sccache --show-stats
+        run: sccache --show-stats | tee "$RUNNER_TEMP/cache-diagnostics/sccache-stats.txt"
+
+      - name: 保存缓存诊断
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cache-diagnostics-test
+          path: ${{ runner.temp }}/cache-diagnostics/
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: 保存 TUI 测试日志
         if: always()

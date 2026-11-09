@@ -50,6 +50,7 @@
 - CI 新增独立 Windows `test` job，与 `build` 并行，复用 `patched-source`、Rust cache 和 sccache；Rust target 缓存按 job 分开保存，避免并行写入相同不可变键。一次编译 TUI 测试目标，执行本地链接及相邻回归；`release` 需同时等待 `build`、`test` 成功。
 - 新增测试 job 后的 YAML 解析、27 个 Bash 步骤语法检查及维护文件 `git diff --check` 通过；本轮未在本机运行构建、测试或下载测试依赖。缓存命中与耗时待云端运行测量。
 - CI [42568144779](https://github.com/owwkmidream/codex/actions/runs/42568144779) 下载 sccache 返回 HTTP 504；[42563437087](https://github.com/owwkmidream/codex/actions/runs/42563437087) 在编译 `codex-tui` 时读取 sccache 响应失败（`os error 10054`）。两者未报告 Rust 源码诊断。workflow 已将安装和统计改为非阻断步骤，仅安装成功时启用 wrapper，并通过 `SCCACHE_IGNORE_SERVER_IO_ERROR=1` 在响应连接中断时由 CI runner 直接编译。修复后的 YAML、显式 Bash 步骤语法及 diff 检查通过；实际构建与测试结果仍需新运行确认。
+- 为定位服务断连，两个 Windows job 增加 sccache 服务日志、最终统计、每 30 秒的内存/磁盘/编译进程采样与 Windows 崩溃/资源耗尽事件；按 job 上传诊断附件。采样脚本在 CI 校验首次内存和磁盘字段、结束时核对后台采样记录。本机仅进行 YAML、PowerShell、Bash 语法及 diff 检查；实际采样与附件上传待新 CI 验证。
 
 CI 执行 `cargo test --locked --profile ci-test -p codex-tui --lib -- local_links editor_links web_links terminal_hyperlinks markdown_copy`，测试 profile 关闭调试信息。发布前确认 build、test 与 release 的实际结果；当前实现已提交，集成验证未完成，未在本机部署。
 
