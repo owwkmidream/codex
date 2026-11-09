@@ -548,9 +548,99 @@ jobs:
           name: codex-windows-x64
           path: upstream/codex-rs/codex-*.zip
 
+  # ── 阶段 3b：并行回归本地文件链接 ─────────────────────────────────
+  # 与 release 构建并行，避免把测试时间串到 1 小时以上的构建之后。
+  test:
+    needs: [resolve, prepare]
+    if: needs.prepare.outputs.applied == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      CARGO_HOME: "C:\\cargo"
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+      SCCACHE_GHA_ENABLED: "true"
+      CARGO_PROFILE_CI_TEST_DEBUG: "0"
+      LIBSQLITE3_FLAGS: SQLITE_DISABLE_INTRINSIC
+    steps:
+      - name: 启用 Windows 长路径
+        shell: bash
+        run: |
+          powershell -NoProfile -Command "Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name 'LongPathsEnabled' -Value 1" 2>/dev/null || true
+          git config --system core.longpaths true || true
+          git config --global core.longpaths true || true
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: patched-source
+
+      - name: 恢复源码与功能提交历史
+        shell: bash
+        run: |
+          mkdir -p upstream
+          tar -xzf patched-source.tar.gz -C upstream
+          test -d upstream/.git
+
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: 固定 Rust 版本
+        shell: bash
+        run: |
+          rustup override set 1.95.0 --path upstream/codex-rs
+          rustc --version
+          cargo --version
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: upstream/codex-rs
+          # test/release 的 target 分开保存，避免并行 job 争抢同一个不可变缓存键。
+          # 自动键包含 job、Rust 和依赖信息；不绑定 tag 或提交。
+          cache-targets: true
+          cache-on-failure: true
+
+      - uses: mozilla-actions/sccache-action@v0.0.11
+        id: sccache
+        with:
+          version: "v0.16.0"
+
+      - name: 启用项目编译缓存
+        shell: bash
+        run: echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+
+      - name: 本地链接回归
+        working-directory: upstream/codex-rs
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 一次编译测试目标，libtest 按多个名字取并集，包含相邻行为的回归。
+          export STABLE_GIT_COMMIT="$(git rev-parse HEAD)"
+          start=$(date +%s)
+          cargo test --locked --profile ci-test -p codex-tui --lib -- \
+            local_links editor_links web_links terminal_hyperlinks markdown_copy \
+            2>&1 | tee "$RUNNER_TEMP/tui-tests.log"
+          echo "TUI tests: $(($(date +%s) - start)) seconds" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 编译缓存统计
+        if: always() && steps.sccache.outcome == 'success'
+        shell: bash
+        run: sccache --show-stats
+
+      - name: 保存 TUI 测试日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tui-test-log
+          path: ${{ runner.temp }}/tui-tests.log
+          if-no-files-found: ignore
+
   # ── 阶段 4：发 Release 并记录已构建 tag ───────────────────────────
   release:
-    needs: [resolve, build]
+    needs: [resolve, build, test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

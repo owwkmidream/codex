@@ -47,8 +47,10 @@
 - 已补充 TUI 用例：短标签、表格和窄屏换行、Markdown 复制、流式与完整渲染一致、cwd 固定、禁用/终端回退、OSC 8 滚动和协议边界。它们尚未执行成功。
 - `cargo +1.95.0 test --offline -p codex-tui --lib local_links` 首次在 60 秒内无输出而终止；随后增加诊断输出重试，明确在加载 `v8` 的 `third_party/rust` 子模块时因 Windows 路径过长退出 101，尚未编译 TUI。未修改全局 Git/Cargo 配置。
 - 受影响 Rust 文件的 `rustfmt +1.95.0 --edition 2024 --check` 和 `git diff --check` 通过；独立路径测试不代替完整 TUI 测试、真实 Windows Terminal 点击与编辑器定位验收。
+- CI 新增独立 Windows `test` job，与 `build` 并行，复用 `patched-source`、Rust cache 和 sccache；Rust target 缓存按 job 分开保存，避免并行写入相同不可变键。一次编译 TUI 测试目标，执行本地链接及相邻回归；`release` 需同时等待 `build`、`test` 成功。
+- 新增测试 job 后的 YAML 解析、27 个 Bash 步骤语法检查及维护文件 `git diff --check` 通过；本轮未在本机运行构建、测试或下载测试依赖。缓存命中与耗时待云端运行测量。
 
-可构建环境需要执行 `cargo test -p codex-tui --lib local_links`、`cargo test -p codex-tui --lib editor_links`，并回归 `web_links`、`terminal_hyperlinks`、`markdown_copy`。发布前确认 build 与 release 的实际结果；此功能尚未推送或部署。
+CI 执行 `cargo test --locked --profile ci-test -p codex-tui --lib -- local_links editor_links web_links terminal_hyperlinks markdown_copy`，测试 profile 关闭调试信息。发布前确认 build、test 与 release 的实际结果；当前实现已提交，集成验证未完成，未在本机部署。
 
 CI [42519034906](https://github.com/owwkmidream/codex/actions/runs/42519034906) 的 release 编译曾在 `realtime_text_for_event()` 漏匹配 `ModelRequestProgress` 处报 E0004。`0012` 修复后，新运行 [42524866183](https://github.com/owwkmidream/codex/actions/runs/42524866183) 的协议生成校验、build、release 均成功，已有 `codex-rust-v0.167.0-windows-x64.zip` 附件。这份已发布产物尚不含 `0013`。
 

@@ -74,9 +74,9 @@ retry_delay_ms = 10000
 
 ## 构建成功后
 
-确认 `build`、`release` 都成功，再按安装步骤部署。核对 zip 内的 `patch_baseline` 和 `patch_is_exact`，确认实际使用的补丁来源；部署后在 TUI 验证 Space、附件、字节计数和 Esc。
+确认 `build`、`test`、`release` 都成功，再按安装步骤部署。核对 zip 内的 `patch_baseline` 和 `patch_is_exact`，确认实际使用的补丁来源；部署后在 TUI 验证 Space、附件、字节计数和 Esc。
 
-CI 校验协议导出、构建产物及 `--version`，完整核心/TUI 回归需另行运行。0.167.0 的验证范围见 [VALIDATION.md](patches/series/rust-v0.167.0/VALIDATION.md)。
+CI 校验协议导出、构建产物及 `--version`；独立 Windows `test` job 与 `build` 同时依赖 `prepare`，一次编译 `codex-tui --lib`，按 `local_links`、`editor_links`、`web_links`、`terminal_hyperlinks`、`markdown_copy` 的名称并集执行相关回归。`release` 等待两者成功。完整核心/TUI 回归不在本 job 范围内。0.167.0 的验证范围见 [VALIDATION.md](patches/series/rust-v0.167.0/VALIDATION.md)。
 
 ### 构建耗时与缓存
 
@@ -84,7 +84,8 @@ CI 校验协议导出、构建产物及 `--version`，完整核心/TUI 回归需
 - `prepare` 将源码和 `.git` 一起打包，Windows 直接恢复功能历史与隐藏配置，不再重新提交整份源码。功能提交使用固定作者日期作为提交者日期，同一目标和补丁生成稳定的 `STABLE_GIT_COMMIT`。
 - 源码归档使用 `tar --dereference --hard-dereference`，将符号链接和硬链接展开为实际文件，避免 Windows 解压因链接权限或恢复顺序失败；Git 历史仍保留原始链接类型。缓存统计仅在 sccache 安装成功后执行。
 - 协议稳定版和实验版共用一次编译的生成器，生成完成后重新编译并校验内嵌协议。保留 migration 换行检查和上游 release/LTO 参数。
-- 查看 `cargo-timings` artifact、sccache 命中统计及 job 步骤耗时；移除递归扫描整个缓存目录的诊断。缓存不能消除最终链接开销。
+- `build`、`test` 各自使用 `Swatinem/rust-cache` 的 job/Rust/依赖自动键，保存下载依赖和 target；失败时也保存缓存，不按 tag 或提交额外分桶。两套 target 不竞争同一个不可变缓存键；sccache 复用输入一致的编译结果。测试使用上游 `ci-test` profile，关闭调试信息以减小链接及缓存体积。
+- 查看 `cargo-timings`、`tui-test-log` artifact、sccache 命中统计及 job 步骤耗时；缓存不能消除测试可执行文件的链接开销。测试首次冷启动需预热；并行后的发布等待时间取 build/test 较慢者，还受 Runner 排队影响。
 
 优化前基线为运行 `42524866183`：总计 99 分 42 秒，release 编译 80 分 10 秒，协议生成校验 9 分 08 秒，缓存恢复 2 分 51 秒。新配置的实际节省时间需新 CI 运行测量。
 
@@ -97,7 +98,7 @@ gh run list --workflow build-windows.yml --limit 5
 gh run view RUN_ID --log-failed
 ```
 
-按失败步骤处理：`prepare` 查 `patch-conflicts` artifact 中的具体功能补丁名、应用日志和冲突内容；`build` 区分依赖获取、编译、协议生成和测试失败；`release` 查发布及 tag 记录，已构建产物可从 `codex-windows-x64` artifact 获取。
+按失败步骤处理：`prepare` 查 `patch-conflicts` artifact 中的具体功能补丁名、应用日志和冲突内容；`build` 区分依赖获取、编译和协议生成失败；`test` 查看本地链接过滤器及 sccache 日志；`release` 查发布及 tag 记录，已构建产物可从 `codex-windows-x64` artifact 获取。
 
 临时环境故障可用 `gh run rerun RUN_ID --failed` 重跑原提交。修复推送后启动新运行，才能使用新提交：
 
