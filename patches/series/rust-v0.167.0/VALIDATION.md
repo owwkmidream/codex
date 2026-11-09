@@ -5,7 +5,7 @@
 ## 产物与迁移
 
 - 合并补丁：`patches/rust-v0.167.0.patch`。
-- 本目录 `0001` 至 `0013` 为可用 `git am` 恢复的功能提交及其修订，按编号依次应用。`0012` 补齐实时对话对字节进度事件的匹配分支，修复 E0004 编译错误；`0013` 修复 Space 多行逐行引用，更新含空行、缩进、末尾换行和附件的回归用例。
+- 本目录 `0001` 至 `0014` 为可用 `git am` 恢复的功能提交及其修订，按编号依次应用。`0012` 补齐实时对话对字节进度事件的匹配分支，修复 E0004 编译错误；`0013` 修复 Space 多行逐行引用；`0014` 接入普通本地文件链接的编辑器 OSC 8、路径兼容和 Markdown 复制目标。
 - 历史补丁保持原样；新补丁不包含 Cargo.lock、models.json 或协议导出目录。
 - 协议 JSON、TypeScript、内嵌压缩文件由 workflow 调用上游生成器重建，避免维护二进制差异。自行构建时也必须执行该生成步骤。
 
@@ -39,6 +39,16 @@
 - 实时对话：发送和接收阶段的字节进度事件均不生成交接文本或推理状态。
 
 ## 阻断与待验证
+
+本地链接补丁 `0014`：
+
+- 源码提交 `539b03d`；14 个 series 在官方基线的干净 worktree 中 `git am` 成功，合并补丁在独立 Git index 中应用成功，两者均通过 `git diff --exit-code` 与源码提交对照。
+- 从实际生产源码提取路径解析、编辑器目标校验和对应测试，使用原 `codex-utils-path-uri` / `codex-utils-string` 依赖在独立临时 Cargo 工程执行：4 项通过（包括原有根路径测试）。覆盖 Windows 盘符及 `/c:/`、相对路径、文件 URI、空格中文、百分号、行列范围、`none` 和不安全目标；发现并修复了复制往返中的盘符大小写差异。
+- 已补充 TUI 用例：短标签、表格和窄屏换行、Markdown 复制、流式与完整渲染一致、cwd 固定、禁用/终端回退、OSC 8 滚动和协议边界。它们尚未执行成功。
+- `cargo +1.95.0 test --offline -p codex-tui --lib local_links` 首次在 60 秒内无输出而终止；随后增加诊断输出重试，明确在加载 `v8` 的 `third_party/rust` 子模块时因 Windows 路径过长退出 101，尚未编译 TUI。未修改全局 Git/Cargo 配置。
+- 受影响 Rust 文件的 `rustfmt +1.95.0 --edition 2024 --check` 和 `git diff --check` 通过；独立路径测试不代替完整 TUI 测试、真实 Windows Terminal 点击与编辑器定位验收。
+
+可构建环境需要执行 `cargo test -p codex-tui --lib local_links`、`cargo test -p codex-tui --lib editor_links`，并回归 `web_links`、`terminal_hyperlinks`、`markdown_copy`。发布前确认 build 与 release 的实际结果；此功能尚未推送或部署。
 
 CI [42519034906](https://github.com/owwkmidream/codex/actions/runs/42519034906) 的 release 编译曾在 `realtime_text_for_event()` 漏匹配 `ModelRequestProgress` 处报 E0004。`0012` 修复后，新运行 [42524866183](https://github.com/owwkmidream/codex/actions/runs/42524866183) 的协议生成校验、build、release 均成功，已有 `codex-rust-v0.167.0-windows-x64.zip` 附件。这份已发布产物尚不含 `0013`。
 

@@ -1,0 +1,866 @@
+From 539b03dc8870f96c06811a644bb1b3a819bcb634 Mon Sep 17 00:00:00 2001
+From: owwkmidream <159dreaml@gmail.com>
+Date: Mon, 9 Nov 2026 13:27:09 +0800
+Subject: [PATCH] feat(tui): open local Markdown links through editor OSC 8
+
+---
+ codex-rs/tui/src/app/session_lifecycle.rs     |   1 +
+ codex-rs/tui/src/lib.rs                       |   2 +
+ codex-rs/tui/src/markdown.rs                  |   6 +-
+ codex-rs/tui/src/markdown_render.rs           | 110 +++++++---
+ .../tui/src/markdown_render/local_links.rs    |  82 +++++++-
+ .../src/markdown_render/local_links_tests.rs  | 192 ++++++++++++++++++
+ .../tui/src/markdown_render/preferences.rs    |  36 ++++
+ codex-rs/tui/src/markdown_render/web_links.rs |  18 +-
+ .../src/markdown_render/web_links_tests.rs    |  15 ++
+ codex-rs/tui/src/terminal_hyperlinks.rs       |  80 ++++++++
+ 10 files changed, 500 insertions(+), 42 deletions(-)
+
+diff --git a/codex-rs/tui/src/app/session_lifecycle.rs b/codex-rs/tui/src/app/session_lifecycle.rs
+index 9203adf62c15a00dda8090f2e82fa2b9c287e776..de535ad6a51a8d577731ab05cf39e92fda22e78f 100644
+--- a/codex-rs/tui/src/app/session_lifecycle.rs
++++ b/codex-rs/tui/src/app/session_lifecycle.rs
+@@ -535,6 +535,7 @@ impl App {
+         }
+         chat_widget.restore_kill_buffer_snapshot(self.chat_widget.take_kill_buffer_snapshot());
+         crate::markdown_render::preferences::init(chat_widget.local_settings.tui.rendering);
++        crate::markdown_render::preferences::init_file_opener(chat_widget.config.file_opener);
+         let mut previous = std::mem::replace(&mut self.chat_widget, chat_widget);
+         if previous.realtime_conversation_is_running() {
+             previous.park_voice();
+diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
+index e1bf6223edb5691839bf92ed5b09d8e3266a81ce..b3026497c685305280c469b1109ef48b09ca430c 100644
+--- a/codex-rs/tui/src/lib.rs
++++ b/codex-rs/tui/src/lib.rs
+@@ -1533,6 +1533,7 @@ async fn run_ratatui_app(
+         };
+ 
+     crate::markdown_render::preferences::init(config.tui_rendering);
++    crate::markdown_render::preferences::init_file_opener(config.file_opener);
+     // Startup pickers need the current theme before selection can reload config.
+     // Leave the one-time override initialization below to use the final config.
+     if (cli.resume_picker || cli.fork_picker)
+@@ -2089,6 +2090,7 @@ async fn run_ratatui_app(
+ 
+     let local_settings = crate::local_settings::LocalSettings::for_tui(&config, &tui);
+     crate::markdown_render::preferences::init(local_settings.tui.rendering);
++    crate::markdown_render::preferences::init_file_opener(config.file_opener);
+     // Configure syntax highlighting theme from the final config — onboarding
+     // and resume/fork can both reload config with a different tui_theme, so
+     // this must happen after the last possible reload.
+diff --git a/codex-rs/tui/src/markdown.rs b/codex-rs/tui/src/markdown.rs
+index e5e35828f214d7042c36ebe5a2bcc28f9901765a..f3628090a9c16f614ab427df302c0a55eb3ef99f 100644
+--- a/codex-rs/tui/src/markdown.rs
++++ b/codex-rs/tui/src/markdown.rs
+@@ -45,7 +45,7 @@ pub(crate) fn render_markdown_for_viewport(input: &str, width: u16) -> Vec<Hyper
+             input,
+             Some(width),
+             /*cwd*/ None,
+-            &crate::markdown_render::hide_web_link_destination,
++            &crate::markdown_render::hide_markdown_link_destination,
+         );
+     let mut rows = Vec::with_capacity(lines.len());
+     for line in lines {
+@@ -131,7 +131,7 @@ pub(crate) fn render_markdown_agent_with_list_spacing(
+     };
+     let is_hidden_link_destination = |destination: &str| {
+         rewritten.trusted_file_links.contains_key(destination)
+-            || crate::markdown_render::hide_web_link_destination(destination)
++            || crate::markdown_render::hide_markdown_link_destination(destination)
+     };
+     let mut lines = crate::markdown_render::render_with_copy_sources(
+         &normalized,
+@@ -166,7 +166,7 @@ pub(crate) fn render_streaming_markdown_agent_with_links_and_cwd(
+         &normalized,
+         width,
+         cwd,
+-        &crate::markdown_render::hide_web_link_destination,
++        &crate::markdown_render::hide_markdown_link_destination,
+         list_spacing,
+     );
+     if normalized != markdown_source {
+diff --git a/codex-rs/tui/src/markdown_render.rs b/codex-rs/tui/src/markdown_render.rs
+index c770a3b5419fc5be011b164a39896cba112a084c..e302214b5c733e4e909c139c563ae1b1ba8c0b85 100644
+--- a/codex-rs/tui/src/markdown_render.rs
++++ b/codex-rs/tui/src/markdown_render.rs
+@@ -88,6 +88,7 @@ mod table_key_value;
+ mod task_lists;
+ mod web_links;
+ 
++use crate::terminal_hyperlinks::TerminalHyperlink;
+ use inline_directives::InlineDirectives;
+ pub(crate) use inline_directives::followup_labels;
+ pub(crate) use list_spacing::ListSpacing;
+@@ -102,6 +103,7 @@ mod list_spacing_tests;
+ #[cfg(test)]
+ #[path = "markdown_render/task_list_tests.rs"]
+ mod task_list_tests;
++pub(crate) use web_links::hide_markdown_link_destination;
+ pub(crate) use web_links::hide_web_link_destination;
+ use web_links::style_bare_web_urls;
+ 
+@@ -440,6 +442,7 @@ pub(crate) fn render_markdown_lines_with_width_cwd_and_hidden_link_destinations(
+ #[derive(Clone, Debug)]
+ struct LinkState {
+     destination: String,
++    editor_link: Option<TerminalHyperlink>,
+     show_destination: bool,
+     style_label: bool,
+     has_visible_label: bool,
+@@ -1344,11 +1347,7 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+ 
+     fn push_span_to_table_cell(&mut self, span: Span<'static>) {
+         let span = self.style_link_label(span);
+-        let mut annotated = HyperlinkLine::new(Line::default());
+-        annotated.push_span(
+-            span,
+-            self.link.as_ref().map(|link| link.destination.as_str()),
+-        );
++        let annotated = self.annotated_link_span(span);
+         if let Some(table_state) = self.table_state.as_mut()
+             && let Some(cell) = table_state.current_cell.as_mut()
+         {
+@@ -1376,15 +1375,9 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+ 
+     fn push_text_spans_to_table_cell(&mut self, text: &str, style: Style) {
+         let span = self.style_link_label(Span::styled(text.to_string(), style));
+-        let destination = self
+-            .link
+-            .as_ref()
+-            .and_then(|link| web_destination(&link.destination));
+-        let mut annotated = if let Some(destination) = destination {
+-            let mut annotated = HyperlinkLine::new(Line::default());
+-            annotated.push_span(span, Some(&destination));
+-            annotated
+-        } else if self.link.is_some() || self.in_code_block {
++        let mut annotated = if self.link.is_some() {
++            self.annotated_link_span(span)
++        } else if self.in_code_block {
+             HyperlinkLine::new(Line::from(span))
+         } else {
+             style_bare_web_urls(span, self.styles.link)
+@@ -1958,17 +1951,20 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+                 let mut current_text = String::new();
+                 let flush = |out: &mut HyperlinkLine,
+                              current_text: &mut String,
+-                             destination: Option<&str>| {
++                             destination: Option<&TerminalHyperlink>| {
+                     if !current_text.is_empty() {
+-                        out.push_span(Span::raw(std::mem::take(current_text)), destination);
++                        let start = out.width();
++                        out.push_span(Span::raw(std::mem::take(current_text)), None);
++                        if let Some(link) = destination {
++                            out.hyperlinks.push(link.with_columns(start..out.width()));
++                        }
+                     }
+                 };
+                 for (byte, ch) in text.char_indices() {
+                     let destination = line
+                         .hyperlinks
+                         .iter()
+-                        .find(|link| link.columns.contains(&column))
+-                        .map(|link| link.destination.as_str());
++                        .find(|link| link.columns.contains(&column));
+                     if destination != current_destination {
+                         flush(&mut out, &mut current_text, current_destination);
+                         current_destination = destination;
+@@ -2175,7 +2171,7 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+ 
+     fn style_link_label(&mut self, mut span: Span<'static>) -> Span<'static> {
+         if let Some(link) = self.link.as_mut()
+-            && web_destination(&link.destination).is_some()
++            && (web_destination(&link.destination).is_some() || link.editor_link.is_some())
+         {
+             link.has_visible_label |=
+                 !span.content.trim().is_empty() && display_width(&span.content) > 0;
+@@ -2185,16 +2181,35 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+     }
+ 
+     fn push_link(&mut self, dest_url: String) {
+-        let style_label = (self.is_hidden_link_destination)(&dest_url);
++        let local = is_local_path_like_link(&dest_url);
++        let editor_target = local_links::editor_link_target(
++            &dest_url,
++            self.cwd.as_deref(),
++            preferences::file_opener(),
++        );
++        let style_label =
++            (self.is_hidden_link_destination)(&dest_url) && (!local || editor_target.is_some());
++        let editor_link = if style_label {
++            editor_target.and_then(|(destination, copy_target)| {
++                // 复制固定绝对目标，避免会话切换目录后链接漂移。
++                if let Some(inline) = self.copy_inline.last_mut() {
++                    *inline = crate::markdown_copy::Inline::Link(copy_target.into());
++                }
++                TerminalHyperlink::editor_file(0..0, &destination)
++            })
++        } else {
++            None
++        };
+         if style_label {
+             self.push_inline_style(self.styles.link);
+         }
+         let show_destination = !style_label && should_render_link_destination(&dest_url);
+         self.link = Some(LinkState {
++            editor_link,
+             show_destination,
+             style_label,
+             has_visible_label: false,
+-            local_target_display: if is_local_path_like_link(&dest_url) {
++            local_target_display: if local && !style_label {
+                 Some(
+                     render_local_link_target(&dest_url, self.cwd.as_deref())
+                         .unwrap_or_else(|| dest_url.clone()),
+@@ -2214,7 +2229,8 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+                 self.pop_inline_style();
+             }
+             if link.show_destination
+-                || (!link.has_visible_label && web_destination(&link.destination).is_some())
++                || (!link.has_visible_label
++                    && (web_destination(&link.destination).is_some() || link.editor_link.is_some()))
+             {
+                 // Link destinations are rendered as " (url)" suffixes. When parsing table cells,
+                 // append the suffix into the active cell buffer rather than the outer paragraph
+@@ -2226,6 +2242,11 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+                         Span::styled(link.destination.clone(), self.styles.link),
+                         web_destination(&link.destination).as_deref(),
+                     );
++                    if let Some(editor) = &link.editor_link {
++                        destination
++                            .hyperlinks
++                            .push(editor.with_columns(0..destination.width()));
++                    }
+                     if let Some(table_state) = self.table_state.as_mut()
+                         && let Some(cell) = table_state.current_cell.as_mut()
+                     {
+@@ -2239,6 +2260,11 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+                         Span::styled(link.destination.clone(), self.styles.link),
+                         web_destination(&link.destination).as_deref(),
+                     );
++                    if let Some(editor) = &link.editor_link {
++                        destination
++                            .hyperlinks
++                            .push(editor.with_columns(0..destination.width()));
++                    }
+                     self.push_annotated(destination);
+                     self.push_span(")".into());
+                 }
+@@ -2466,11 +2492,39 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+         }
+         if let Some(line) = self.current_line_content.as_mut() {
+             self.copy_line.push(span.content.len(), &self.copy_inline);
++            let start = line.source_width();
+             line.push_span(
+                 span,
+                 self.link.as_ref().map(|link| link.destination.as_str()),
+             );
++            if let Some(link) = self
++                .link
++                .as_ref()
++                .and_then(|link| link.editor_link.as_ref())
++                && line.source_width() > start
++            {
++                line.hyperlinks
++                    .push(link.with_columns(start..line.source_width()));
++            }
++        }
++    }
++
++    fn annotated_link_span(&self, span: Span<'static>) -> HyperlinkLine {
++        let mut line = HyperlinkLine::new(Line::default());
++        line.push_span(
++            span,
++            self.link.as_ref().map(|link| link.destination.as_str()),
++        );
++        if let Some(link) = self
++            .link
++            .as_ref()
++            .and_then(|link| link.editor_link.as_ref())
++            && line.source_width() > 0
++        {
++            line.hyperlinks
++                .push(link.with_columns(0..line.source_width()));
+         }
++        line
+     }
+ 
+     fn push_annotated(&mut self, mut appended: HyperlinkLine) {
+@@ -2499,15 +2553,9 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+ 
+     fn push_text_spans(&mut self, text: &str, style: Style) {
+         let span = self.style_link_label(Span::styled(text.to_string(), style));
+-        let destination = self
+-            .link
+-            .as_ref()
+-            .and_then(|link| web_destination(&link.destination));
+-        let annotated = if let Some(destination) = destination {
+-            let mut annotated = HyperlinkLine::new(Line::default());
+-            annotated.push_span(span, Some(&destination));
+-            annotated
+-        } else if self.link.is_some() || self.in_code_block {
++        let annotated = if self.link.is_some() {
++            self.annotated_link_span(span)
++        } else if self.in_code_block {
+             HyperlinkLine::new(Line::from(span))
+         } else {
+             style_bare_web_urls(span, self.styles.link)
+diff --git a/codex-rs/tui/src/markdown_render/local_links.rs b/codex-rs/tui/src/markdown_render/local_links.rs
+index 70c30b763d11c7d59606f0cd70b7e71eddf1854e..8de2b218cbe4cdbab9128180aeadedd6d69ba0da 100644
+--- a/codex-rs/tui/src/markdown_render/local_links.rs
++++ b/codex-rs/tui/src/markdown_render/local_links.rs
+@@ -1,10 +1,9 @@
+ //! Local file-link destination parsing and display for Markdown transcripts.
+ //!
+-//! Local Markdown links preserve their labels. Since ordinary file destinations have no trusted
+-//! navigation capability, the renderer also displays their target, shortening absolute paths
+-//! relative to the session working directory when possible. This module only formats destinations;
+-//! it does not resolve files or infer execution-host paths from the frontend filesystem.
++//! Local Markdown links use validated editor URIs when supported, otherwise retain a visible
++//! target. Relative targets use the session cwd; no frontend filesystem lookup is performed.
+ 
++use codex_config::types::UriBasedFileOpener;
+ use codex_utils_path_uri::PathUri;
+ use codex_utils_string::normalize_markdown_hash_location_suffix;
+ use regex_lite::Regex;
+@@ -38,6 +37,64 @@ pub(super) fn is_local_path_like_link(dest_url: &str) -> bool {
+             [drive, b':', separator, ..]
+                 if drive.is_ascii_alphabetic() && matches!(separator, b'/' | b'\\')
+         )
++        || (!dest_url.is_empty()
++            && !dest_url.starts_with('#')
++            && parse_local_link_target(dest_url).is_some_and(|(path, _)| !path.contains(':')))
++}
++
++/// 仅从路径生成编辑器 URI；普通 Markdown 不能指定任意协议或命令。
++pub(super) fn editor_link_target(
++    destination: &str,
++    cwd: Option<&Path>,
++    opener: UriBasedFileOpener,
++) -> Option<(String, String)> {
++    let scheme = match opener {
++        UriBasedFileOpener::VsCode => "vscode",
++        UriBasedFileOpener::VsCodeInsiders => "vscode-insiders",
++        UriBasedFileOpener::Windsurf => "windsurf",
++        UriBasedFileOpener::Cursor => "cursor",
++        UriBasedFileOpener::None => return None,
++    };
++    if !is_local_path_like_link(destination) || destination.chars().any(char::is_control) {
++        return None;
++    }
++    let (mut path, location) = parse_local_link_target(destination)?;
++    if path.is_empty()
++        || path.starts_with("~/")
++        || path.starts_with("//")
++        || path.chars().any(char::is_control)
++    {
++        return None;
++    }
++    if !is_absolute_local_link_path(&path) {
++        let base = normalize_local_link_path_text(cwd?.to_str()?);
++        if !is_absolute_local_link_path(&base) || base.starts_with("//") {
++            return None;
++        }
++        path = format!("{base}/{path}");
++    }
++    let drive = matches!(path.as_bytes(), [d, b':', b'/', ..] if d.is_ascii_alphabetic());
++    if path[if drive { 2 } else { 0 }..].contains(':') {
++        return None;
++    }
++    if drive {
++        path.replace_range(..1, &path[..1].to_ascii_uppercase());
++    }
++    // 使用 URL 路径编码空格、中文和保留字符，并折叠相对于会话 cwd 的点路径。
++    let mut file = Url::parse("file:///").ok()?;
++    file.set_path(&if drive { format!("/{path}") } else { path }.replace('%', "%25"));
++    PathUri::parse(file.as_str()).ok()?;
++    let mut copy_target = file.to_string();
++    let mut editor = Url::parse(&format!("{scheme}://file/")).ok()?;
++    editor.set_path(file.path());
++    if let Some(location) = location {
++        copy_target.push_str(&location);
++        // 编辑器定位到范围的起点；复制保留整个范围。
++        let start = location.split(['-', '–']).next()?;
++        editor.set_path(&format!("{}{start}", editor.path()));
++    }
++    let destination = crate::terminal_hyperlinks::editor_destination(editor.as_str())?;
++    Some((destination, copy_target))
+ }
+ 
+ /// Parse a local link target into normalized path text plus an optional location suffix.
+@@ -66,10 +123,16 @@ fn parse_local_link_target(dest_url: &str) -> Option<(String, Option<String>)> {
+         let url = Url::parse(dest_url).ok()?;
+         // Infer the path's OS from the URI, not the host running the TUI.
+         let path = PathUri::parse(&url[..url::Position::AfterPath]).ok()?;
+-        let path_text = normalize_local_link_path_text(&path.inferred_native_path_string());
+-        let location_suffix = url
++        let mut path_text = normalize_local_link_path_text(&path.inferred_native_path_string());
++        let mut location_suffix = url
+             .fragment()
+             .and_then(normalize_hash_location_suffix_fragment);
++        if location_suffix.is_none()
++            && let Some(suffix) = extract_colon_location_suffix(&path_text)
++        {
++            path_text.truncate(path_text.len() - suffix.len());
++            location_suffix = Some(suffix);
++        }
+         return Some((path_text, location_suffix));
+     }
+ 
+@@ -130,6 +193,13 @@ pub(super) fn extract_colon_location_suffix(path_text: &str) -> Option<String> {
+ fn normalize_local_link_path_text(path_text: &str) -> String {
+     // Render all local link paths with forward slashes so display and prefix stripping are stable
+     // across mixed Windows and Unix-style inputs.
++    let path_text = if matches!(path_text.as_bytes(), [b'/', drive, b':', sep, ..]
++        if drive.is_ascii_alphabetic() && matches!(sep, b'/' | b'\\'))
++    {
++        &path_text[1..]
++    } else {
++        path_text
++    };
+     if let Some(rest) = path_text.strip_prefix("\\\\") {
+         format!("//{}", rest.replace('\\', "/").trim_start_matches('/'))
+     } else {
+diff --git a/codex-rs/tui/src/markdown_render/local_links_tests.rs b/codex-rs/tui/src/markdown_render/local_links_tests.rs
+index c6ed70bfc9d8dbe4ffeca2e8fc35196571e32272..563bbb1950dee8b7368ef9e3b5bc4c5ac27991b4 100644
+--- a/codex-rs/tui/src/markdown_render/local_links_tests.rs
++++ b/codex-rs/tui/src/markdown_render/local_links_tests.rs
+@@ -1,7 +1,10 @@
+ //! Tests for local-link parsing and root-preserving separator normalization.
+ 
++use super::editor_link_target;
+ use super::trim_trailing_local_path_separator;
++use codex_config::types::UriBasedFileOpener;
+ use pretty_assertions::assert_eq;
++use std::path::Path;
+ 
+ #[test]
+ fn trailing_separator_trimming_preserves_local_roots() {
+@@ -11,3 +14,192 @@ fn trailing_separator_trimming_preserves_local_roots() {
+         ["/", "//", "C:/", "dir", "//server/share", "C:/dir"]
+     );
+ }
++
++#[test]
++fn local_links_resolve_windows_spellings_and_locations() {
++    let cwd = Path::new("C:/project");
++    for target in [
++        "C:/project/src/main.rs:19:3",
++        "c:/project/src/main.rs:19:3",
++        "/C:/project/src/main.rs:19:3",
++        "/c:/project/src/main.rs:19:3",
++        r"C:\project\src\main.rs:19:3",
++        "src/main.rs:19:3",
++        "./src/main.rs#L19C3",
++        r"src\main.rs:19:3",
++        "../project/src/main.rs:19:3",
++        "file:///C:/project/src/main.rs#L19C3",
++        "file:///C:/project/src/main.rs:19:3",
++    ] {
++        let (uri, copied) =
++            editor_link_target(target, Some(cwd), UriBasedFileOpener::VsCode).unwrap();
++        assert_eq!(
++            uri.to_ascii_lowercase(),
++            "vscode://file/c:/project/src/main.rs:19:3",
++            "{target}"
++        );
++        assert_eq!(
++            editor_link_target(&copied, None, UriBasedFileOpener::VsCode)
++                .unwrap()
++                .0,
++            uri
++        );
++    }
++}
++
++#[test]
++fn local_links_encode_paths_and_preserve_ranges_in_copy() {
++    let (uri, copied) = editor_link_target(
++        "./目录/a%20b%2520%23.md#L19C3-L22C5",
++        Some(Path::new("/work")),
++        UriBasedFileOpener::Cursor,
++    )
++    .unwrap();
++    assert_eq!(
++        uri,
++        "cursor://file/work/%E7%9B%AE%E5%BD%95/a%20b%2520%23.md:19:3"
++    );
++    assert!(copied.ends_with(":19:3-22:5"));
++    assert_eq!(
++        editor_link_target(&copied, None, UriBasedFileOpener::Cursor)
++            .unwrap()
++            .0,
++        uri
++    );
++    for (opener, scheme) in [
++        (UriBasedFileOpener::VsCodeInsiders, "vscode-insiders"),
++        (UriBasedFileOpener::Windsurf, "windsurf"),
++    ] {
++        assert!(
++            editor_link_target("/tmp/a b.md", None, opener)
++                .unwrap()
++                .0
++                .starts_with(scheme)
++        );
++    }
++}
++
++#[test]
++fn local_links_fall_back_for_disabled_or_unsafe_destinations() {
++    for target in [
++        "https://example.com",
++        "javascript:alert(1)",
++        "vscode://command/run",
++        "~/a.md",
++        "//server/share/a.md",
++        r"\\server\share\a.md",
++        "C:/a%07.md",
++        "C:/a\u{1b}.md",
++        "C:/a.md:stream",
++        "#anchor",
++        "",
++        "file://server/share/a.md",
++    ] {
++        assert!(
++            editor_link_target(
++                target,
++                Some(Path::new("C:/project")),
++                UriBasedFileOpener::VsCode
++            )
++            .is_none(),
++            "{target}"
++        );
++    }
++    assert!(editor_link_target("a.md", None, UriBasedFileOpener::VsCode).is_none());
++    assert!(editor_link_target("/a.md", None, UriBasedFileOpener::None).is_none());
++}
++
++#[test]
++fn local_links_keep_short_labels_targets_and_copy_across_layouts() {
++    use crate::markdown_copy::{SelectedLine, selection};
++    use crate::markdown_render::render_markdown_lines_with_width_cwd_and_hidden_link_destinations as render;
++    let cwd = Path::new("C:/project");
++    for width in [8, 24, 80] {
++        for markdown in [
++            "[**说明 SKILL.md:19**](<./目录/SKILL.md:19>)".to_string(),
++            "| File |\n| --- |\n| [说明 SKILL.md:19](<./目录/SKILL.md:19>) |".to_string(),
++        ] {
++            let lines = render(&markdown, Some(width), Some(cwd), &|_| true);
++            let links = lines
++                .iter()
++                .flat_map(|line| &line.hyperlinks)
++                .collect::<Vec<_>>();
++            assert!(!links.is_empty());
++            assert!(
++                links
++                    .iter()
++                    .all(|link| link.terminal_destination().as_deref()
++                        == Some("vscode://file/C:/project/%E7%9B%AE%E5%BD%95/SKILL.md:19"))
++            );
++            assert!(
++                lines
++                    .iter()
++                    .all(|line| !line.line.to_string().contains("project"))
++            );
++            let mut selected = Vec::new();
++            for line in &lines {
++                if let Some(source) = &line.source {
++                    SelectedLine::append(&mut selected, source.clone(), source.range.clone(), "\n");
++                }
++            }
++            let copied = selection(&selected, "").0;
++            assert!(
++                copied.contains("file:///C:/project/%E7%9B%AE%E5%BD%95/SKILL.md:19"),
++                "{copied}"
++            );
++        }
++    }
++}
++
++#[test]
++fn local_links_none_and_terminal_fallback_retain_paths() {
++    use super::super::preferences;
++    use crate::markdown_render::render_markdown_lines_with_width_cwd_and_hidden_link_destinations as render;
++    let markdown = "[name](C:/project/file.md:19)";
++    let fallback = render(markdown, None, Some(Path::new("C:/project")), &|_| false);
++    assert!(fallback[0].line.to_string().contains("file.md:19"));
++    assert!(fallback.iter().all(|line| line.hyperlinks.is_empty()));
++    let previous = preferences::file_opener();
++    preferences::init_file_opener(UriBasedFileOpener::None);
++    let disabled = render(markdown, None, Some(Path::new("C:/project")), &|_| true);
++    preferences::init_file_opener(previous);
++    assert_eq!(disabled, fallback);
++}
++
++#[test]
++fn local_links_streaming_matches_full_render_and_snapshots_cwd() {
++    use crate::markdown_render::{
++        ListSpacing, render_markdown_lines_with_width_cwd_and_hidden_link_destinations as render,
++        render_streaming_markdown_lines_with_width_and_cwd as stream,
++    };
++    let markdown = "See [**SKILL.md:19**](./SKILL.md:19).\n\nNext.";
++    let cwd = Path::new("C:/project");
++    for width in [8, 40] {
++        for end in 1..=markdown.len() {
++            let input = &markdown[..end];
++            assert_eq!(
++                stream(
++                    input,
++                    Some(width),
++                    Some(cwd),
++                    &|_| true,
++                    ListSpacing::AfterMultiline
++                )
++                .lines,
++                render(input, Some(width), Some(cwd), &|_| true)
++            );
++        }
++    }
++    let old = render(markdown, None, Some(cwd), &|_| true);
++    let new = render(markdown, None, Some(Path::new("D:/other")), &|_| true);
++    assert!(
++        old.iter()
++            .flat_map(|line| &line.hyperlinks)
++            .all(|link| link.destination.contains("/C:/project/"))
++    );
++    assert!(
++        new.iter()
++            .flat_map(|line| &line.hyperlinks)
++            .all(|link| link.destination.contains("/D:/other/"))
++    );
++}
+diff --git a/codex-rs/tui/src/markdown_render/preferences.rs b/codex-rs/tui/src/markdown_render/preferences.rs
+index 464b13ace105925f04fc359b052e46b4515a98c2..d03dd4369a4503a7eb6329299d309cf365cb829a 100644
+--- a/codex-rs/tui/src/markdown_render/preferences.rs
++++ b/codex-rs/tui/src/markdown_render/preferences.rs
+@@ -4,6 +4,42 @@
+ //! Tests isolate preferences per thread so parallel renderer tests cannot affect one another.
+ 
+ use codex_config::types::TuiRendering;
++use codex_config::types::UriBasedFileOpener;
++
++#[cfg(not(test))]
++static FILE_OPENER: std::sync::RwLock<UriBasedFileOpener> =
++    std::sync::RwLock::new(UriBasedFileOpener::VsCode);
++
++#[cfg(test)]
++thread_local! {
++    static FILE_OPENER: std::cell::Cell<UriBasedFileOpener> = const {
++        std::cell::Cell::new(UriBasedFileOpener::VsCode)
++    };
++}
++
++pub(crate) fn init_file_opener(opener: UriBasedFileOpener) {
++    #[cfg(not(test))]
++    {
++        *FILE_OPENER
++            .write()
++            .unwrap_or_else(std::sync::PoisonError::into_inner) = opener;
++    }
++    #[cfg(test)]
++    FILE_OPENER.set(opener);
++}
++
++pub(crate) fn file_opener() -> UriBasedFileOpener {
++    #[cfg(not(test))]
++    {
++        *FILE_OPENER
++            .read()
++            .unwrap_or_else(std::sync::PoisonError::into_inner)
++    }
++    #[cfg(test)]
++    {
++        FILE_OPENER.get()
++    }
++}
+ 
+ #[cfg(not(test))]
+ static RENDERING: std::sync::LazyLock<std::sync::RwLock<TuiRendering>> =
+diff --git a/codex-rs/tui/src/markdown_render/web_links.rs b/codex-rs/tui/src/markdown_render/web_links.rs
+index 6418e6bc0dce76f067c901d89eddf33ce55aa91a..1fd654dd7932aec1de38a47c8a55c904f38990fb 100644
+--- a/codex-rs/tui/src/markdown_render/web_links.rs
++++ b/codex-rs/tui/src/markdown_render/web_links.rs
+@@ -91,16 +91,30 @@ impl WebLinkDisplay {
+     fn hide_destination(self, destination: &str) -> bool {
+         self == Self::LabelOnly && web_destination(destination).is_some()
+     }
++
++    fn hide_markdown_destination(self, destination: &str) -> bool {
++        self == Self::LabelOnly
++            && (web_destination(destination).is_some()
++                || super::local_links::is_local_path_like_link(destination))
++    }
+ }
+ 
+-pub(crate) fn hide_web_link_destination(destination: &str) -> bool {
++fn display_policy() -> WebLinkDisplay {
+     static DISPLAY: LazyLock<WebLinkDisplay> = LazyLock::new(|| {
+         if !std::io::stdout().is_terminal() || std::env::var_os("STY").is_some() {
+             return WebLinkDisplay::WithDestination;
+         }
+         WebLinkDisplay::for_terminal(&terminal_info(), std::env::var("TERM").ok().as_deref())
+     });
+-    DISPLAY.hide_destination(destination)
++    *DISPLAY
++}
++
++pub(crate) fn hide_web_link_destination(destination: &str) -> bool {
++    display_policy().hide_destination(destination)
++}
++
++pub(crate) fn hide_markdown_link_destination(destination: &str) -> bool {
++    display_policy().hide_markdown_destination(destination)
+ }
+ 
+ #[cfg(test)]
+diff --git a/codex-rs/tui/src/markdown_render/web_links_tests.rs b/codex-rs/tui/src/markdown_render/web_links_tests.rs
+index f4c0ae8f5e60672ee910d6f30520585c99642f97..0b10c5000438a236c133aad5197698603e659e8f 100644
+--- a/codex-rs/tui/src/markdown_render/web_links_tests.rs
++++ b/codex-rs/tui/src/markdown_render/web_links_tests.rs
+@@ -101,6 +101,17 @@ fn supporting_terminals_render_only_the_styled_label_and_keep_its_target() {
+         TerminalName::Vte,
+     ] {
+         let display = WebLinkDisplay::for_terminal(&terminal(name), /*term*/ None);
++        let local = render_markdown_lines_with_width_cwd_and_hidden_link_destinations(
++            "[SKILL.md:19](/c:/project/SKILL.md:19)",
++            Some(80),
++            None,
++            &|destination| display.hide_markdown_destination(destination),
++        );
++        assert_eq!(local[0].line.to_string(), "SKILL.md:19");
++        assert_eq!(
++            local[0].hyperlinks[0].terminal_destination().as_deref(),
++            Some("vscode://file/C:/project/SKILL.md:19")
++        );
+         for (markdown, label) in [
+             (
+                 "[label](https://example.com)",
+@@ -162,6 +173,10 @@ fn unknown_terminals_and_multiplexers_keep_visible_destinations() {
+         (terminal(TerminalName::Ghostty), Some("tmux-256color")),
+         (terminal(TerminalName::Ghostty), Some("dumb")),
+     ] {
++        assert!(
++            !WebLinkDisplay::for_terminal(&terminal, term)
++                .hide_markdown_destination("C:/project/SKILL.md:19")
++        );
+         assert_eq!(
+             render(
+                 markdown,
+diff --git a/codex-rs/tui/src/terminal_hyperlinks.rs b/codex-rs/tui/src/terminal_hyperlinks.rs
+index ff9c9188a42db0ca89d6f566480229d3f8b2eb3a..e32a59a8cef4e98cfdb415929ecf23beee27bffe 100644
+--- a/codex-rs/tui/src/terminal_hyperlinks.rs
++++ b/codex-rs/tui/src/terminal_hyperlinks.rs
+@@ -50,6 +50,7 @@ pub(crate) struct TerminalHyperlink {
+ #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+ enum DestinationKind {
+     Web,
++    EditorFile,
+     /// A generated visualization, validated workspace artifact, or locally viewed image.
+     TrustedFile,
+ }
+@@ -97,6 +98,14 @@ impl TrustedWorkspaceFile {
+ }
+ 
+ impl TerminalHyperlink {
++    pub(crate) fn editor_file(columns: Range<usize>, destination: &str) -> Option<Self> {
++        Some(Self {
++            columns,
++            destination: editor_destination(destination)?,
++            destination_kind: DestinationKind::EditorFile,
++        })
++    }
++
+     pub(crate) fn web(columns: Range<usize>, destination: String) -> Self {
+         Self {
+             columns,
+@@ -168,6 +177,7 @@ impl TerminalHyperlink {
+     pub(crate) fn terminal_destination(&self) -> Option<String> {
+         match self.destination_kind {
+             DestinationKind::Web => web_destination(&self.destination),
++            DestinationKind::EditorFile => editor_destination(&self.destination),
+             DestinationKind::TrustedFile => trusted_file_destination(&self.destination),
+         }
+     }
+@@ -696,6 +706,31 @@ fn trusted_file_destination(destination: &str) -> Option<String> {
+     (parsed.scheme() == "file" && parsed.to_file_path().is_ok()).then_some(safe_destination)
+ }
+ 
++/// 编辑器链接只接受固定协议和 file authority，保持通用 OSC 8 的 Web 白名单。
++pub(crate) fn editor_destination(destination: &str) -> Option<String> {
++    if destination.chars().any(char::is_control) {
++        return None;
++    }
++    let safe = sanitized_destination(destination)?;
++    let url = Url::parse(&safe).ok()?;
++    (matches!(
++        url.scheme(),
++        "vscode" | "vscode-insiders" | "windsurf" | "cursor"
++    ) && url.host_str() == Some("file")
++        && url.username().is_empty()
++        && url.password().is_none()
++        && url.port().is_none()
++        && url.query().is_none()
++        && url.fragment().is_none()
++        && url.path().starts_with('/')
++        && url.path().len() > 1
++        && !urlencoding::decode(url.path())
++            .ok()?
++            .chars()
++            .any(char::is_control))
++    .then_some(safe)
++}
++
+ fn sanitized_destination(destination: &str) -> Option<String> {
+     if destination.len() > MAX_HYPERLINK_DESTINATION_BYTES {
+         return None;
+@@ -960,6 +995,51 @@ mod tests {
+     use pretty_assertions::assert_eq;
+     use ratatui::style::Style;
+ 
++    #[test]
++    fn editor_links_keep_destinations_after_wrap_and_scroll() {
++        let destination = "vscode://file/C:/project/a%20b.rs:19:3";
++        let line = HyperlinkLine {
++            source: None,
++            line: Line::from("prefix SKILL.md:19"),
++            hyperlinks: vec![TerminalHyperlink::editor_file(7..18, destination).unwrap()],
++        };
++        assert!(
++            decorate_spans(&line)
++                .iter()
++                .any(|span| span.content.contains(destination))
++        );
++        let area = Rect::new(0, 0, 8, 3);
++        let mut buffer = Buffer::empty(area);
++        HyperlinkParagraph::new(&[line], Style::default())
++            .scroll(1)
++            .render(area, &mut buffer);
++        let linked = area
++            .positions()
++            .filter_map(|position| {
++                let symbol = buffer[position].symbol();
++                symbol.contains(destination).then(|| strip_osc8(symbol))
++            })
++            .collect::<String>();
++        assert_eq!(linked, "SKILL.md:19");
++        // 普通 OSC 8 入口及受信任文件入口的协议边界保持不变。
++        assert_eq!(osc8_hyperlink(destination, "label"), "label");
++        assert!(trusted_file_destination(destination).is_none());
++        for invalid in [
++            "vscode://command/run",
++            "vscode://file/a?command=run",
++            "cursor://file/a#fragment",
++            "vscode://file/a%1b",
++            "vscode://file/a\u{7}",
++            "file:///tmp/a",
++            "https://example.com",
++        ] {
++            assert!(
++                TerminalHyperlink::editor_file(0..1, invalid).is_none(),
++                "{invalid}"
++            );
++        }
++    }
++
+     #[test]
+     fn only_web_destinations_receive_osc8() {
+         assert!(osc8_hyperlink("https://example.com/a", "a").contains("\x1b]8;;"));

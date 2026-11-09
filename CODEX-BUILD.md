@@ -38,9 +38,22 @@ CLI 与 daemon 使用不同的磁盘副本，daemon 实际路径以 `managedCode
 | 无输出 Esc | 固定中断 turn ID 并恢复提示词；已有答案、推理、计划或工具调用时保留原中断行为。 |
 | SQLite 日志 | 保留 INFO 及以上级别。 |
 | Space 引用 | 选中文字时向 prompt 尾部追加引用，每行（含空行）都添加 `> `，保留附件等草稿内容，清除选区并保持阅读位置；无选区沿用原行为。 |
+| 本地文件链接 | 支持 OSC 8 的终端显示 Markdown 标签，通过 `file_opener` 打开文件；相对路径基于该消息的会话 cwd（与 `/pwd` 同源），复制 Markdown 保留绝对目标。 |
 | 模型上下文 | 使用上游值。 |
 
 Ctrl+C 复制；Enter 复制并跟随最新输出；Space 不复制到剪贴板。多行引用保留原文换行和缩进，例如 `第一行\n第二行` 追加为 `\n> 第一行\n> 第二行\n`；原文末尾有换行时，末尾空行也带引用前缀。
+
+### 本地文件链接
+
+`[SKILL.md:19](C:/project/SKILL.md:19)` 在现有终端能力检测支持 OSC 8 时只显示 `SKILL.md:19`。复用 Web 链接的终端列表；未知终端、复用器、重定向输出或目标转换失败时继续显示路径。
+
+在 `config.toml` 顶层设置 `file_opener = "vscode"`（默认值），也可选 `vscode-insiders`、`windsurf`、`cursor`；`none` 禁用编辑器链接并保留路径。此配置独立于 Ctrl+G 的 `$VISUAL` / `$EDITOR`。终端点击通过系统已注册的编辑器 URI 协议打开，不执行环境变量中的命令。
+
+支持 `C:/…`、`C:\…`、`/c:/…`、`file:///C:/…`，以及 `src/file.rs`、`./src/file.rs`、`../file.rs` 等相对路径。路径中的空格和中文经过 URI 编码；Markdown 目标含空格时用 `<...>` 包裹。相对路径使用消息渲染上下文保存的会话 cwd，切换目录不会改写已有链接；复制后的 Markdown 使用绝对文件 URI，粘贴到其他目录仍指向原文件。
+
+位置接受 `:行[:列]`、`#L行[C列]` 和范围。生成 `编辑器://file/绝对路径:行:列`，范围定位到起点，复制保留完整范围。[VS Code 文档](https://code.visualstudio.com/docs/configure/command-line#_opening-vs-code-with-urls)明确支持行列定位；其他配置的编辑器接收同样的 URI 位置后缀，实际定位由其协议处理器支持。`~/`、UNC 路径、无 cwd 的相对路径，以及控制字符或无法转换的目标保留路径回退。
+
+普通 Markdown 只生成白名单编辑器协议，使用独立的链接类型；不会获得 `TrustedFile` 能力，也不放宽通用 `osc8_hyperlink()` 的 HTTP/HTTPS 校验。本次补丁尚未完成完整 TUI 编译及终端点击验收，详见验证记录。
 
 ### 重试配置
 
@@ -104,7 +117,7 @@ CI 优先使用 `patches/series/<基线tag>/*.patch`，按编号执行 `git am -
 bash scripts/apply-patches.sh /path/to/upstream patches/rust-v0.167.0.patch rust-v0.167.0 /tmp/codex-patch-report
 ```
 
-源码提交与维护仓库提交分开保存。本地 `patches/rust-v0.167.0` 分支已保留官方基线及 13 个功能提交，直接查看：
+源码提交与维护仓库提交分开保存。本地 `patches/rust-v0.167.0` 分支已保留官方基线及 14 个功能提交，直接查看：
 
 ```bash
 git log --oneline 086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a..patches/rust-v0.167.0
