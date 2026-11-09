@@ -7,7 +7,7 @@
 - 修改补丁、配置、安装或守护进程更新说明时，先读 [CODEX-BUILD.md](CODEX-BUILD.md) 的对应章节；这里是当前功能约定的来源。
 - 接手 0.167.0 验证或失败排查时，读 [VALIDATION.md](patches/series/rust-v0.167.0/VALIDATION.md)，再用 `gh run view` 取得最新状态和失败日志。
 - 修改 CI 或判断是否已发布时，核对 [.github/workflows/build-windows.yml](.github/workflows/build-windows.yml)、实际 jobs、Release 附件及 `built-tags.txt`。workflow 是执行入口，构建记录由成功发布的 CI 维护。
-- 修改 Windows 安装、恢复或状态检查脚本时，读 [scripts/README.md](scripts/README.md)，使用其中的隔离测试命令；不要用本机真实安装替代 fixture。
+- 修改 Windows 安装、恢复或状态检查脚本时，读 [scripts/README.md](scripts/README.md)，在 CI 中运行其中的隔离测试命令；不要用本机真实安装替代 fixture。
 
 ## 维护补丁
 
@@ -19,7 +19,8 @@
 
 ## 验证与交付
 
-- 修改源码后运行受影响的有价值测试和格式检查；环境阻断时记录命令、失败阶段和未覆盖行为。补丁应用通过、独立逻辑测试通过和完整构建通过分别报告。
+- **执行位置**：本机资源有限，构建、测试及测试依赖下载/准备统一放到 CI。禁止在本机运行 Cargo 构建或测试、独立编译测试及后台重任务；本地仅做源码/文档编辑、轻量只读检查和补丁维护。用户要求“运行测试”默认指 CI，只有明确指定本地执行及范围时才例外。
+- 修改源码后在 CI 中运行受影响的有价值测试和格式检查；CI 阻断时记录命令、失败阶段和未覆盖行为，不回退到本地构建或测试。补丁应用通过、独立逻辑测试通过和完整构建通过分别报告；完整编译或相关测试未通过时，交付状态标为“实现已提交，集成验证未完成”。
 - 判断构建成功时确认 `build` 实际执行并成功；判断发布成功时另外确认 `release` 及附件。`prepare` 允许失败后反馈 Issue，整条运行绿色可能没有产物。
 - 新提交需要新的 workflow dispatch；重跑旧 run 仍使用原提交。构建文档给出了两种入口。
 - `CODEX-BUILD.md` 的功能、部署步骤及 CI 说明随本次改动更新；临时进度和会话交接写入系统临时目录，通过路径交接。
