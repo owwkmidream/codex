@@ -272,8 +272,8 @@ jobs:
       SCCACHE_GHA_ENABLED: "true"
       # 缓存服务断连时由 CI runner 直接编译，仍保留 rustc 的真实退出码。
       SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
-      # sccache 官方诊断日志；只写入构建临时目录并作为 CI 附件保存。
-      SCCACHE_LOG: "debug"
+      # 只提高服务模块日志级别，避免全局 debug 记录编译环境和 HTTP 请求。
+      SCCACHE_LOG: "warn,sccache::server=debug"
     steps:
       - name: 启用 Windows 长路径
         shell: bash
@@ -589,7 +589,7 @@ jobs:
       CARGO_NET_GIT_FETCH_WITH_CLI: "true"
       SCCACHE_GHA_ENABLED: "true"
       SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
-      SCCACHE_LOG: "debug"
+      SCCACHE_LOG: "warn,sccache::server=debug"
       CARGO_PROFILE_CI_TEST_DEBUG: "0"
       LIBSQLITE3_FLAGS: SQLITE_DISABLE_INTRINSIC
     steps:
