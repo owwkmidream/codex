@@ -188,7 +188,8 @@ jobs:
 
       - name: 打包源码与功能提交历史
         if: steps.apply.outputs.applied == 'true'
-        run: tar -czf patched-source.tar.gz -C upstream .
+        # 将链接展开为文件，避免 Windows 解压依赖链接权限和目标恢复顺序。
+        run: tar --dereference --hard-dereference -czf patched-source.tar.gz -C upstream .
 
       - name: 上传应用了补丁的源码
         if: steps.apply.outputs.applied == 'true'
@@ -318,6 +319,7 @@ jobs:
           cache-on-failure: true
 
       - uses: mozilla-actions/sccache-action@v0.0.11
+        id: sccache
         with:
           version: "v0.16.0"
 
@@ -493,7 +495,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: 编译缓存统计
-        if: always()
+        if: always() && steps.sccache.outcome == 'success'
         shell: bash
         run: sccache --show-stats
 

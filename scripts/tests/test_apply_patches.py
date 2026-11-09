@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import tarfile
 import tempfile
 import unittest
 
@@ -116,12 +117,20 @@ class ApplyPatchesTests(unittest.TestCase):
     def test_source_archive_preserves_git_history_and_hidden_config(self):
         target, output, _ = self.apply()
         self.assertIn("applied=true", output)
+        # 覆盖 Linux 源码中的相对链接，Windows 恢复时必须得到普通文件。
+        (target / "COPYING").write_text("fixture license\n", encoding="utf-8", newline="\n")
+        (target / "LICENSE").symlink_to("COPYING")
         archive = self.root / "patched-source.tar.gz"
         restored = self.root / "restored"
         restored.mkdir()
         tar = shutil.which("tar")
-        subprocess.run([tar, "-czf", archive.name, "-C", target.name, "."], cwd=self.root, check=True, timeout=10)
+        subprocess.run([tar, "--dereference", "--hard-dereference", "-czf", archive.name, "-C", target.name, "."], cwd=self.root, check=True, timeout=10)
+        with tarfile.open(archive) as source:
+            self.assertTrue(source.getmember("./LICENSE").isfile())
+            self.assertTrue(source.getmember("./COPYING").isfile())
         subprocess.run([tar, "-xzf", archive.name, "-C", restored.name], cwd=self.root, check=True, timeout=10)
+        self.assertFalse((restored / "LICENSE").is_symlink())
+        self.assertEqual((restored / "LICENSE").read_text(), "fixture license\n")
         self.assertTrue((restored / ".git").is_dir())
         self.assertEqual(self.git(restored, "log", "-2", "--format=%s").splitlines(), ["fix: quote", "feat: quote"])
         self.assertEqual((restored / ".cargo" / "config.toml").read_text(), "[build]\njobs = 2\n")

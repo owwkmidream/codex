@@ -69,6 +69,7 @@ CI 校验协议导出、构建产物及 `--version`，完整核心/TUI 回归需
 
 - `Swatinem/rust-cache` 保留依赖下载及依赖编译产物；`sccache` 使用 GitHub Actions 缓存复用项目 crate 的编译输入，不按官方 tag 人工分桶。源码、编译器和编译参数变化时由工具判断是否命中；新缓存首次构建需要预热。
 - `prepare` 将源码和 `.git` 一起打包，Windows 直接恢复功能历史与隐藏配置，不再重新提交整份源码。功能提交使用固定作者日期作为提交者日期，同一目标和补丁生成稳定的 `STABLE_GIT_COMMIT`。
+- 源码归档使用 `tar --dereference --hard-dereference`，将符号链接和硬链接展开为实际文件，避免 Windows 解压因链接权限或恢复顺序失败；Git 历史仍保留原始链接类型。缓存统计仅在 sccache 安装成功后执行。
 - 协议稳定版和实验版共用一次编译的生成器，生成完成后重新编译并校验内嵌协议。保留 migration 换行检查和上游 release/LTO 参数。
 - 查看 `cargo-timings` artifact、sccache 命中统计及 job 步骤耗时；移除递归扫描整个缓存目录的诊断。缓存不能消除最终链接开销。
 
