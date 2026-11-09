@@ -661,6 +661,7 @@ jobs:
           start=$(date +%s)
           cargo test --locked --profile ci-test -p codex-tui --lib -- \
             local_links editor_links web_links terminal_hyperlinks markdown_copy \
+            quote_appends_to_draft_tail_and_preserves_attachments \
             2>&1 | tee "$RUNNER_TEMP/tui-tests.log"
           echo "TUI tests: $(($(date +%s) - start)) seconds" >> "$GITHUB_STEP_SUMMARY"
 

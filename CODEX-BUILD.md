@@ -76,7 +76,7 @@ retry_delay_ms = 10000
 
 确认 `build`、`test`、`release` 都成功，再按安装步骤部署。核对 zip 内的 `patch_baseline` 和 `patch_is_exact`，确认实际使用的补丁来源；部署后在 TUI 验证 Space、附件、字节计数和 Esc。
 
-CI 校验协议导出、构建产物及 `--version`；独立 Windows `test` job 与 `build` 同时依赖 `prepare`，一次编译 `codex-tui --lib`，按 `local_links`、`editor_links`、`web_links`、`terminal_hyperlinks`、`markdown_copy` 的名称并集执行相关回归。`release` 等待两者成功。完整核心/TUI 回归不在本 job 范围内。0.167.0 的验证范围见 [VALIDATION.md](patches/series/rust-v0.167.0/VALIDATION.md)。
+CI 校验协议导出、构建产物及 `--version`；独立 Windows `test` job 与 `build` 同时依赖 `prepare`，一次编译 `codex-tui --lib`，按 `local_links`、`editor_links`、`web_links`、`terminal_hyperlinks`、`markdown_copy` 的名称并集执行相关回归，并运行 `quote_appends_to_draft_tail_and_preserves_attachments` 验证 Space 引用及附件保留。`release` 等待两者成功。完整核心/TUI 回归不在本 job 范围内。0.167.0 的验证范围见 [VALIDATION.md](patches/series/rust-v0.167.0/VALIDATION.md)。
 
 ### 构建耗时与缓存
 
@@ -84,7 +84,7 @@ CI 校验协议导出、构建产物及 `--version`；独立 Windows `test` job 
 - `prepare` 将源码和 `.git` 一起打包，Windows 直接恢复功能历史与隐藏配置，不再重新提交整份源码。功能提交使用固定作者日期作为提交者日期，同一目标和补丁生成稳定的 `STABLE_GIT_COMMIT`。
 - 源码归档使用 `tar --dereference --hard-dereference`，将符号链接和硬链接展开为实际文件，避免 Windows 解压因链接权限或恢复顺序失败；Git 历史仍保留原始链接类型。缓存统计仅在 sccache 安装成功后执行。
 - `build`、`test` 仅在 sccache 安装成功后设置 `RUSTC_WRAPPER`；下载失败时由 CI runner 直接编译，Cargo 依赖缓存仍可使用。`SCCACHE_IGNORE_SERVER_IO_ERROR=1` 让编译响应连接中断时回退到 runner 直接调用编译器，保留编译器退出码。缓存统计失败不阻断构建；回退可能增加耗时。
-- 两个 job 分别上传 `cache-diagnostics-build`、`cache-diagnostics-test`，保留 7 天。`sccache-server.log` 记录服务启动、退出、编译缓存结果及错误，`sccache-stats.txt` 保存最终统计；服务重启后的统计只代表新进程。`resources.jsonl` 每 30 秒记录 UTC 时间、可用/提交内存、磁盘空间和编译进程 PID/CPU/内存，`windows-events.json` 保存本次任务的资源耗尽及相关崩溃事件。采样由 `scripts/ci-cache-diagnostics.ps1` 在 CI 启停，启动时校验实际采样字段；诊断失败不替代构建、测试结果。
+- 两个 job 分别上传 `cache-diagnostics-build`、`cache-diagnostics-test`，保留 7 天。`sccache-server.log` 记录服务启动、退出、编译缓存结果及错误，`sccache-stats.txt` 保存最终统计；服务重启后的统计只代表新进程。`resources.jsonl` 每 30 秒记录 UTC 时间、可用/提交内存、磁盘空间和编译进程 PID/CPU/内存，`windows-events.json` 保存本次任务的资源耗尽及相关崩溃事件。采样由 `scripts/ci-cache-diagnostics.ps1` 在 CI 启停，启动时校验实际采样字段，结束时检查相邻记录间隔不超过 90 秒；诊断失败不替代构建、测试结果。
 - 协议稳定版和实验版共用一次编译的生成器，生成完成后重新编译并校验内嵌协议。保留 migration 换行检查和上游 release/LTO 参数。
 - `build`、`test` 各自使用 `Swatinem/rust-cache` 的 job/Rust/依赖自动键，保存下载依赖和 target；失败时也保存缓存，不按 tag 或提交额外分桶。两套 target 不竞争同一个不可变缓存键；sccache 复用输入一致的编译结果。测试使用上游 `ci-test` profile，关闭调试信息以减小链接及缓存体积。
 - 查看 `cargo-timings`、`tui-test-log` artifact、sccache 命中统计及 job 步骤耗时；缓存不能消除测试可执行文件的链接开销。测试首次冷启动需预热；并行后的发布等待时间取 build/test 较慢者，还受 Runner 排队影响。
@@ -120,7 +120,7 @@ CI 优先使用 `patches/series/<基线tag>/*.patch`，按编号执行 `git am -
 bash scripts/apply-patches.sh /path/to/upstream patches/rust-v0.167.0.patch rust-v0.167.0 /tmp/codex-patch-report
 ```
 
-源码提交与维护仓库提交分开保存。本地 `patches/rust-v0.167.0` 分支已保留官方基线及 14 个功能提交，直接查看：
+源码提交与维护仓库提交分开保存。本地 `patches/rust-v0.167.0` 分支已保留官方基线及 15 个功能提交，直接查看：
 
 ```bash
 git log --oneline 086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a..patches/rust-v0.167.0

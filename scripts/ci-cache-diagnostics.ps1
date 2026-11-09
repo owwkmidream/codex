@@ -37,22 +37,26 @@ if ($Action -eq 'Start') {
     if ($sample.totalMemoryBytes -le 0 -or $sample.commitLimitBytes -le 0 -or $sample.disks.Count -eq 0) {
         throw '资源采样缺少内存或磁盘信息'
     }
-    $monitor = Start-Process -FilePath (Get-Process -Id $PID).Path -WindowStyle Hidden -PassThru `
-        -ArgumentList @('-NoProfile', '-File', "`"$PSCommandPath`"", '-Action', 'Watch') `
-        -RedirectStandardOutput (Join-Path $diagnosticsDir 'monitor-output.log') `
-        -RedirectStandardError (Join-Path $diagnosticsDir 'monitor-error.log')
+    # 使用独立窗口进程，避免采样随启动步骤的控制台结束；错误由子进程直接写文件。
+    $monitor = Start-Process -FilePath (Get-Process -Id $PID).Path -WindowStyle Hidden -PassThru -Verb Open `
+        -ArgumentList @('-NoProfile', '-NonInteractive', '-File', "`"$PSCommandPath`"", '-Action', 'Watch')
     $monitor.Id | Set-Content (Join-Path $diagnosticsDir 'monitor.pid')
     Write-Host "资源采样校验通过；后台采样 PID=$($monitor.Id)，间隔 30 秒"
     return
 }
 
 if ($Action -eq 'Watch') {
-    while (-not (Test-Path -LiteralPath $stopFile)) {
-        Write-ResourceSample
-        # 每 30 秒采样；每秒检查退出信号，避免结束 job 时额外等待半分钟。
-        for ($second = 0; $second -lt 30 -and -not (Test-Path -LiteralPath $stopFile); $second++) {
-            Start-Sleep -Seconds 1
+    try {
+        while (-not (Test-Path -LiteralPath $stopFile)) {
+            Write-ResourceSample
+            # 每 30 秒采样；每秒检查退出信号，避免结束 job 时额外等待半分钟。
+            for ($second = 0; $second -lt 30 -and -not (Test-Path -LiteralPath $stopFile); $second++) {
+                Start-Sleep -Seconds 1
+            }
         }
+    } catch {
+        $_ | Out-String | Set-Content (Join-Path $diagnosticsDir 'monitor-error.log') -Encoding utf8
+        exit 1
     }
     return
 }
@@ -76,6 +80,11 @@ $events = @(
 )
 ConvertTo-Json -InputObject @($events | Select-Object TimeCreated, Id, ProviderName, Message) -Depth 4 |
     Set-Content (Join-Path $diagnosticsDir 'windows-events.json') -Encoding utf8
-$sampleCount = (Get-Content -LiteralPath $samplesFile | Measure-Object -Line).Lines
+$samples = @(Get-Content -LiteralPath $samplesFile | ForEach-Object { $_ | ConvertFrom-Json })
+$sampleCount = $samples.Count
+for ($index = 1; $index -lt $sampleCount; $index++) {
+    $gap = ([datetime]$samples[$index].timeUtc - [datetime]$samples[$index - 1].timeUtc).TotalSeconds
+    if ($gap -gt 90) { throw "资源采样中断 $gap 秒，请检查 monitor-error.log" }
+}
 if ($sampleCount -lt 3) { throw '后台采样未产生记录，请检查 monitor-error.log' }
 Write-Host "已保存 $sampleCount 条资源采样，$($events.Count) 条 Windows 事件"

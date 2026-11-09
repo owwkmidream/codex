@@ -2131,19 +2131,19 @@ index da20829facccd531553fc5e1c4c617775a1b72e7..3874f6840ce1668c6f479a3f0497e395
              if let Some((characters, result)) = self.transcript_view.copy_action(
                  tui,
 diff --git a/codex-rs/tui/src/app/session_lifecycle.rs b/codex-rs/tui/src/app/session_lifecycle.rs
-index 9203adf62c15a00dda8090f2e82fa2b9c287e776..de535ad6a51a8d577731ab05cf39e92fda22e78f 100644
+index 9203adf62c15a00dda8090f2e82fa2b9c287e776..32a82d9977cccc964f4f7f546f85322f15ca3253 100644
 --- a/codex-rs/tui/src/app/session_lifecycle.rs
 +++ b/codex-rs/tui/src/app/session_lifecycle.rs
 @@ -535,6 +535,7 @@ impl App {
          }
          chat_widget.restore_kill_buffer_snapshot(self.chat_widget.take_kill_buffer_snapshot());
          crate::markdown_render::preferences::init(chat_widget.local_settings.tui.rendering);
-+        crate::markdown_render::preferences::init_file_opener(chat_widget.config.file_opener);
++        crate::markdown_render::preferences::init_file_opener(chat_widget.config_ref().file_opener);
          let mut previous = std::mem::replace(&mut self.chat_widget, chat_widget);
          if previous.realtime_conversation_is_running() {
              previous.park_voice();
 diff --git a/codex-rs/tui/src/app/tests/transcript_selection.rs b/codex-rs/tui/src/app/tests/transcript_selection.rs
-index 75462d38ed1346a499f335b20f95486ba319f4ab..c4f321c57cb3dd654b5204b16710e8207dc3d834 100644
+index 75462d38ed1346a499f335b20f95486ba319f4ab..16753cb3e2f0cc7883ac832cab5256923cb74ccf 100644
 --- a/codex-rs/tui/src/app/tests/transcript_selection.rs
 +++ b/codex-rs/tui/src/app/tests/transcript_selection.rs
 @@ -4,6 +4,31 @@ use super::*;
@@ -2162,16 +2162,16 @@ index 75462d38ed1346a499f335b20f95486ba319f4ab..c4f321c57cb3dd654b5204b16710e820
 +            mention_bindings: Vec::new(),
 +        });
 +    app.chat_widget.handle_key_event(KeyCode::Left.into());
-+    let mut expected = app.chat_widget.capture_thread_input_state().unwrap();
-+    expected
-+        .composer
-+        .as_mut()
-+        .unwrap()
-+        .text
-+        .push_str("\n> 引用\n> \n>   第二行\n> \n");
 +    app.chat_widget
 +        .append_transcript_quote("引用\n\n  第二行\n");
-+    assert_eq!(app.chat_widget.capture_thread_input_state(), Some(expected));
++    assert_eq!(
++        app.chat_widget.composer_text_with_pending(),
++        "draft\n> 引用\n> \n>   第二行\n> \n"
++    );
++    assert_eq!(
++        app.chat_widget.remote_image_urls(),
++        vec!["https://example.com/image.png".to_string()]
++    );
 +    assert!(operations.try_recv().is_err());
 +}
 +

@@ -5,7 +5,7 @@
 ## 产物与迁移
 
 - 合并补丁：`patches/rust-v0.167.0.patch`。
-- 本目录 `0001` 至 `0014` 为可用 `git am` 恢复的功能提交及其修订，按编号依次应用。`0012` 补齐实时对话对字节进度事件的匹配分支，修复 E0004 编译错误；`0013` 修复 Space 多行逐行引用；`0014` 接入普通本地文件链接的编辑器 OSC 8、路径兼容和 Markdown 复制目标。
+- 本目录 `0001` 至 `0015` 为可用 `git am` 恢复的功能提交及其修订，按编号依次应用。`0012` 补齐实时对话对字节进度事件的匹配分支，修复 E0004 编译错误；`0013` 修复 Space 多行逐行引用；`0014` 接入普通本地文件链接的编辑器 OSC 8、路径兼容和 Markdown 复制目标；`0015` 修复跨模块访问私有字段造成的 E0616。
 - 历史补丁保持原样；新补丁不包含 Cargo.lock、models.json 或协议导出目录。
 - 协议 JSON、TypeScript、内嵌压缩文件由 workflow 调用上游生成器重建，避免维护二进制差异。自行构建时也必须执行该生成步骤。
 
@@ -52,7 +52,11 @@
 - CI [42568144779](https://github.com/owwkmidream/codex/actions/runs/42568144779) 下载 sccache 返回 HTTP 504；[42563437087](https://github.com/owwkmidream/codex/actions/runs/42563437087) 在编译 `codex-tui` 时读取 sccache 响应失败（`os error 10054`）。两者未报告 Rust 源码诊断。workflow 已将安装和统计改为非阻断步骤，仅安装成功时启用 wrapper，并通过 `SCCACHE_IGNORE_SERVER_IO_ERROR=1` 在响应连接中断时由 CI runner 直接编译。修复后的 YAML、显式 Bash 步骤语法及 diff 检查通过；实际构建与测试结果仍需新运行确认。
 - 为定位服务断连，两个 Windows job 增加 sccache 服务日志、最终统计、每 30 秒的内存/磁盘/编译进程采样与 Windows 崩溃/资源耗尽事件；按 job 上传诊断附件。采样脚本在 CI 校验首次内存和磁盘字段、结束时核对后台采样记录。本机仅进行 YAML、PowerShell、Bash 语法及 diff 检查；实际采样与附件上传待新 CI 验证。
 
-CI 执行 `cargo test --locked --profile ci-test -p codex-tui --lib -- local_links editor_links web_links terminal_hyperlinks markdown_copy`，测试 profile 关闭调试信息。发布前确认 build、test 与 release 的实际结果；当前实现已提交，集成验证未完成，未在本机部署。
+CI [42577220075](https://github.com/owwkmidream/codex/actions/runs/42577220075) 的 build/test 分别因 `ChatWidget.config`、`ThreadInputState.composer` 跨模块私有访问报 E0616。`0015`（源码提交 `fe66fd5`）改用现有 `config_ref()`，Space 回归通过草稿文本和图片附件接口断言用户可见结果。补丁追加重放与合并补丁独立 index 重放均与源码一致，受影响文件 rustfmt、workflow/PowerShell/Bash 语法检查通过。
+
+同次运行 sccache 构建命中 1,243 次（67.74%），测试命中 36 次（26.09%），读写错误均为 0。资源附件只包含启动与结束的 3 条记录，不能说明编译期间的资源峰值；采样启动改为独立进程并增加时间间隔检查，实际持续采样待新运行验证。
+
+CI 执行 `cargo test --locked --profile ci-test -p codex-tui --lib -- local_links editor_links web_links terminal_hyperlinks markdown_copy quote_appends_to_draft_tail_and_preserves_attachments`，测试 profile 关闭调试信息。发布前确认 build、test 与 release 的实际结果；当前实现已提交，集成验证未完成，未在本机部署。
 
 CI [42519034906](https://github.com/owwkmidream/codex/actions/runs/42519034906) 的 release 编译曾在 `realtime_text_for_event()` 漏匹配 `ModelRequestProgress` 处报 E0004。`0012` 修复后，新运行 [42524866183](https://github.com/owwkmidream/codex/actions/runs/42524866183) 的协议生成校验、build、release 均成功，已有 `codex-rust-v0.167.0-windows-x64.zip` 附件。这份已发布产物尚不含 `0013`。
 
