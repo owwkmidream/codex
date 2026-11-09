@@ -38,27 +38,29 @@
 - 字节累计：同轮跨请求累计、跨轮清零；完成轮次的延迟通知被忽略。
 - 实时对话：发送和接收阶段的字节进度事件均不生成交接文本或推理状态。
 
-## 阻断与待验证
+## 本地链接验证与历史阻断
 
 本地链接补丁 `0014`：
 
 - 源码提交 `539b03d`；14 个 series 在官方基线的干净 worktree 中 `git am` 成功，合并补丁在独立 Git index 中应用成功，两者均通过 `git diff --exit-code` 与源码提交对照。
 - 从实际生产源码提取路径解析、编辑器目标校验和对应测试，使用原 `codex-utils-path-uri` / `codex-utils-string` 依赖在独立临时 Cargo 工程执行：4 项通过（包括原有根路径测试）。覆盖 Windows 盘符及 `/c:/`、相对路径、文件 URI、空格中文、百分号、行列范围、`none` 和不安全目标；发现并修复了复制往返中的盘符大小写差异。
-- 已补充 TUI 用例：短标签、表格和窄屏换行、Markdown 复制、流式与完整渲染一致、cwd 固定、禁用/终端回退、OSC 8 滚动和协议边界。它们尚未执行成功。
+- 已补充 TUI 用例：短标签、表格和窄屏换行、Markdown 复制、流式与完整渲染一致、cwd 固定、禁用/终端回退、OSC 8 滚动和协议边界。修复 `0015` 后，CI [42600912285](https://github.com/owwkmidream/codex/actions/runs/42600912285) 的相关过滤器及 Space 引用回归共 92 项通过，0 失败、0 忽略；其余 5,815 项未运行。
 - `cargo +1.95.0 test --offline -p codex-tui --lib local_links` 首次在 60 秒内无输出而终止；随后增加诊断输出重试，明确在加载 `v8` 的 `third_party/rust` 子模块时因 Windows 路径过长退出 101，尚未编译 TUI。未修改全局 Git/Cargo 配置。
 - 受影响 Rust 文件的 `rustfmt +1.95.0 --edition 2024 --check` 和 `git diff --check` 通过；独立路径测试不代替完整 TUI 测试、真实 Windows Terminal 点击与编辑器定位验收。
 - CI 新增独立 Windows `test` job，与 `build` 并行，复用 `patched-source`、Rust cache 和 sccache；Rust target 缓存按 job 分开保存，避免并行写入相同不可变键。一次编译 TUI 测试目标，执行本地链接及相邻回归；`release` 需同时等待 `build`、`test` 成功。
-- 新增测试 job 后的 YAML 解析、27 个 Bash 步骤语法检查及维护文件 `git diff --check` 通过；本轮未在本机运行构建、测试或下载测试依赖。缓存命中与耗时待云端运行测量。
-- CI [42568144779](https://github.com/owwkmidream/codex/actions/runs/42568144779) 下载 sccache 返回 HTTP 504；[42563437087](https://github.com/owwkmidream/codex/actions/runs/42563437087) 在编译 `codex-tui` 时读取 sccache 响应失败（`os error 10054`）。两者未报告 Rust 源码诊断。workflow 已将安装和统计改为非阻断步骤，仅安装成功时启用 wrapper，并通过 `SCCACHE_IGNORE_SERVER_IO_ERROR=1` 在响应连接中断时由 CI runner 直接编译。修复后的 YAML、显式 Bash 步骤语法及 diff 检查通过；实际构建与测试结果仍需新运行确认。
-- 为定位服务断连，两个 Windows job 增加 sccache 服务日志、最终统计、每 30 秒的内存/磁盘/编译进程采样与 Windows 崩溃/资源耗尽事件；按 job 上传诊断附件。采样脚本在 CI 校验首次内存和磁盘字段、结束时核对后台采样记录。本机仅进行 YAML、PowerShell、Bash 语法及 diff 检查；实际采样与附件上传待新 CI 验证。
+- 新增测试 job 后的 YAML 解析、27 个 Bash 步骤语法检查及维护文件 `git diff --check` 通过；本轮未在本机运行构建、测试或下载测试依赖。运行 `42600912285` 的 test job 耗时 13 分 37 秒，其中测试目标编译 10 分 38 秒、用例执行 2.11 秒；sccache 命中 110 次（79.71%），读写错误均为 0。
+- CI [42568144779](https://github.com/owwkmidream/codex/actions/runs/42568144779) 下载 sccache 返回 HTTP 504；[42563437087](https://github.com/owwkmidream/codex/actions/runs/42563437087) 在编译 `codex-tui` 时读取 sccache 响应失败（`os error 10054`）。两者未报告 Rust 源码诊断。workflow 已将安装和统计改为非阻断步骤，仅安装成功时启用 wrapper，并通过 `SCCACHE_IGNORE_SERVER_IO_ERROR=1` 在响应连接中断时由 CI runner 直接编译。运行 `42600912285` 在 11:16:01 UTC 实际触发此回退，最终构建成功；断连根因尚未确认。
+- 为定位服务断连，两个 Windows job 增加 sccache 服务日志、最终统计、每 30 秒的内存/磁盘/编译进程采样与 Windows 崩溃/资源耗尽事件；按 job 上传诊断附件。采样脚本在 CI 校验首次内存和磁盘字段、结束时核对后台采样记录。本机仅进行 YAML、PowerShell、Bash 语法及 diff 检查。
 
 CI [42577220075](https://github.com/owwkmidream/codex/actions/runs/42577220075) 的 build/test 分别因 `ChatWidget.config`、`ThreadInputState.composer` 跨模块私有访问报 E0616。`0015`（源码提交 `fe66fd5`）改用现有 `config_ref()`，Space 回归通过草稿文本和图片附件接口断言用户可见结果。补丁追加重放与合并补丁独立 index 重放均与源码一致，受影响文件 rustfmt、workflow/PowerShell/Bash 语法检查通过。
 
-同次运行 sccache 构建命中 1,243 次（67.74%），测试命中 36 次（26.09%），读写错误均为 0。资源附件只包含启动与结束的 3 条记录，不能说明编译期间的资源峰值；采样启动改为独立进程并增加时间间隔检查，实际持续采样待新运行验证。
+同次运行 sccache 构建命中 1,243 次（67.74%），测试命中 36 次（26.09%），读写错误均为 0。资源附件只包含启动与结束的 3 条记录，不能说明编译期间的资源峰值；采样启动改为独立进程并增加时间间隔检查后，运行 `42600912285` 的 test 附件已包含 28 条记录，最大间隔 30.77 秒，覆盖 cargo、rustc、link、sccache 进程，诊断收集和上传成功。
 
-CI 执行 `cargo test --locked --profile ci-test -p codex-tui --lib -- local_links editor_links web_links terminal_hyperlinks markdown_copy quote_appends_to_draft_tail_and_preserves_attachments`，测试 profile 关闭调试信息。发布前确认 build、test 与 release 的实际结果；当前实现已提交，集成验证未完成，未在本机部署。
+CI 执行 `cargo test --locked --profile ci-test -p codex-tui --lib -- local_links editor_links web_links terminal_hyperlinks markdown_copy quote_appends_to_draft_tail_and_preserves_attachments`，测试 profile 关闭调试信息。运行 `42600912285`（维护提交 `9f08010`）的 build、test、release 全部成功，协议生成/fixture 校验通过，产物输出 `codex-cli 0.167.0`。Release 附件 `codex-rust-v0.167.0-windows-x64.zip` 于 2026-11-09 12:11:44 UTC 更新，大小 120,715,033 字节，包含 `0013` 至 `0015`。本次 CI 集成验证完成，真实终端点击和编辑器定位尚待部署后验收，未在本机部署。
 
-CI [42519034906](https://github.com/owwkmidream/codex/actions/runs/42519034906) 的 release 编译曾在 `realtime_text_for_event()` 漏匹配 `ModelRequestProgress` 处报 E0004。`0012` 修复后，新运行 [42524866183](https://github.com/owwkmidream/codex/actions/runs/42524866183) 的协议生成校验、build、release 均成功，已有 `codex-rust-v0.167.0-windows-x64.zip` 附件。这份已发布产物尚不含 `0013`。
+本次运行总耗时 105 分 08 秒，release 编译步骤 94 分 07 秒。build 诊断附件包含 203 条采样，最大间隔 33.09 秒；最终 sccache 统计为全零，不能用于计算整轮命中率。构建期间记录了服务断连后的直接编译回退，因此本次尚不能证明构建提速。
+
+CI [42519034906](https://github.com/owwkmidream/codex/actions/runs/42519034906) 的 release 编译曾在 `realtime_text_for_event()` 漏匹配 `ModelRequestProgress` 处报 E0004。`0012` 修复后，运行 [42524866183](https://github.com/owwkmidream/codex/actions/runs/42524866183) 的协议生成校验、build、release 均成功；当时的附件不含 `0013`，现已由运行 `42600912285` 更新。
 
 加入 `0013` 后，修改文件的 `git diff --check` 与 `rustfmt +1.95.0 --edition 2024 --check` 通过。`cargo +1.95.0 test --offline --manifest-path codex-rs/Cargo.toml -p codex-tui --lib quote_appends_to_draft_tail_and_preserves_attachments` 在 60 秒内没有返回测试结果，进程树按测试超时终止；完整 TUI 回归尚未验证。新 workflow 的 sccache 命中及实际提速仍需新 CI 测量。
 
@@ -74,6 +76,6 @@ path too long .../vendor/icu_calendar-v2/src/tests/snapshots/icu_calendar__tests
 class Filesystem (30)
 ```
 
-维护者需在可构建环境执行完整协议生成/一致性测试、受影响的 Rust 测试与 release 构建，再验证 Windows TUI 的 Space、压缩横幅、字节计数和 Esc 行为。新增重试测试及 TUI 快照目前只有源码审查和格式检查结果。
+协议生成/一致性测试、上述 92 项回归及 release 构建已在 CI 通过。完整核心/TUI 回归、先前新增重试测试及未被本次过滤器覆盖的快照仍未执行；Windows TUI 的点击定位、Space、压缩横幅、字节计数和 Esc 行为需部署后验收。
 
 GitHub Issue #13 的补丁应用问题已有可重放产物，Issue 保持打开，等待构建和行为验收。本机二进制替换、daemon 设置修改及运行中进程重启不属于本次 CI 修复范围。

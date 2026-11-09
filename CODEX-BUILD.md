@@ -89,7 +89,7 @@ CI 校验协议导出、构建产物及 `--version`；独立 Windows `test` job 
 - `build`、`test` 各自使用 `Swatinem/rust-cache` 的 job/Rust/依赖自动键，保存下载依赖和 target；失败时也保存缓存，不按 tag 或提交额外分桶。两套 target 不竞争同一个不可变缓存键；sccache 复用输入一致的编译结果。测试使用上游 `ci-test` profile，关闭调试信息以减小链接及缓存体积。
 - 查看 `cargo-timings`、`tui-test-log` artifact、sccache 命中统计及 job 步骤耗时；缓存不能消除测试可执行文件的链接开销。测试首次冷启动需预热；并行后的发布等待时间取 build/test 较慢者，还受 Runner 排队影响。
 
-优化前基线为运行 `42524866183`：总计 99 分 42 秒，release 编译 80 分 10 秒，协议生成校验 9 分 08 秒，缓存恢复 2 分 51 秒。新配置的实际节省时间需新 CI 运行测量。
+优化前基线为运行 `42524866183`：总计 99 分 42 秒，release 编译 80 分 10 秒，协议生成校验 9 分 08 秒，缓存恢复 2 分 51 秒。运行 `42600912285` 的 build/test/release 全部成功：总计 105 分 08 秒，release 编译步骤 94 分 07 秒；并行 test job 为 13 分 37 秒，92 项通过，sccache 命中率 79.71%。本次 build 中途发生 sccache 响应断连并成功回退直接编译，尚不能证明构建提速；服务断连根因待诊断附件进一步定位。
 
 ## 构建失败后
 
