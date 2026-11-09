@@ -5,7 +5,7 @@
 ## 产物与迁移
 
 - 合并补丁：`patches/rust-v0.167.0.patch`。
-- 本目录 `0001` 至 `0012` 为可用 `git am` 恢复的功能提交及其修订，按编号依次应用。`0012` 补齐实时对话对字节进度事件的匹配分支，修复 E0004 编译错误，并补充收发阶段均不生成实时文本的回归测试。
+- 本目录 `0001` 至 `0013` 为可用 `git am` 恢复的功能提交及其修订，按编号依次应用。`0012` 补齐实时对话对字节进度事件的匹配分支，修复 E0004 编译错误；`0013` 修复 Space 多行逐行引用，更新含空行、缩进、末尾换行和附件的回归用例。
 - 历史补丁保持原样；新补丁不包含 Cargo.lock、models.json 或协议导出目录。
 - 协议 JSON、TypeScript、内嵌压缩文件由 workflow 调用上游生成器重建，避免维护二进制差异。自行构建时也必须执行该生成步骤。
 
@@ -14,12 +14,16 @@
 | 检查 | 实际结果 |
 |---|---|
 | 合并补丁在原始 tag 的独立 Git index 上检查和应用 | 成功，应用后的 tree 与功能分支一致 |
-| 12 个邮件补丁在干净 worktree 中依次 `git am` | 成功，最终源码与合并补丁一致；加入 0012 后已重新验证两种产物重放 |
+| 13 个邮件补丁在干净 checkout 中通过 CI 入口依次 `git am --3way` | 成功，最终源码与合并补丁、功能源码分支一致；加入 0013 后已重新验证两种产物重放 |
 | 源码 `git diff --check` 与全部修改的 Rust 文件 `rustfmt --check` | 通过；stable rustfmt 提示上游 nightly 专属 imports_granularity 配置不可用 |
 | 从实际源码提取的重试等待函数和字节累计器，独立 `rustc --test` | 2 项通过，覆盖正负等待、服务端建议、零、i64::MIN、同轮多请求累计 |
 | 新增进度类型的 Rust 派生 | 在最小工程中使用匹配版本 serde/schemars/ts-rs 编译及生成成功；字节字段导出为 TS number |
 | 临时协议导出校对 | 新类型 JSON/TS 与实际 Rust 派生一致，稳定版/实验版 JSON 引用可解析，临时内嵌导出与文件一致；此项不代替完整上游生成器检查 |
 | workflow | YAML 解析和新增步骤的 `bash -n` 通过 |
+| 新 CI 补丁入口 | 6 项隔离 Git 回归通过：精确应用、稳定提交标识、跨版本上下文合并及功能依赖、功能冲突定位、基线重建失败、旧版合并补丁精确/三方应用 |
+| 源码归档 | 实际 0.167.0 源码 tar 打包/还原通过，保留 `.git`、隐藏 `.cargo/config.toml` 及 Space 修改；对应 fixture 修正 Windows tar 路径后，Python 启动返回 Permission denied，未完成该 fixture 复跑 |
+| Space 字符串逻辑 | 采用实际实现表达式的独立 `rustc --test` 通过，覆盖单行、多行、空行、缩进、末尾/开头换行、CRLF 和已有引用；不代替完整 TUI 回归 |
+| 新 workflow 静态检查 | YAML 解析、21 个 Bash 步骤的 `bash -n`、内嵌 Python 语法检查通过 |
 
 ## 行为回归覆盖
 
@@ -28,7 +32,7 @@
 - HTTP 与流重连：默认/正数遵从建议，负数忽略建议；无建议时采用配置，原非模型 HTTP 指数退避测试保留。
 - HTTP 回退：正数遵从建议、无建议等待配置值、负数忽略长建议；重试预算不变。
 - SSE/WebSocket：无建议的 overload、policy capacity、retry limit 仍可重试；重连等待保持固定配置。
-- Space：无选区和空锚点保留原行为；有选区产生引用，清除选择并保留阅读位置；草稿尾部追加并保留附件。
+- Space：无选区和空锚点保留原行为；有选区逐行添加引用前缀，空行和缩进保留，清除选择并保留阅读位置；草稿尾部追加并保留附件。
 - 压缩横幅：复用上游 provider 能力解析，覆盖用户关闭远程压缩的配置。
 - 无输出 Esc：工具调用开始/完成后不走无输出回滚；真正无输出时恢复提示词。
 - 字节累计：同轮跨请求累计、跨轮清零；完成轮次的延迟通知被忽略。
@@ -36,7 +40,9 @@
 
 ## 阻断与待验证
 
-CI [42519034906](https://github.com/owwkmidream/codex/actions/runs/42519034906) 的补丁应用、完整协议生成和一致性检查通过；release 编译在 `realtime_text_for_event()` 漏匹配 `ModelRequestProgress` 处报 E0004，发布 job 跳过。`0012` 修复该分支；修复源码的 `git diff --check` 和 `rustfmt +1.95.0 --edition 2024 --check` 通过，完整编译结果需查看修复提交触发的新 CI。
+CI [42519034906](https://github.com/owwkmidream/codex/actions/runs/42519034906) 的 release 编译曾在 `realtime_text_for_event()` 漏匹配 `ModelRequestProgress` 处报 E0004。`0012` 修复后，新运行 [42524866183](https://github.com/owwkmidream/codex/actions/runs/42524866183) 的协议生成校验、build、release 均成功，已有 `codex-rust-v0.167.0-windows-x64.zip` 附件。这份已发布产物尚不含 `0013`。
+
+加入 `0013` 后，修改文件的 `git diff --check` 与 `rustfmt +1.95.0 --edition 2024 --check` 通过。`cargo +1.95.0 test --offline --manifest-path codex-rs/Cargo.toml -p codex-tui --lib quote_appends_to_draft_tail_and_preserves_attachments` 在 60 秒内没有返回测试结果，进程树按测试超时终止；完整 TUI 回归尚未验证。新 workflow 的 sccache 命中及实际提速仍需新 CI 测量。
 
 本次执行 `cargo +1.95.0 test --offline -p codex-core --lib realtime_model_request_progress_has_no_text` 在依赖加载阶段因本机 V8 checkout 访问被拒绝（os error 5）失败，尚未编译或运行该测试。未修改本机 Cargo 缓存权限。
 

@@ -37,10 +37,10 @@ CLI 与 daemon 使用不同的磁盘副本，daemon 实际路径以 `managedCode
 | resume | 列出所有 provider 的会话，保留目录过滤。 |
 | 无输出 Esc | 固定中断 turn ID 并恢复提示词；已有答案、推理、计划或工具调用时保留原中断行为。 |
 | SQLite 日志 | 保留 INFO 及以上级别。 |
-| Space 引用 | 选中文字时向 prompt 尾部追加 `\n> 选中文字\n`，保留附件等草稿内容，清除选区并保持阅读位置；无选区沿用原行为。 |
+| Space 引用 | 选中文字时向 prompt 尾部追加引用，每行（含空行）都添加 `> `，保留附件等草稿内容，清除选区并保持阅读位置；无选区沿用原行为。 |
 | 模型上下文 | 使用上游值。 |
 
-Ctrl+C 复制；Enter 复制并跟随最新输出；Space 不复制到剪贴板。多行引用保留原文，仅在整体前面加一个 `> `。
+Ctrl+C 复制；Enter 复制并跟随最新输出；Space 不复制到剪贴板。多行引用保留原文换行和缩进，例如 `第一行\n第二行` 追加为 `\n> 第一行\n> 第二行\n`；原文末尾有换行时，末尾空行也带引用前缀。
 
 ### 重试配置
 
@@ -65,6 +65,15 @@ retry_delay_ms = 10000
 
 CI 校验协议导出、构建产物及 `--version`，完整核心/TUI 回归需另行运行。0.167.0 的验证范围见 [VALIDATION.md](patches/series/rust-v0.167.0/VALIDATION.md)。
 
+### 构建耗时与缓存
+
+- `Swatinem/rust-cache` 保留依赖下载及依赖编译产物；`sccache` 使用 GitHub Actions 缓存复用项目 crate 的编译输入，不按官方 tag 人工分桶。源码、编译器和编译参数变化时由工具判断是否命中；新缓存首次构建需要预热。
+- `prepare` 将源码和 `.git` 一起打包，Windows 直接恢复功能历史与隐藏配置，不再重新提交整份源码。功能提交使用固定作者日期作为提交者日期，同一目标和补丁生成稳定的 `STABLE_GIT_COMMIT`。
+- 协议稳定版和实验版共用一次编译的生成器，生成完成后重新编译并校验内嵌协议。保留 migration 换行检查和上游 release/LTO 参数。
+- 查看 `cargo-timings` artifact、sccache 命中统计及 job 步骤耗时；移除递归扫描整个缓存目录的诊断。缓存不能消除最终链接开销。
+
+优化前基线为运行 `42524866183`：总计 99 分 42 秒，release 编译 80 分 10 秒，协议生成校验 9 分 08 秒，缓存恢复 2 分 51 秒。新配置的实际节省时间需新 CI 运行测量。
+
 ## 构建失败后
 
 在本仓库目录执行，将 `RUN_ID` 替换为目标运行编号：
@@ -74,7 +83,7 @@ gh run list --workflow build-windows.yml --limit 5
 gh run view RUN_ID --log-failed
 ```
 
-按失败步骤处理：`prepare` 查补丁冲突；`build` 区分依赖获取、编译、协议生成和测试失败；`release` 查发布及 tag 记录，已构建产物可从 `codex-windows-x64` artifact 获取。
+按失败步骤处理：`prepare` 查 `patch-conflicts` artifact 中的具体功能补丁名、应用日志和冲突内容；`build` 区分依赖获取、编译、协议生成和测试失败；`release` 查发布及 tag 记录，已构建产物可从 `codex-windows-x64` artifact 获取。
 
 临时环境故障可用 `gh run rerun RUN_ID --failed` 重跑原提交。修复推送后启动新运行，才能使用新提交：
 
@@ -85,6 +94,23 @@ gh workflow run build-windows.yml --ref main -f tag=rust-v0.167.0 -f force=true
 `tag` 留空使用最新正式版；`force=true` 忽略已构建记录。`built-tags.txt` 由发布成功的 CI 维护；补丁应用失败可能仍使整体运行显示绿色，应检查实际 jobs 与附件。
 
 ## 维护与迁移
+
+CI 优先使用 `patches/series/<基线tag>/*.patch`，按编号执行 `git am --3way`。新官方 tag 没有专属补丁时自动尝试最新 series；跨版本时只获取基线 tag，并先重建基线功能链，供后续修订进行三方合并。冲突时停止，报告失败功能，保留此前成功提交；旧版只有合并补丁时使用 `git apply` / `git apply --3way`。不再使用忽略上下文的 fuzz 应用。
+
+本地复现 CI 的入口（报告目录使用临时目录）：
+
+```bash
+bash scripts/apply-patches.sh /path/to/upstream patches/rust-v0.167.0.patch rust-v0.167.0 /tmp/codex-patch-report
+```
+
+源码提交与维护仓库提交分开保存。本地 `patches/rust-v0.167.0` 分支已保留官方基线及 13 个功能提交，直接查看：
+
+```bash
+git log --oneline 086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a..patches/rust-v0.167.0
+git show patches/rust-v0.167.0
+```
+
+该源码分支以官方 tag 为浅历史边界，`main` 仍保存补丁和 CI 文件。邮件补丁是跨机器恢复功能历史的持久来源；CI 的 `patched-source` artifact 也包含完整功能链的 `.git`，保留 7 天。
 
 在包含官方 tag 的上游 checkout 中恢复功能提交，再迁移、验证和导出：
 
@@ -98,5 +124,13 @@ git format-patch --binary --full-index --no-signature -o /path/to/patches/series
 ```
 
 按功能保留小提交，旧版本补丁保持原样；合并补丁与 series 应在干净基线上重放得到相同源码。上游已提供同等能力时，核对行为及配置兼容后移除对应补丁。
+
+修复已有功能时追加新的功能提交及编号补丁，不覆盖旧提交。源码分支更新后可将其导入维护仓库的本地历史视图（不切换 `main`，不导入同名 Release tag）：
+
+```bash
+git fetch --no-tags --update-shallow /path/to/upstream patched/rust-v0.167.0:refs/heads/patches/rust-v0.167.0
+```
+
+补丁流程的隔离回归：`python scripts/tests/test_apply_patches.py`，覆盖原始基线、跨版本上下文漂移、后续功能依赖、冲突定位、基线重建失败、旧版合并补丁及源码历史打包。测试不访问远端。
 
 Cargo.lock 版本由 CI 对齐。协议 JSON、TypeScript 和压缩导出通过 workflow 的“重建并校验协议导出”步骤生成，留在构建工作区；功能提交保存源码，导出时使用 `HEAD` 排除未提交的生成物。

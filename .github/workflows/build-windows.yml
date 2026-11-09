@@ -30,8 +30,7 @@ permissions:
 env:
   UPSTREAM_REPO: openai/codex
   # 补丁按 tag 分文件存放：patches/<tag>.patch
-  # 补丁是按具体官方版本写的，所以一个 tag 对应一份补丁；换 tag 就换文件，
-  # 不再共用一个 patches/codex-cli.patch 槽位（那会导致只有最新 tag 能构建）。
+  # 优先使用目标 tag 的补丁；新 tag 自动尝试最新功能 series，无需先复制版本文件。
   PATCH_DIR: patches
   BINARY: codex
 
@@ -121,8 +120,7 @@ jobs:
           echo "reason         = ${{ steps.pick.outputs.reason }}"
 
   # ── 阶段 2：拉官方源码 + 应用补丁 ──────────────────────────────────
-  # 补丁冲突时不算「构建失败」，而是开 Issue 通知，所以用 continue-on-error
-  # 把结果透给下游判断，避免每天收失败邮件。
+  # 冲突通过 applied=false 阻止构建，并报告失败的功能提交。
   prepare:
     needs: resolve
     if: needs.resolve.outputs.skip != 'true'
@@ -135,12 +133,17 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: 验证功能补丁应用流程
+        timeout-minutes: 1
+        run: python3 scripts/tests/test_apply_patches.py
+
       - name: 拉取官方源码
         run: |
           set -euo pipefail
           tag="${{ needs.resolve.outputs.tag }}"
           git clone --depth 1 --branch "${tag}" \
             "https://github.com/${UPSTREAM_REPO}.git" upstream
+          git -C upstream switch -c "patched/${tag}"
           echo "官方 tag ${tag} 已拉取"
           git -C upstream log --oneline -1
 
@@ -150,77 +153,13 @@ jobs:
           set -euo pipefail
           patch="${GITHUB_WORKSPACE}/${{ needs.resolve.outputs.patch }}"
           tag="${{ needs.resolve.outputs.tag }}"
-          cd upstream
-
-          # 补丁已不含 Cargo.lock（版本串由本步骤末尾按目标 tag 对齐），
-          # 应用失败仍可能是上下文变化或语义冲突，需要检查具体 hunk。
-          target_version="${tag#rust-v}"
-
-          echo "::group::尝试 1：git apply（精确匹配）"
-          if git apply --verbose "${patch}" 2>&1; then
-            echo "strategy=git apply" >> "$GITHUB_OUTPUT"
-            echo "applied=true" >> "$GITHUB_OUTPUT"
-            echo "::endgroup::"
-            echo "✅ 补丁直接应用成功"
-          else
-            echo "::endgroup::"
-            rm -f "${GITHUB_WORKSPACE}/conflict.log" "${GITHUB_WORKSPACE}/conflict-files.txt"
-
-            # 尝试 2：GNU patch 的 fuzz 兜底。上游在补丁锚点附近插了几行时，
-            # 上下文整体偏移但语义没变；fuzz=3 允许忽略最多 3 行上下文，能自动
-            # 吸收这类漂移，而且不需要 pre-image blob（--3way 则需要补全历史）。
-            #
-            # 先 --dry-run 统计失败 hunk，只有「全部 hunk 都能落地」才真正应用，
-            # 避免出现「大部分应用、少数 hunk 被静默跳过」的半成品源码。
-            echo "::group::尝试 2：patch --fuzz=3 吸收行号漂移"
-            fuzz_out="$(patch -p1 --fuzz=3 --dry-run --forward < "${patch}" 2>&1 || true)"
-            fuzz_failed="$(printf '%s\n' "${fuzz_out}" | grep -c 'FAILED' || true)"
-            if [[ "${fuzz_failed}" == "0" ]] && \
-               ! printf '%s\n' "${fuzz_out}" | grep -qE 'No file to patch|can.t find file'; then
-              patch -p1 --fuzz=3 --forward --no-backup-if-mismatch < "${patch}" > /dev/null 2>&1
-              fuzzed="$(printf '%s\n' "${fuzz_out}" | grep -c 'with fuzz' || true)"
-              echo "strategy=patch --fuzz=3" >> "$GITHUB_OUTPUT"
-              echo "applied=true" >> "$GITHUB_OUTPUT"
-              echo "::endgroup::"
-              echo "✅ fuzz 兜底成功（${fuzzed} 个 hunk 用了容错上下文）"
-            else
-              echo "::endgroup::"
-              echo "fuzz 兜底仍有 ${fuzz_failed} 个 hunk 失败，转三方合并"
-
-              # 尝试 3：三方合并。仍可能存在上下文变化，冲突块供人工核对。
-              echo "::group::尝试 3：git apply --3way（需补全历史）"
-              git fetch --unshallow 2>/dev/null || git fetch --all
-              git apply --3way "${patch}" > /dev/null 2>&1 || true
-              conflicts="$(git diff --cached --name-only --diff-filter=U | wc -l | tr -d ' ')"
-              changed="$(git diff --cached --name-only | wc -l | tr -d ' ')"
-              if [[ "${conflicts}" == "0" && "${changed}" != "0" ]]; then
-                echo "strategy=git apply --3way" >> "$GITHUB_OUTPUT"
-                echo "applied=true" >> "$GITHUB_OUTPUT"
-                echo "::endgroup::"
-                echo "✅ 补丁三方合并成功（改动 ${changed} 个文件）"
-              else
-                echo "::endgroup::"
-                echo "❌ 三方合并仍有 ${conflicts} 个冲突文件"
-                git diff --cached --name-only --diff-filter=U | sed 's/^/  冲突: /'
-                echo "applied=false" >> "$GITHUB_OUTPUT"
-                echo "strategy=none" >> "$GITHUB_OUTPUT"
-                echo "conflicts=${conflicts}" >> "$GITHUB_OUTPUT"
-                git diff --cached --name-only --diff-filter=U > "${GITHUB_WORKSPACE}/conflict-files.txt"
-                # 失败报告：先列 fuzz 阶段失败的 hunk（最精确的定位），
-                # 再附三方合并的冲突块，便于人工直接定位要改哪几处。
-                {
-                  echo "### 需人工处理的 hunk（fuzz 兜底失败）"
-                  echo
-                  printf '%s\n' "${fuzz_out}" | grep -E 'FAILED' || echo "(无)"
-                  echo
-                  echo "### 三方合并冲突块"
-                  echo
-                  git diff --cached --diff-filter=U || true
-                } > "${GITHUB_WORKSPACE}/conflict.log" 2>&1
-                exit 0 # 不失败，交给下游判断
-              fi
-            fi
+          bash scripts/apply-patches.sh upstream "$patch" \
+            "${{ needs.resolve.outputs.patch_baseline }}" "$GITHUB_WORKSPACE"
+          if ! grep -qx 'applied=true' "$GITHUB_OUTPUT"; then
+            exit 0
           fi
+          cd upstream
+          target_version="${tag#rust-v}"
 
           # Cargo.lock 的 workspace 成员版本对齐。
           # 官方 tag 自带的 lock 里成员版本是 0.0.0，而 Cargo.toml 写的是版本号；
@@ -247,13 +186,27 @@ jobs:
           fi
           echo "::endgroup::"
 
+      - name: 打包源码与功能提交历史
+        if: steps.apply.outputs.applied == 'true'
+        run: tar -czf patched-source.tar.gz -C upstream .
+
       - name: 上传应用了补丁的源码
         if: steps.apply.outputs.applied == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: patched-source
-          path: upstream
-          retention-days: 1
+          path: patched-source.tar.gz
+          compression-level: 0
+          retention-days: 7
+
+      - name: 保存功能冲突报告
+        if: steps.apply.outputs.applied == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: patch-conflicts
+          path: |
+            conflict.log
+            conflict-files.txt
 
       - name: 补丁失败时开 Issue
         if: steps.apply.outputs.applied != 'true'
@@ -282,7 +235,7 @@ jobs:
             if [[ "${{ needs.resolve.outputs.patch_is_exact }}" == "false" ]]; then
               echo "官方已发 ${tag}，但还没有它的专属补丁，本次已自动回退到最新可用补丁尝试应用。"
             fi
-            echo "自动流程已依次尝试 \`git apply\` → \`patch --fuzz=3\` → \`git apply --3way\`："
+            echo "有功能 series 时按编号执行 \`git am --3way\`；历史合并补丁使用 \`git apply\` / \`git apply --3way\`。"
             echo "自动匹配未成功；请逐项核对上下文变化和行为差异，"
             echo "并在合并后执行相关测试。应用成功本身不能证明行为兼容。"
             echo
@@ -295,10 +248,10 @@ jobs:
             echo "### 处理方式"
             echo
             echo "1. 本地 \`git clone --depth 1 -b ${tag} https://github.com/${UPSTREAM_REPO}.git\`"
-            echo "2. \`git apply --3way ${{ needs.resolve.outputs.patch }}\` 看冲突"
-            echo "3. 按新代码结构重写补丁：\`patches/${tag}.patch\`"
+            echo "2. 在维护仓库运行 \`bash scripts/apply-patches.sh upstream ${{ needs.resolve.outputs.patch }} ${{ needs.resolve.outputs.patch_baseline }} reports\`"
+            echo "3. 定位报告中的功能提交，解决冲突后 \`git am --continue\`，接着应用剩余 series 并验证行为。"
             echo "   （补丁**不含** \`Cargo.lock\`：成员版本由 workflow 按目标 tag 自动对齐，"
-            echo "   重做补丁时不要把 lock 加回去）"
+            echo "   导出新 tag 的合并补丁及功能 series，保留原有版本和功能历史）"
             echo "4. 确认 \`built-tags.txt\` 里没有该 tag（否则会被跳过）"
           } > body.md
 
@@ -315,6 +268,7 @@ jobs:
     env:
       CARGO_HOME: "C:\\cargo"
       CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+      SCCACHE_GHA_ENABLED: "true"
     steps:
       - name: 启用 Windows 长路径
         shell: bash
@@ -330,7 +284,14 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: patched-source
-          path: upstream
+
+      - name: 恢复源码与功能提交历史
+        shell: bash
+        run: |
+          mkdir -p upstream
+          tar -xzf patched-source.tar.gz -C upstream
+          test -d upstream/.git
+          git -C upstream log -1 --oneline
 
       # 官方 codex-rs/rust-toolchain.toml 锁定 1.95.0。
       # 用具体版本而非 stable：新版本 Rust 可能引入新 lint 或依赖解析变化，
@@ -352,32 +313,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: upstream/codex-rs
-          # 缓存 registry + 依赖编译产物（target）。实测数据：
-          #
-          #   cache-targets: true  首次冷启动 Compiling 1031 个 crate，
-          #                        结束时存入 1463MB 缓存；
-          #                        下一次命中该缓存后 Compiling 只剩 139 个，
-          #                        且全是 codex-* 自身的 workspace 成员，
-          #                        tokio/serde/syn 等第三方依赖一个都没重编。
-          #   cache-targets: false 命中缓存也只恢复 496MB registry，
-          #                        Downloading 归零但 Compiling 仍是 1031。
-          #
-          # rust-cache 并非整包 target（那有 9.15GB，确实超 10GB 上限），
-          # 它只挑依赖产物，实际 1463MB，完全放得下。
-          # 曾经按「target 有 20-40GB」判断存不下而关掉，与实测不符。
-          #
-          # 不要按 tag 分桶：相邻官方版本的依赖几乎不变，分桶只会让
-          # 每个版本都从零重编。
+          # 依赖继续复用 Cargo target；项目 crate 由 sccache 按编译输入复用。
           cache-targets: true
           cache-on-failure: true
 
-      - name: 固化补丁后的改动为提交
-        working-directory: upstream
-        run: |
-          git config user.email "ci@localhost"
-          git config user.name "ci"
-          git add -A
-          git commit -m "apply codex-cli patches"
+      - uses: mozilla-actions/sccache-action@v0.0.11
+        with:
+          version: "v0.16.0"
+
+      - name: 启用项目编译缓存
+        shell: bash
+        run: echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
 
       - name: 把 migration SQL 转成 CRLF（对齐官方 Windows 构建）
         shell: bash
@@ -494,134 +440,34 @@ jobs:
             exit 0
           fi
           export CODEX_APP_SERVER_SCHEMA_ROOT="$(cygpath -m "$PWD/app-server-protocol/schema")"
+          # 两种导出复用同一个生成器，写完后再重编并校验内嵌文件。
+          cargo test --locked -p codex-app-server-protocol --lib --no-run \
+            --message-format=json > "$RUNNER_TEMP/protocol-build.jsonl"
+          generator="$(python3 - "$RUNNER_TEMP/protocol-build.jsonl" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              artifacts = [json.loads(line) for line in stream]
+          executables = [a["executable"] for a in artifacts
+                         if a.get("reason") == "compiler-artifact" and a.get("executable")
+                         and a["target"]["name"] == "codex_app_server_protocol" and a["profile"]["test"]]
+          if len(executables) != 1:
+              raise SystemExit(f"Expected one protocol test executable, got {executables}")
+          print(executables[0].replace("\\", "/"))
+          PY
+          )"
           for api in 0 1; do
             CODEX_APP_SERVER_SCHEMA_EXPERIMENTAL="$api" \
-              cargo test --locked -p codex-app-server-protocol --lib \
-                schema_fixtures_tests::write_schema_fixtures_from_env -- --exact --ignored
+              "$generator" schema_fixtures_tests::write_schema_fixtures_from_env --exact --ignored
           done
           cargo test --locked -p codex-app-server-protocol --lib schema_fixtures_tests::
 
-      # ── 诊断：编译前 ───────────────────────────────────────────────
-      # 一次性采集全部可能影响耗时的信息，避免反复重跑。
-      # 官方基线（自建 runner，无缓存，从零编译）：
-      #   16 逻辑核 / 64 GiB / 1053 个 crate / 44 分 48 秒
-      - name: 诊断（编译前）
+      - name: 构建环境
         shell: bash
         run: |
-          set -uo pipefail
-          line() { printf '\n===== %s =====\n' "$1"; }
-
-          line "1. Runner 硬件"
-          echo "RUNNER_NAME       : ${RUNNER_NAME:-unknown}"
-          echo "RUNNER_OS         : ${RUNNER_OS:-unknown}"
-          echo "RUNNER_ARCH       : ${RUNNER_ARCH:-unknown}"
-          echo "IMAGE_OS          : ${ImageOS:-unknown}"
-          echo "IMAGE_VERSION     : ${ImageVersion:-unknown}"
-          powershell -NoProfile -Command "
-            \$c = Get-CimInstance Win32_ComputerSystem
-            \$p = Get-CimInstance Win32_Processor | Select-Object -First 1
-            Write-Host ('CPU               : ' + \$p.Name)
-            Write-Host ('Physical cores    : ' + \$p.NumberOfCores)
-            Write-Host ('Logical CPUs      : ' + \$p.NumberOfLogicalProcessors)
-            Write-Host ('Total RAM GiB     : ' + [math]::Round(\$c.TotalPhysicalMemory/1GB,1))
-            Write-Host ('MaxClock MHz      : ' + \$p.MaxClockSpeed)
-          " 2>&1 || echo "(powershell 查询失败)"
-          echo "nproc (bash 视角) : $(nproc 2>/dev/null || echo '?')"
-
-          line "2. 磁盘"
-          df -h . 2>/dev/null || true
-          echo "--- 各盘符 ---"
-          powershell -NoProfile -Command "Get-PSDrive -PSProvider FileSystem | Select-Object Name,@{n='UsedGB';e={[math]::Round(\$_.Used/1GB,1)}},@{n='FreeGB';e={[math]::Round(\$_.Free/1GB,1)}} | Format-Table -AutoSize" 2>&1 || true
-
-          line "3. 工具链"
-          rustc --version 2>&1 || true
-          cargo --version 2>&1 || true
-          rustup toolchain list 2>&1 || true
-          rustup target list --installed 2>&1 || true
-          echo "CARGO_HOME        : ${CARGO_HOME:-unset}"
-          echo "CARGO_TARGET_DIR  : ${CARGO_TARGET_DIR:-unset}"
-          echo "CARGO_INCREMENTAL : ${CARGO_INCREMENTAL:-unset}"
-          echo "RUSTFLAGS         : ${RUSTFLAGS:-unset}"
-          echo "CC / CXX          : ${CC:-unset} / ${CXX:-unset}"
-
-          line "4. 源码规模"
-          echo "仓库文件总数      : $(git -C upstream ls-files 2>/dev/null | wc -l)"
-          echo "workspace 成员数  : $(grep -c '^\s*"' upstream/codex-rs/Cargo.toml 2>/dev/null || echo '?')"
-          echo "Cargo.lock 大小   : $(wc -c < upstream/codex-rs/Cargo.lock 2>/dev/null || echo '?') 字节"
-          echo "Cargo.lock 包数   : $(grep -c '^name = ' upstream/codex-rs/Cargo.lock 2>/dev/null || echo '?')"
-          echo "--- 补丁应用情况 ---"
-          git -C upstream show --stat --oneline HEAD 2>/dev/null | tail -5
-
-          line "5. 缓存恢复了什么（关键）"
-          CH="${CARGO_HOME:-$HOME/.cargo}"
-          echo "--- target 是否存在 ---"
-          if [[ -d upstream/codex-rs/target ]]; then
-            echo "target 目录: 存在"
-            du -sh upstream/codex-rs/target 2>/dev/null || true
-            echo "--- target 一级子目录 ---"
-            du -sh upstream/codex-rs/target/* 2>/dev/null | sort -rh | head -10 || true
-            echo "--- target 内目录数 / 文件数 ---"
-            find upstream/codex-rs/target -type d 2>/dev/null | wc -l
-            find upstream/codex-rs/target -type f 2>/dev/null | wc -l
-            echo "--- release 目录内容统计 ---"
-            REL="upstream/codex-rs/target/x86_64-pc-windows-msvc/release"
-            if [[ -d "$REL" ]]; then
-              du -sh "$REL" 2>/dev/null || true
-              echo "rlib 数   : $(find "$REL" -maxdepth 1 -name '*.rlib' 2>/dev/null | wc -l)"
-              echo "rmeta 数  : $(find "$REL" -maxdepth 1 -name '*.rmeta' 2>/dev/null | wc -l)"
-              echo "d 目录数  : $(find "$REL" -maxdepth 1 -name '*.d' 2>/dev/null | wc -l)"
-              echo "exe 数    : $(find "$REL" -maxdepth 1 -name '*.exe' 2>/dev/null | wc -l)"
-              echo "--- 前 10 个 rlib（判断缓存到底存了什么）---"
-              find "$REL" -maxdepth 1 -name '*.rlib' 2>/dev/null | head -10
-            else
-              echo "release 目录不存在 -> 缓存没有恢复任何编译产物"
-            fi
-            echo "--- deps 目录 ---"
-            DEPS="$REL/deps"
-            if [[ -d "$DEPS" ]]; then
-              du -sh "$DEPS" 2>/dev/null || true
-              echo "deps 文件数: $(find "$DEPS" -type f 2>/dev/null | wc -l)"
-            else
-              echo "deps 目录不存在"
-            fi
-          else
-            echo "target 目录: 不存在 -> 完全冷启动"
-          fi
-
-          line "6. cargo 缓存目录"
-          du -sh "$CH" 2>/dev/null || echo "($CH 不存在)"
-          du -sh "$CH/registry" 2>/dev/null || echo "(registry 不存在)"
-          du -sh "$CH/registry/cache" 2>/dev/null || echo "(registry/cache 不存在)"
-          du -sh "$CH/registry/src" 2>/dev/null || echo "(registry/src 不存在)"
-          du -sh "$CH/git" 2>/dev/null || echo "(git 不存在)"
-          echo "registry crate 数: $(find "$CH/registry/cache" -name '*.crate' 2>/dev/null | wc -l)"
-          echo "解包源码数       : $(find "$CH/registry/src" -maxdepth 2 -mindepth 2 -type d 2>/dev/null | wc -l)"
-
-          line "7. cargo 配置"
-          for f in "$CH/config.toml" "$CH/config" "upstream/codex-rs/.cargo/config.toml"; do
-            if [[ -f "$f" ]]; then
-              echo "--- $f ---"
-              cat "$f" || true
-            fi
-          done
-          echo "--- 环境变量中的 CARGO_* ---"
-          env | grep -i '^CARGO' | sort || echo "(无)"
-
-          line "8. 网络（影响依赖下载）"
-          github_ping=$( { curl -sS -o /dev/null -w '%{time_total}s http=%{http_code}' \
-            --max-time 15 https://github.com 2>&1; } || echo "失败" )
-          echo "github.com        : $github_ping"
-          crates_ping=$( { curl -sS -o /dev/null -w '%{time_total}s http=%{http_code}' \
-            --max-time 15 https://static.crates.io 2>&1; } || echo "失败" )
-          echo "static.crates.io  : $crates_ping"
-
-          line "9. 进程与资源基线"
-          powershell -NoProfile -Command "Get-Process | Sort-Object WS -Descending | Select-Object -First 5 Name,@{n='MemMB';e={[math]::Round(\$_.WS/1MB)}} | Format-Table -AutoSize" 2>&1 || true
-          echo "--- 环境变量样本（可能影响构建的）---"
-          env | grep -iE '^(CI|GITHUB_|RUNNER_|VCPKG|LIBSQLITE|AWS_LC|MSVC|VSCMD|INCLUDE|LIB)=' | sort | head -30 || true
-
-          echo
-          echo "===== 诊断（编译前）结束 ====="
+          rustc --version
+          cargo --version
+          echo "逻辑 CPU: $(nproc)"
+          df -h .
 
       - name: 编译 codex.exe
         working-directory: upstream/codex-rs
@@ -633,122 +479,31 @@ jobs:
           # 官方在 x86_64-pc-windows-msvc 上用这个开关规避 sqlite 内联汇编问题
           export LIBSQLITE3_FLAGS=SQLITE_DISABLE_INTRINSIC
 
-          # 记录编译前状态，用于事后判断 cargo 实际重编了多少
-          target_dir="target/x86_64-pc-windows-msvc/release"
-          before_rlib=0
-          before_fingerprint=0
-          if [[ -d "$target_dir" ]]; then
-            before_rlib=$(find "$target_dir" -maxdepth 1 -name '*.rlib' 2>/dev/null | wc -l)
-          fi
-          if [[ -d target/release/.fingerprint ]]; then
-            before_fingerprint=$(find target/release/.fingerprint -maxdepth 1 -type d 2>/dev/null | wc -l)
-          fi
-          echo "编译前 rlib 数: ${before_rlib}"
-          echo "编译前 fingerprint 数: ${before_fingerprint}"
-          echo "::notice::编译前 rlib=${before_rlib} fingerprint=${before_fingerprint}"
-
           start=$(date +%s)
-          # 日志落到 RUNNER_TEMP（Windows 上必定可写），供后面统计
-          build_log="${RUNNER_TEMP:-/tmp}/cargo-build.log"
-          cargo build --locked --release \
+          # 保留原始编译日志，耗时由 Cargo 报告。
+          build_log="${RUNNER_TEMP}/cargo-build.log"
+          cargo build --locked --release --timings \
             --target x86_64-pc-windows-msvc \
             --bin "${BINARY}" 2>&1 | tee "$build_log"
-          end=$(date +%s)
-          elapsed=$((end - start))
+          elapsed=$(($(date +%s) - start))
+          {
+            echo "### Release 编译"
+            echo "- 耗时：${elapsed} 秒"
+            echo "- 编译缓存统计见 sccache 步骤；各 crate 耗时见 cargo-timings artifact。"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-          # ── 编译统计 ──
-          # 用 wc -l 而非 grep -c：grep -c 无匹配时返回退出码 1，
-          # 在 $() 里配 "|| echo 0" 会输出两行，污染结果。
-          n() { wc -l < "$1" 2>/dev/null | tr -d ' \n'; }
-          grep 'Compiling ' "$build_log" > "${RUNNER_TEMP:-/tmp}/c.txt" 2>/dev/null || true
-          grep 'Building \[' "$build_log" > "${RUNNER_TEMP:-/tmp}/b.txt" 2>/dev/null || true
-          grep 'Downloading ' "$build_log" > "${RUNNER_TEMP:-/tmp}/d.txt" 2>/dev/null || true
-          grep '^warning' "$build_log" > "${RUNNER_TEMP:-/tmp}/w.txt" 2>/dev/null || true
-          compiling=$(n "${RUNNER_TEMP:-/tmp}/c.txt"); compiling=${compiling:-0}
-          building=$(n "${RUNNER_TEMP:-/tmp}/b.txt"); building=${building:-0}
-          downloading=$(n "${RUNNER_TEMP:-/tmp}/d.txt"); downloading=${downloading:-0}
-          warnings=$(n "${RUNNER_TEMP:-/tmp}/w.txt"); warnings=${warnings:-0}
-
-          echo
-          echo "===== 编译统计 ====="
-          echo "耗时(秒)          : ${elapsed}"
-          echo "耗时(分秒)        : $((elapsed / 60))m$((elapsed % 60))s"
-          echo "Compiling 行数    : ${compiling}"
-          echo "Building 行数     : ${building}"
-          echo "Downloading 行数  : ${downloading}"
-          echo "warning 数        : ${warnings}"
-          echo "--- Finished 行 ---"
-          grep -E 'Finished|Compiling codex-cli' "$build_log" 2>/dev/null | tail -3 || true
-          echo "--- 最后 10 个 Compiling（关键路径末尾）---"
-          grep 'Compiling ' "$build_log" 2>/dev/null | tail -10 || true
-          echo "::notice::编译耗时 ${elapsed} 秒, Compiling 行数 ${compiling}"
-
-      # ── 诊断：编译后 ───────────────────────────────────────────────
-      - name: 诊断（编译后）
+      - name: 编译缓存统计
         if: always()
         shell: bash
-        run: |
-          set -uo pipefail
-          line() { printf '\n===== %s =====\n' "$1"; }
-          target="upstream/codex-rs/target"
+        run: sccache --show-stats
 
-          line "1. target 总大小（判断能否进 GitHub 缓存）"
-          if [[ -d "$target" ]]; then
-            du -sh "$target" 2>/dev/null || true
-            echo "--- 一级子目录 ---"
-            du -sh "$target"/* 2>/dev/null | sort -rh | head -10 || true
-            echo "--- 目录数 / 文件数 ---"
-            find "$target" -type d 2>/dev/null | wc -l
-            find "$target" -type f 2>/dev/null | wc -l
-            echo "--- 总字节数（精确）---"
-            find "$target" -type f -printf '%s\n' 2>/dev/null | awk '{s+=$1} END {printf "%.2f GB\n", s/1024/1024/1024}'
-          else
-            echo "(target 不存在)"
-          fi
-
-          line "2. release 产物"
-          REL="$target/x86_64-pc-windows-msvc/release"
-          if [[ -d "$REL" ]]; then
-            du -sh "$REL" 2>/dev/null || true
-            echo "顶层文件数 : $(find "$REL" -maxdepth 1 -type f 2>/dev/null | wc -l)"
-            echo "rlib       : $(find "$REL" -maxdepth 1 -name '*.rlib' 2>/dev/null | wc -l)"
-            echo "rmeta      : $(find "$REL" -maxdepth 1 -name '*.rmeta' 2>/dev/null | wc -l)"
-            echo "exe        : $(find "$REL" -maxdepth 1 -name '*.exe' 2>/dev/null | wc -l)"
-            echo "pdb        : $(find "$REL" -maxdepth 1 -name '*.pdb' 2>/dev/null | wc -l)"
-            echo "--- 前 5 大的文件 ---"
-            find "$REL" -maxdepth 1 -type f -printf '%s %p\n' 2>/dev/null | sort -rn | head -5 | \
-              awk '{printf "%.1f MB  %s\n", $1/1024/1024, $2}'
-            echo "--- deps 目录 ---"
-            if [[ -d "$REL/deps" ]]; then
-              du -sh "$REL/deps" 2>/dev/null || true
-              echo "deps 文件数: $(find "$REL/deps" -type f 2>/dev/null | wc -l)"
-              echo "deps .rlib : $(find "$REL/deps" -maxdepth 1 -name '*.rlib' 2>/dev/null | wc -l)"
-            fi
-            echo "--- build 目录（build script 产物）---"
-            [[ -d "$REL/build" ]] && du -sh "$REL/build" 2>/dev/null || echo "(无 build 目录)"
-            echo "--- fingerprint 目录（决定 cargo 是否复用）---"
-            [[ -d "$target/release/.fingerprint" ]] && \
-              echo "fingerprint 子目录数: $(find "$target/release/.fingerprint" -maxdepth 1 -type d 2>/dev/null | wc -l)" || \
-              echo "(无 fingerprint 目录)"
-          else
-            echo "(release 目录不存在)"
-          fi
-
-          line "3. 最终产物"
-          exe="$REL/${BINARY}.exe"
-          if [[ -f "$exe" ]]; then
-            ls -la "$exe"
-            echo "大小(MB): $(du -m "$exe" 2>/dev/null | cut -f1)"
-            echo "sha256   : $(sha256sum "$exe" 2>/dev/null | cut -d' ' -f1)"
-          else
-            echo "(未找到 ${BINARY}.exe)"
-          fi
-
-          line "4. 磁盘剩余（与编译前对比）"
-          df -h . 2>/dev/null || true
-
-          echo
-          echo "===== 诊断（编译后）结束 ====="
+      - name: 上传编译耗时
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-timings
+          path: upstream/codex-rs/target/cargo-timings
+          if-no-files-found: ignore
 
       - name: 校验产物
         shell: bash
@@ -779,10 +534,11 @@ jobs:
             echo "patch_is_exact: ${{ needs.resolve.outputs.patch_is_exact }}"
             echo "patch_baseline: ${{ needs.resolve.outputs.patch_baseline }}"
             echo "apply_strategy: ${{ needs.prepare.outputs.strategy }}"
+            echo "source_commit: $(git rev-parse HEAD)"
             echo "built_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } > dist/BUILD-INFO.txt
-          # 附带本次实际使用的补丁，便于核对/复现
-          cp "${GITHUB_WORKSPACE}/${{ needs.resolve.outputs.patch }}" dist/codex-cli.patch
+          # 导出目标 tag 上实际应用的差异，跨版本合并后也能直接重放。
+          git -C .. diff --binary --full-index "${tag}" HEAD -- . ':!codex-rs/Cargo.lock' > dist/codex-cli.patch
           cd dist && 7z a -tzip "../codex-${tag}-windows-x64.zip" ./
 
       - uses: actions/upload-artifact@v4
