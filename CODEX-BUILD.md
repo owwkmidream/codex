@@ -84,7 +84,7 @@ CLI 与 daemon 使用不同磁盘副本，daemon 路径以 `managedCodexPath` �
 
 ## CI 与失败定位
 
-构建、测试及依赖准备在 CI 执行。实际命令与缓存配置以 [workflow](.github/workflows/build-windows.yml) 为准，受影响行为的证据见 [VALIDATION.md](patches/series/rust-v0.167.0/VALIDATION.md)。
+Codex 二进制的构建、测试及相关重型依赖准备在 CI 执行；仓库脚本的语法检查和隔离测试优先在本机执行，授权边界见 [AGENTS.md](AGENTS.md)。CI 命令与缓存配置以 [workflow](.github/workflows/build-windows.yml) 为准，受影响行为的证据见 [VALIDATION.md](patches/series/rust-v0.167.0/VALIDATION.md)。
 
 ```powershell
 gh workflow run build-windows.yml --ref main -f tag=rust-v0.167.0 -f force=true
@@ -120,7 +120,7 @@ git format-patch --binary --full-index --no-signature --start-number NEXT -1 HEA
 
 `NEXT` 是下一个编号；一次追加多个提交时调整提交范围。新版本写入新 tag 目录。跨版本迁移可用 `git rebase --onto <新tag> rust-v0.167.0`；上游已有等价功能时先核对配置兼容再移除对应补丁。
 
-CI 入口：`bash scripts/apply-patches.sh /path/to/upstream patches/rust-v0.167.0.patch rust-v0.167.0 /tmp/codex-patch-report`。补丁流程的隔离回归命令为 `python scripts/tests/test_apply_patches.py`，在 CI 运行。
+CI 入口：`bash scripts/apply-patches.sh /path/to/upstream patches/rust-v0.167.0.patch rust-v0.167.0 /tmp/codex-patch-report`。补丁流程的隔离回归命令为 `python scripts/tests/test_apply_patches.py`，可直接在本机运行，CI 同样执行。
 
 Cargo.lock 的 workspace 版本由 CI 对齐。协议 JSON、TypeScript 和压缩导出通过上游生成器重建，功能提交保存相关源码。源码归档包含功能历史与隐藏配置；`patched-source` 附件保留 7 天。跨机器恢复以持久保存的邮件补丁为准。
 

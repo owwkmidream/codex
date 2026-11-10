@@ -33,7 +33,7 @@ CI 校验 npm 平台包 integrity 后计算官方 exe SHA-256，并与构建出�
 
 ## 开发验证
 
-在 Windows CI 的 Git Bash 执行隔离回归：
+在本机 Windows Git Bash 直接执行隔离回归，默认超时 60 秒；CI 同样执行：
 
 ```bash
 bash -n scripts/codex-patch.sh
