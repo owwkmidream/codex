@@ -55,7 +55,6 @@ case "$action" in
   *) usage; exit 2 ;;
 esac
 
-[[ ${OSTYPE:-} == msys* ]] || fail '请在 Windows x64 Git Bash 中运行。'
 for tool in node curl cygpath sha256sum tar.exe powershell.exe; do command -v "$tool" >/dev/null || fail "缺少命令：$tool"; done
 [[ $(node -p 'process.platform+"/"+process.arch') == win32/x64 ]] || fail '需要 Windows x64 Node.js。'
 archive_tool="$(cygpath -u "$SYSTEMROOT")/System32/tar.exe"
