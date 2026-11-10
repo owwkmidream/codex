@@ -76,6 +76,13 @@ gh run view RUN_ID --log-failed
 - 23 个 series 补丁在官方提交 `086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a` 的新 worktree 重放，与 `f8fbad8` 的 `git diff --exit-code` 对照通过；合并补丁在官方基线的独立 index 应用，与该源码对照同样通过。
 - 本机 rustfmt 1.95.0 和源码空白检查通过；按仓库约定未在本机运行 Cargo 构建或行为测试。推送后使用 `tag=rust-v0.167.0`、`force=true` 启动新 dispatch；状态为“实现已提交，集成验证未完成”。本轮交付截至推送并触发 CI，测试及构建结果由该次运行确认。
 
+## 远程压缩重试断言修复：0024
+
+- 源码提交 `56acf58`：两个远程压缩 v2 流失败用例复用 `assert_capped_first_retry_delay`，验证 Capped 200ms 下的 180～200ms 首次等待；保留次数、事件、请求和最终结果检查。
+- 失败证据：[CI 42871940697](https://github.com/owwkmidream/codex/actions/runs/42871940697)，维护提交 `edfca38`。build 成功，重试集成 45 项通过、2 项失败，实际 191ms、182ms 与固定 200ms 断言不符；后续 TUI 回归未执行，release 跳过。
+- 24 个 series 补丁在官方提交 `086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a` 的干净 worktree 重放，与 `56acf58` 对照无差异；合并补丁在独立 index 重放，与该源码对照通过。rustfmt 1.95.0 与源码空白检查通过。
+- 未在本机运行 Cargo 构建或测试；推送后以 `tag=rust-v0.167.0`、`force=true` 启动新 dispatch。状态为“实现已提交，集成验证未完成”。
+
 ## 验收缺口
 
 - `0017` 需实际成功的 build/test；完成前状态为“实现已提交，集成验证未完成”。
