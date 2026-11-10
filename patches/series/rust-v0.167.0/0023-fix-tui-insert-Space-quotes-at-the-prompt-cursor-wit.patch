@@ -1,0 +1,210 @@
+From f8fbad84b08e52490611a0c870ad99387461e76b Mon Sep 17 00:00:00 2001
+From: owwkmidream <159dreaml@gmail.com>
+Date: Wed, 11 Nov 2026 02:06:03 +0800
+Subject: [PATCH] fix(tui): insert Space quotes at the prompt cursor with a
+ blank line
+
+---
+ .../tui/src/app/tests/transcript_selection.rs | 37 ++++++++++++++++-
+ codex-rs/tui/src/bottom_pane/chat_composer.rs |  2 +
+ .../chat_composer/blockquote_paste_tests.rs   | 41 +++++++++++++++++++
+ .../bottom_pane/chat_composer/paste_input.rs  | 17 ++++++++
+ codex-rs/tui/src/bottom_pane/mod.rs           |  5 +++
+ codex-rs/tui/src/chatwidget/input_restore.rs  | 12 +-----
+ 6 files changed, 102 insertions(+), 12 deletions(-)
+
+diff --git a/codex-rs/tui/src/app/tests/transcript_selection.rs b/codex-rs/tui/src/app/tests/transcript_selection.rs
+index 16753cb3e2f0cc7883ac832cab5256923cb74ccf..c9490cd408a8ca50d577190dd95abd7cb1541ed5 100644
+--- a/codex-rs/tui/src/app/tests/transcript_selection.rs
++++ b/codex-rs/tui/src/app/tests/transcript_selection.rs
+@@ -5,7 +5,7 @@ use crate::chatwidget::UserMessage;
+ use pretty_assertions::assert_eq;
+ 
+ #[tokio::test]
+-async fn quote_appends_to_draft_tail_and_preserves_attachments() {
++async fn transcript_quote_inserts_at_cursor_and_preserves_attachments() {
+     let (mut app, _, mut operations) = make_test_app_with_channels().await;
+     app.chat_widget
+         .restore_user_message_to_composer(UserMessage {
+@@ -20,13 +20,46 @@ async fn quote_appends_to_draft_tail_and_preserves_attachments() {
+         .append_transcript_quote("引用\n\n  第二行\n");
+     assert_eq!(
+         app.chat_widget.composer_text_with_pending(),
+-        "draft\n> 引用\n> \n>   第二行\n> \n"
++        "draf\n> 引用\n> \n>   第二行\n> \n\nt"
+     );
+     assert_eq!(
+         app.chat_widget.remote_image_urls(),
+         vec!["https://example.com/image.png".to_string()]
+     );
+     assert!(operations.try_recv().is_err());
++    app.chat_widget.insert_str("继续");
++    assert_eq!(
++        app.chat_widget.composer_text_with_pending(),
++        "draf\n> 引用\n> \n>   第二行\n> \n继续\nt"
++    );
++}
++
++#[tokio::test]
++async fn transcript_quote_cursor_boundaries_and_repeated_quotes() {
++    for (draft, left, prefix, suffix) in [
++        ("前文后文", 2, "前文", "后文"),
++        ("后文", 2, "", "后文"),
++        ("前文", 0, "前文", ""),
++        ("", 0, "", ""),
++    ] {
++        let (mut app, _, mut operations) = make_test_app_with_channels().await;
++        app.chat_widget.apply_external_edit(draft.into());
++        for _ in 0..left {
++            app.chat_widget.handle_key_event(KeyCode::Left.into());
++        }
++        app.chat_widget.append_transcript_quote("引用");
++        assert_eq!(
++            app.chat_widget.composer_text_with_pending(),
++            format!("{prefix}\n> 引用\n\n{suffix}")
++        );
++        app.chat_widget.append_transcript_quote("再次引用");
++        app.chat_widget.insert_str("继续");
++        assert_eq!(
++            app.chat_widget.composer_text_with_pending(),
++            format!("{prefix}\n> 引用\n\n> 再次引用\n继续\n\n{suffix}")
++        );
++        assert!(operations.try_recv().is_err());
++    }
+ }
+ 
+ #[tokio::test]
+diff --git a/codex-rs/tui/src/bottom_pane/chat_composer.rs b/codex-rs/tui/src/bottom_pane/chat_composer.rs
+index bcc24561d85da011a0f154310e2a21a57b13d4b3..d7b72d1a30fa9b020fbf02add2ec097eb9cae613 100644
+--- a/codex-rs/tui/src/bottom_pane/chat_composer.rs
++++ b/codex-rs/tui/src/bottom_pane/chat_composer.rs
+@@ -20,6 +20,8 @@
+ //! so input and persistent status stay anchored when help opens or closes.
+ //! Escape dismisses visible shortcut help before editing, transcript backtracking, or interruption.
+ //! Fullscreen limits the composer height; wheel browsing preserves the caret until editor input.
++//! Transcript quotes insert at that caret, preserving suffix elements even in Vim Replace mode.
++//! The caret stays on the blank line after the quote; the original suffix starts on the next line.
+ //! Transcript interactions borrow the hint footer through `ComposerRenderOptions`;
+ //! its resolved presentation drives height, painting, and the focused cursor together.
+ //!
+diff --git a/codex-rs/tui/src/bottom_pane/chat_composer/blockquote_paste_tests.rs b/codex-rs/tui/src/bottom_pane/chat_composer/blockquote_paste_tests.rs
+index 74e4a2a445e624b0c33e03aef81dd259a6a48753..2fbae3e4d530f41fa833fffba70f8ab0295fd0bb 100644
+--- a/codex-rs/tui/src/bottom_pane/chat_composer/blockquote_paste_tests.rs
++++ b/codex-rs/tui/src/bottom_pane/chat_composer/blockquote_paste_tests.rs
+@@ -5,6 +5,47 @@ use crossterm::event::MouseEvent;
+ use crossterm::event::MouseEventKind;
+ use pretty_assertions::assert_eq;
+ 
++#[test]
++fn transcript_quote_preserves_rich_suffix_even_in_vim_replace() {
++    for replace_mode in [false, true] {
++        let (mut composer, _rx) = new_test_composer();
++        composer.set_disable_paste_burst(/*disabled*/ true);
++        composer.insert_selected_mention(0..0, "$skill", Some("/original/skill/SKILL.md"));
++        composer.attach_image(std::path::PathBuf::from("photo.png"));
++        composer.handle_paste("z".repeat(LARGE_PASTE_CHAR_THRESHOLD + 1));
++        composer.draft.textarea.set_cursor(0);
++        composer.insert_str("前文");
++        composer.popups.active = ActivePopup::None;
++        if replace_mode {
++            composer.set_vim_enabled(/*enabled*/ true);
++            composer.handle_key_event(KeyCode::Esc.into());
++            composer.handle_key_event(KeyCode::Char('R').into());
++        }
++        composer.draft.textarea.set_cursor("前文".len());
++        let before = composer.draft_snapshot();
++        let expanded = composer.current_text_with_pending();
++        composer.insert_transcript_quote("\n> 引用\n");
++        let after = composer.draft_snapshot();
++        assert_eq!(after.local_images, before.local_images);
++        assert_eq!(after.mention_bindings, before.mention_bindings);
++        assert_eq!(after.pending_pastes, before.pending_pastes);
++        assert_eq!(after.cursor, "前文\n> 引用\n".len());
++        assert_eq!(
++            composer.current_text_with_pending(),
++            expanded.replacen("前文", "前文\n> 引用\n\n", 1)
++        );
++        // 后方三类原子元素整体移动，提交展开仍保留其原始负载。
++        let shift = "\n> 引用\n\n".len();
++        let mut expected_elements = before.text_elements;
++        for element in &mut expected_elements {
++            element.byte_range.start += shift;
++            element.byte_range.end += shift;
++        }
++        assert_eq!(after.text_elements, expected_elements);
++        assert_eq!(after.text_elements.len(), 3);
++    }
++}
++
+ #[test]
+ fn blockquote_paste_continues_current_line_prefix() {
+     for (draft, pasted, expected) in [
+diff --git a/codex-rs/tui/src/bottom_pane/chat_composer/paste_input.rs b/codex-rs/tui/src/bottom_pane/chat_composer/paste_input.rs
+index efb2a0bc8578cf0762f548fca20df253afa78b73..612c04a37fe58eff50c6636fa1c9167c5d8fd812 100644
+--- a/codex-rs/tui/src/bottom_pane/chat_composer/paste_input.rs
++++ b/codex-rs/tui/src/bottom_pane/chat_composer/paste_input.rs
+@@ -12,6 +12,23 @@ use crate::bottom_pane::paste_burst::FlushResult;
+ use crate::bottom_pane::textarea::EditTarget;
+ 
+ impl ChatComposer {
++    pub(crate) fn insert_transcript_quote(&mut self, text: &str) {
++        self.flush_pending_paste_burst();
++        self.dismiss_sparkle();
++        let started_vim_edit = self.begin_direct_vim_edit();
++        let cursor = self.draft.textarea.cursor();
++        // 直接插入以保留后文及元素 ID，避开选区替换和 Vim Replace。
++        self.draft
++            .textarea
++            .insert_str_at(cursor, &format!("{text}\n"));
++        // 引用后的空行用于继续输入，原后文从下一行开始。
++        self.draft.textarea.set_cursor(cursor + text.len());
++        self.sync_popups();
++        if started_vim_edit {
++            self.finish_vim_edit();
++        }
++    }
++
+     pub(crate) fn insert_str(&mut self, text: &str) {
+         self.insert_str_at_target(self.draft.textarea.edit_target(), text);
+     }
+diff --git a/codex-rs/tui/src/bottom_pane/mod.rs b/codex-rs/tui/src/bottom_pane/mod.rs
+index 3ecf4693ef7ebe2030e064cd208399ab57301256..3aa84f551bddf443bb54a1fa5996db4f9142a87d 100644
+--- a/codex-rs/tui/src/bottom_pane/mod.rs
++++ b/codex-rs/tui/src/bottom_pane/mod.rs
+@@ -1116,6 +1116,11 @@ impl BottomPane {
+         self.request_redraw();
+     }
+ 
++    pub(crate) fn insert_transcript_quote(&mut self, text: &str) {
++        self.composer.insert_transcript_quote(text);
++        self.request_redraw();
++    }
++
+     pub(crate) fn pre_draw_tick(&mut self) {
+         self.pre_draw_tick_at(Instant::now());
+     }
+diff --git a/codex-rs/tui/src/chatwidget/input_restore.rs b/codex-rs/tui/src/chatwidget/input_restore.rs
+index 906378f3a03014415b157fc68df9f59a7fadcbb0..f1850b9194594d98484423f71f6083f54fc6e62a 100644
+--- a/codex-rs/tui/src/chatwidget/input_restore.rs
++++ b/codex-rs/tui/src/chatwidget/input_restore.rs
+@@ -616,18 +616,10 @@ impl ChatWidget {
+     }
+ 
+     pub(crate) fn append_transcript_quote(&mut self, text: &str) {
+-        let draft = self.bottom_pane.composer_draft_snapshot();
+         // 每一行（含空行）都添加引用前缀，保留原文的换行和缩进。
+         let quote = text.replace('\n', "\n> ");
+-        // 只在末尾追加，沿用草稿恢复以保留附件、提及和折叠粘贴内容。
+-        self.restore_composer_state(ThreadComposerState {
+-            text: format!("{}\n> {quote}\n", draft.text),
+-            text_elements: draft.text_elements,
+-            local_images: draft.local_images,
+-            remote_image_urls: draft.remote_image_urls,
+-            mention_bindings: draft.mention_bindings,
+-            pending_pastes: draft.pending_pastes,
+-        });
++        self.bottom_pane
++            .insert_transcript_quote(&format!("\n> {quote}\n"));
+         self.request_redraw();
+     }
+ 
