@@ -618,6 +618,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.95.0
         with:
           targets: x86_64-pc-windows-msvc
+          components: rustfmt
 
       - name: 固定 Rust 版本
         shell: bash
@@ -730,33 +731,23 @@ jobs:
           set -euo pipefail
 
           cat > notes.md <<'EOF'
-          基于官方 tag，应用了该 tag 专属补丁后编译的 Windows x64 版 codex.exe。补丁文件见 Release 附件 `codex-cli.patch`。
+          基于官方 Codex 构建的 Windows x64 补丁版本。
 
-          ### 替换方法
+          ### 下载与安装
 
-          解压后把 `codex.exe` 覆盖到 npm 包的 vendor 目录：
+          下载本页 zip，内含 `codex.exe`、`BUILD-INFO.txt` 和实际应用的 `codex-cli.patch`。
 
-          ```
-          node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe
-          ```
+          安装前核对 `BUILD-INFO.txt` 的 `upstream_tag`、`patch_baseline` 和 `patch_is_exact`。补丁可能由其他基线迁移，实际差异以 zip 内补丁为准。
 
-          替换前建议备份原文件。用 `codex --version` 验证。
-
-          ### 补丁内容
-
-          - 模型请求进度用数据包体积代替 token 估算
-          - 压缩横幅区分本地压缩 / 远程压缩
-          - 重试上限 1000 次、固定 10 秒间隔
-          - ServerOverloaded 等允许重试
-          - cyber 警告降为 Warning
-          - resume 忽略 provider 过滤
-          - GPT-5.6 上下文 353k
-          - 无输出时 Esc 快速改提示词
-          - 日志等级 INFO
+          使用下方安装说明中的管理脚本，或按功能文档手动安装。手动替换前退出 CLI 并备份，使用同版本完整 npm 包；独立 daemon 需另行同步。完成后核对 CLI 与 daemon 状态。
           EOF
 
-          # 把基线版本补进说明
-          sed -i "1s/^基于官方 tag/基于官方 ${TAG}/" notes.md
+          # 链接固定到本次构建提交，避免后续配置变化改写已发布产物的说明。
+          docs="https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}"
+          printf '\n- 官方版本：`%s`\n' "${TAG}" >> notes.md
+          printf -- '- [功能与配置](%s/CODEX-BUILD.md)\n' "${docs}" >> notes.md
+          printf -- '- [安装、恢复与状态检查](%s/scripts/README.md)\n' "${docs}" >> notes.md
+          printf -- '- [本次构建与测试](https://github.com/%s/actions/runs/%s)\n' "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}" >> notes.md
 
           # 幂等：Release 已存在时不能再用 create（重名直接失败），
           # 而且 gh release create 并不支持 --clobber（只有 upload 支持）。
