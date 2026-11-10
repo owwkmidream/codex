@@ -32,7 +32,7 @@ CLI 与 daemon 使用不同的磁盘副本，daemon 实际路径以 `managedCode
 |---|---|
 | 请求活动 | SSE/WebSocket 显示收发字节，同轮多请求累计、跨轮清零；进度事件不转成实时对话文本。目前无法持续取得准确的本次新增 token。 |
 | 压缩横幅 | 复用上游 provider 能力解析，包含能力覆盖及 TokenBudget 条件，区分本地/远程压缩。 |
-| 重试 | 次数允许上限 1000，默认次数保持上游值；ServerOverloaded、PolicyCapacityUnavailable、RetryLimit 无建议时仍可重试。 |
+| 重试 | 次数允许上限 1,000,000，默认次数保持上游值；ServerOverloaded、PolicyCapacityUnavailable、RetryLimit 无建议时仍可重试。 |
 | Cyber 提示 | 显示警告，UI 不主动结束 turn；Bio 保持上游处理。 |
 | resume | 列出所有 provider 的会话，保留目录过滤。 |
 | 无输出 Esc | 固定中断 turn ID 并恢复提示词；已有答案、推理、计划或工具调用时保留原中断行为。 |
@@ -63,14 +63,19 @@ Ctrl+C 复制；Enter 复制并跟随最新输出；Space 不复制到剪贴板�
 
 ```toml
 [model_providers.openai]
-request_max_retries = 1000
-stream_max_retries = 1000
+request_max_retries = 1000000
+stream_max_retries = 1000000
 retry_delay_ms = 10000
 ```
 
-- 未配置等待：有服务端建议时遵从建议，否则等待 10 秒。
-- `retry_delay_ms >= 0`：优先采用建议，无建议时等待配置毫秒数；`0` 表示无建议时立即重试。
-- `retry_delay_ms < 0`：忽略建议，固定等待绝对值毫秒数，例如 `-10000` 为 10 秒。
+- 未配置等待：沿用官方原版各路径的等待策略（包括指数退避、服务器建议及连接重试策略），保留补丁扩展的可重试错误类型。
+- `retry_delay_ms > 0`：等待时间上限，最终等待取原等待与配置值的较小值，覆盖指数退避和服务器建议等所有来源。
+- `retry_delay_ms = 0`：立即重试，包括服务器建议等待的情况。
+- `retry_delay_ms < 0`：忽略所有等待来源，固定等待绝对值毫秒数，例如 `-10000` 为 10 秒。
+
+两项次数配置均表示首次请求之外的重试次数，上限为 1,000,000，默认次数保持上游值。
+
+`0017` 实现上述语义，保留 `0001` 的历史。CI 的 `test` job 增加受影响 Rust 文件格式检查、等待策略与配置边界单元测试、流重连单元测试和 `retry_after` 集成回归；结果以新提交的运行状态为准。
 
 等待配置适用于模型 HTTP、流重连、本地压缩及传输回退；非模型 HTTP 客户端保留原退避行为。
 

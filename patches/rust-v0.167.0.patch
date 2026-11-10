@@ -460,7 +460,7 @@ index 9feb92fb2cb1d5d759aea0ecdf9ee2ff6b55578b..a908faced82f91a58044b8cbffe5d928
                  retry_429: self.retry_429,
                  retry_5xx: self.retry_5xx,
 diff --git a/codex-rs/codex-client/src/retry.rs b/codex-rs/codex-client/src/retry.rs
-index b10fa50794de347b73a76c83d0b6b36e055a7842..f4025e41c2073769b3d41a41dc6a32eb5a36181d 100644
+index b10fa50794de347b73a76c83d0b6b36e055a7842..8efba475989b96dae45a6e7dcd4be9e45876b835 100644
 --- a/codex-rs/codex-client/src/retry.rs
 +++ b/codex-rs/codex-client/src/retry.rs
 @@ -9,6 +9,7 @@ use std::time::Duration;
@@ -471,41 +471,37 @@ index b10fa50794de347b73a76c83d0b6b36e055a7842..f4025e41c2073769b3d41a41dc6a32eb
      pub retry_on: RetryOn,
  }
  
-@@ -51,6 +52,13 @@ pub fn backoff(base: Duration, attempt: u64) -> Duration {
+@@ -51,6 +52,16 @@ pub fn backoff(base: Duration, attempt: u64) -> Duration {
      Duration::from_millis((raw as f64 * jitter) as u64)
  }
  
-+/// 正数优先采用服务端建议；负数固定等待其绝对值，包含 i64::MIN。
-+pub fn configured_retry_delay(millis: i64, server_delay: Option<Duration>) -> Duration {
-+    server_delay
-+        .filter(|_| millis >= 0)
-+        .unwrap_or_else(|| Duration::from_millis(millis.unsigned_abs()))
++/// 非负数限制所有来源的等待上限；负数固定等待绝对值，包含 i64::MIN。
++pub fn configured_retry_delay(millis: i64, original_delay: Duration) -> Duration {
++    let configured = Duration::from_millis(millis.unsigned_abs());
++    if millis < 0 {
++        configured
++    } else {
++        original_delay.min(configured)
++    }
 +}
 +
  /// Identifies a retry path and its associated trace-event layer.
  #[derive(Debug, Clone, Copy)]
  pub enum RetryOperation {
-@@ -100,10 +108,17 @@ where
-                     .should_retry(&err, attempt, policy.max_attempts) =>
-             {
-                 let retry_attempt = attempt + 1;
--                let retry_after = err.retry_after();
-+                let retry_after = err
-+                    .retry_after()
-+                    .filter(|_| policy.retry_delay_ms.is_none_or(|millis| millis >= 0));
+@@ -104,8 +115,11 @@ where
                  let delay = retry_after
                      .map(RetryAfter::remaining_delay)
--                    .unwrap_or_else(|| backoff(policy.base_delay, retry_attempt));
-+                    .unwrap_or_else(|| {
-+                        policy.retry_delay_ms.map_or_else(
-+                            || backoff(policy.base_delay, retry_attempt),
-+                            |millis| configured_retry_delay(millis, None),
-+                        )
-+                    });
+                     .unwrap_or_else(|| backoff(policy.base_delay, retry_attempt));
++                let delay = policy
++                    .retry_delay_ms
++                    .map_or(delay, |millis| configured_retry_delay(millis, delay));
                  crate::record_retry!(retry_attempt, delay, RetryOperation::HttpRequest);
-                 if let Some(retry_after) = retry_after {
+-                if let Some(retry_after) = retry_after {
++                if let Some(retry_after) = retry_after.filter(|_| policy.retry_delay_ms.is_none()) {
                      tokio::time::sleep_until(retry_after.deadline()).await;
-@@ -116,3 +131,30 @@ where
+                 } else {
+                     tokio::time::sleep(delay).await;
+@@ -116,3 +130,30 @@ where
      }
      Err(TransportError::RetryLimit)
  }
@@ -516,22 +512,22 @@ index b10fa50794de347b73a76c83d0b6b36e055a7842..f4025e41c2073769b3d41a41dc6a32eb
 +
 +    #[test]
 +    fn configured_delay_obeys_sign_and_server_advice() {
-+        let advice = Some(Duration::from_secs(30));
++        let advice = Duration::from_secs(30);
 +        assert_eq!(
 +            configured_retry_delay(10_000, advice),
-+            Duration::from_secs(30)
++            Duration::from_secs(10)
 +        );
 +        assert_eq!(
 +            configured_retry_delay(-10_000, advice),
 +            Duration::from_secs(10)
 +        );
 +        assert_eq!(
-+            configured_retry_delay(10_000, None),
-+            Duration::from_secs(10)
++            configured_retry_delay(10_000, Duration::from_millis(200)),
++            Duration::from_millis(200)
 +        );
-+        assert_eq!(configured_retry_delay(0, None), Duration::ZERO);
++        assert_eq!(configured_retry_delay(0, advice), Duration::ZERO);
 +        assert_eq!(
-+            configured_retry_delay(i64::MIN, None),
++            configured_retry_delay(i64::MIN, Duration::ZERO),
 +            Duration::from_millis(1_u64 << 63)
 +        );
 +    }
@@ -590,7 +586,7 @@ index fd616daa271de69d8a56f23cd281120abd278314..563ee008173c03d531ec9fe6b1bdb42c
          websocket_connect_timeout_ms,
          requires_openai_auth,
 diff --git a/codex-rs/core/config.schema.json b/codex-rs/core/config.schema.json
-index f5149c6efdf7ab9f1550aa0639dd5f2401205f25..ebbaab0364c74b49a5f9458fbeb8c288910cf699 100644
+index f5149c6efdf7ab9f1550aa0639dd5f2401205f25..c70f199e82a612f2b7f1ff1802a7d7f379ae2bdb 100644
 --- a/codex-rs/core/config.schema.json
 +++ b/codex-rs/core/config.schema.json
 @@ -3180,6 +3180,11 @@
@@ -598,7 +594,7 @@ index f5149c6efdf7ab9f1550aa0639dd5f2401205f25..ebbaab0364c74b49a5f9458fbeb8c288
            "type": "boolean"
          },
 +        "retry_delay_ms": {
-+          "description": "模型重试等待毫秒数，默认 10000；负数忽略服务端建议并取绝对值。",
++          "description": "模型重试等待毫秒数：非负数为等待上限，负数固定等待绝对值；未配置沿用原版策略。",
 +          "format": "int64",
 +          "type": "integer"
 +        },
@@ -613,35 +609,25 @@ index f5149c6efdf7ab9f1550aa0639dd5f2401205f25..ebbaab0364c74b49a5f9458fbeb8c288
 \ No newline at end of file
 +}
 diff --git a/codex-rs/core/src/compact.rs b/codex-rs/core/src/compact.rs
-index 2f6a91de7054cf67bcda1dc9ee5955d82e9d14dc..92b7c89e84b61e59c59500478168f5501cdb2438 100644
+index 2f6a91de7054cf67bcda1dc9ee5955d82e9d14dc..e5677247f6fc7a2405258c7523c09eb5a51e884a 100644
 --- a/codex-rs/core/src/compact.rs
 +++ b/codex-rs/core/src/compact.rs
-@@ -25,7 +25,6 @@ use crate::session::step_context::StepContext;
- use crate::session::turn::get_last_assistant_message_from_turn;
- use crate::session::turn_context::TurnContext;
- use crate::state::AutoCompactWindowIds;
--use crate::util::backoff;
- use codex_analytics::CodexCompactionEvent;
- use codex_analytics::CompactionImplementation;
- use codex_analytics::CompactionPhase;
-@@ -375,7 +374,14 @@ async fn run_compact_task_inner_impl(
-             Err(e) => {
+@@ -376,6 +376,13 @@ async fn run_compact_task_inner_impl(
                  if retries < max_retries {
                      retries += 1;
--                    let delay = backoff(retries);
-+                    let delay = codex_client::configured_retry_delay(
-+                        turn_context
-+                            .provider
-+                            .info()
-+                            .retry_delay_ms
-+                            .unwrap_or(10_000),
-+                        e.server_retry_delay(),
-+                    );
+                     let delay = backoff(retries);
++                    let delay = turn_context
++                        .provider
++                        .info()
++                        .retry_delay_ms
++                        .map_or(delay, |millis| {
++                            codex_client::configured_retry_delay(millis, delay)
++                        });
                      sess.notify_stream_error(
                          turn_context.as_ref(),
                          format!("Reconnecting... {retries}/{max_retries}"),
 diff --git a/codex-rs/core/src/responses_retry.rs b/codex-rs/core/src/responses_retry.rs
-index 6a4214609c9f9d2ddb61026d17a232497bd792d9..f78f12cffaaf74d2d62f8c9be552860addc6b10e 100644
+index 6a4214609c9f9d2ddb61026d17a232497bd792d9..35203c94f37c48191ac1008463b772779d699ec1 100644
 --- a/codex-rs/core/src/responses_retry.rs
 +++ b/codex-rs/core/src/responses_retry.rs
 @@ -1,6 +1,6 @@
@@ -652,77 +638,42 @@ index 6a4214609c9f9d2ddb61026d17a232497bd792d9..f78f12cffaaf74d2d62f8c9be552860a
  
  use std::time::Duration;
  
-@@ -20,29 +20,16 @@ use codex_protocol::protocol::WarningEvent;
- use tokio::time::Instant;
- use tracing::warn;
- 
--const INITIAL_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(5);
--const MAX_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(60);
--
- #[derive(Debug, Clone, Copy)]
- pub(crate) enum ResponsesStreamRequest {
-     Sampling,
-     RemoteCompactionV2,
- }
- 
-+#[derive(Default)]
- pub(crate) struct ResponsesStreamRetryState {
-     retries: u64,
-     connection_retries: u64,
--    connection_retry_delay: Duration,
--}
--
--impl Default for ResponsesStreamRetryState {
--    fn default() -> Self {
--        Self {
--            retries: 0,
--            connection_retries: 0,
--            connection_retry_delay: INITIAL_CONNECTION_RETRY_DELAY,
--        }
--    }
- }
- 
- /// Server retry advice retained after stream retries are exhausted. The turn ID
-@@ -86,10 +73,17 @@ pub(crate) async fn handle_response_stream_error(
-         ResponsesStreamRequest::RemoteCompactionV2 => RetryOperation::RemoteCompactionV2,
-     };
-     let retry_count = retry_state.retries.saturating_add(1);
--    let Some(delay) = err.retry_delay(retry_count) else {
-+    let Some(_) = err.retry_delay(retry_count) else {
+@@ -89,7 +89,12 @@ pub(crate) async fn handle_response_stream_error(
+     let Some(delay) = err.retry_delay(retry_count) else {
          return Err(err);
      };
 -    let retry_after = err.retry_after();
-+    let millis = turn_context
-+        .provider
-+        .info()
-+        .retry_delay_ms
-+        .unwrap_or(10_000);
-+    // 同时处理普通重试、传输回退及耗尽后的建议，负数不残留服务端截止时间。
-+    let retry_after = err.retry_after().filter(|_| millis >= 0);
-+    let delay = codex_client::configured_retry_delay(millis, err.server_retry_delay());
++    let millis = turn_context.provider.info().retry_delay_ms;
++    let delay = millis.map_or(delay, |millis| {
++        codex_client::configured_retry_delay(millis, delay)
++    });
++    // 显式配置覆盖所有等待来源，原始服务器截止时间不能绕过上限。
++    let retry_after = err.retry_after().filter(|_| millis.is_none());
  
      if turn_context
          .config
-@@ -100,7 +94,7 @@ pub(crate) async fn handle_response_stream_error(
+@@ -100,7 +105,9 @@ pub(crate) async fn handle_response_stream_error(
          && !turn_context.session_source.is_internal()
          && !turn_context.provider.info().is_amazon_bedrock()
      {
 -        let retry_delay = retry_state.connection_retry_delay;
-+        let retry_delay = delay;
++        let retry_delay = millis.map_or(retry_state.connection_retry_delay, |millis| {
++            codex_client::configured_retry_delay(millis, retry_state.connection_retry_delay)
++        });
          warn!(
              turn_id = %turn_context.sub_id,
              error = %err,
-@@ -112,9 +106,6 @@ pub(crate) async fn handle_response_stream_error(
+@@ -112,7 +119,8 @@ pub(crate) async fn handle_response_stream_error(
          retry_state.connection_retries = retry_state.connection_retries.saturating_add(1);
          codex_client::record_retry!(retry_state.connection_retries, retry_delay, operation);
          tokio::time::sleep(retry_delay).await;
 -        retry_state.connection_retry_delay = retry_delay
--            .saturating_mul(2)
--            .min(MAX_CONNECTION_RETRY_DELAY);
++        retry_state.connection_retry_delay = retry_state
++            .connection_retry_delay
+             .saturating_mul(2)
+             .min(MAX_CONNECTION_RETRY_DELAY);
          return Ok(());
-     }
- 
-@@ -124,9 +115,11 @@ pub(crate) async fn handle_response_stream_error(
+@@ -124,9 +132,15 @@ pub(crate) async fn handle_response_stream_error(
              turn_context.model_info(),
          )
      {
@@ -730,11 +681,26 @@ index 6a4214609c9f9d2ddb61026d17a232497bd792d9..f78f12cffaaf74d2d62f8c9be552860a
 +        // 切换传输也采用同一等待配置，避免绕过固定等待或服务端截止时间。
          if let Some(retry_after) = retry_after {
              tokio::time::sleep_until(retry_after.deadline()).await;
-+        } else {
++        } else if let Some(millis) = millis {
++            let delay = codex_client::configured_retry_delay(
++                millis,
++                err.server_retry_delay().unwrap_or(Duration::ZERO),
++            );
 +            tokio::time::sleep(delay).await;
          }
          sess.send_event(
              turn_context,
+@@ -171,7 +185,9 @@ pub(crate) async fn handle_response_stream_error(
+         .thread_extension_data
+         .insert(ExhaustedResponseRetry {
+             turn_id: turn_context.sub_id.clone(),
+-            retry_at: retry_after.map(RetryAfter::deadline),
++            retry_at: millis
++                .map(|_| Instant::now() + delay)
++                .or_else(|| retry_after.map(RetryAfter::deadline)),
+         });
+     Err(err)
+ }
 diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
 index f365c4e2e8cba703f2189ecff0acaf6aacd20ef1..38068f08e64807e692be593ccd8a4978fcadf370 100644
 --- a/codex-rs/core/src/session/mod.rs
@@ -888,7 +854,7 @@ index de45b7403dfd29b823d5aa1b9a2fc1348dc9d3b8..0ebfbd54e22b41eb746c0d2170d51637
          | ResponseEvent::ModelVerifications(_)
          | ResponseEvent::TurnModerationMetadata(_)
 diff --git a/codex-rs/core/tests/suite/retry_after.rs b/codex-rs/core/tests/suite/retry_after.rs
-index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb00135351c184d6 100644
+index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1adb69e5dc 100644
 --- a/codex-rs/core/tests/suite/retry_after.rs
 +++ b/codex-rs/core/tests/suite/retry_after.rs
 @@ -275,22 +275,26 @@ async fn wait_for_turn_completion(test: &TestCodex) {
@@ -896,10 +862,11 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
  }
  
 -/// HTTP overloads use server advice within the request and stream retry budgets.
-+/// 正数遵从建议，负数在 HTTP 与流重连两层都使用固定等待。
++/// HTTP 与流重连两层均限制建议等待，负数固定等待，零立即重试。
 +#[test_case::test_case(None; "default_advice")]
 +#[test_case::test_case(Some(200); "positive_advice")]
 +#[test_case::test_case(Some(-200); "negative_ignores_advice")]
++#[test_case::test_case(Some(0); "zero_ignores_advice")]
  #[tokio::test(flavor = "current_thread")]
 -async fn responses_http_uses_retry_after() -> Result<()> {
 +async fn responses_http_uses_retry_after(retry_delay_ms: Option<i64>) -> Result<()> {
@@ -907,9 +874,8 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
 -
      let mut telemetry = RetryTelemetryCapture::install();
      let server = responses::start_mock_server().await;
-+    let fixed = retry_delay_ms.is_some_and(|millis| millis < 0);
 +    // 错误地遵从 60 秒建议会触发现有 10 秒测试超时。
-+    let header = if fixed { "60" } else { "1" };
++    let header = if retry_delay_ms.is_some() { "60" } else { "1" };
 +    let overload = ResponseTemplate::new(503)
 +        .insert_header("Retry-After", header)
 +        .set_body_json(json!({ "error": { "code": "server_is_overloaded" } }));
@@ -937,7 +903,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
              config.model_provider.request_max_retries = Some(1);
              config.model_provider.stream_max_retries = Some(1);
          })
-@@ -307,32 +312,32 @@ async fn responses_http_uses_retry_after() -> Result<()> {
+@@ -307,32 +312,33 @@ async fn responses_http_uses_retry_after() -> Result<()> {
          .await?;
  
      submit_user_input(&test, "retry the upstream overload").await?;
@@ -967,9 +933,10 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
 -    assert!(wait_for_retry(&mut telemetry, &retry).await >= Duration::from_secs(1));
 +    for layer in ["http", "stream"] {
 +        let retry = telemetry.next_retry().await;
-+        let minimum = if fixed {
-+            assert_eq!(retry.delay, Duration::from_millis(200));
-+            Duration::from_millis(200)
++        let minimum = if let Some(millis) = retry_delay_ms {
++            let expected = Duration::from_millis(millis.unsigned_abs());
++            assert_eq!(retry.delay, expected);
++            expected
 +        } else {
 +            assert!(retry.delay <= Duration::from_secs(1));
 +            Duration::from_secs(1)
@@ -995,15 +962,57 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
      assert_eq!(response_mock.requests().len(), 3);
      assert_eq!(
          telemetry.events.try_recv(),
-@@ -408,6 +413,7 @@ async fn http_retry_backoff_exhausts_attempts() {
+@@ -401,13 +407,18 @@ async fn responses_http_429_uses_retry_after() -> Result<()> {
+ }
+ 
+ /// Check backoff without a live server or tracing events coordinating the retry loop.
++#[test_case::test_case(None; "original_backoff")]
++#[test_case::test_case(Some(100); "capped_backoff")]
++#[test_case::test_case(Some(-300); "fixed_backoff")]
++#[test_case::test_case(Some(0); "immediate_backoff")]
+ #[tokio::test(start_paused = true)]
+-async fn http_retry_backoff_exhausts_attempts() {
++async fn http_retry_backoff_exhausts_attempts(retry_delay_ms: Option<i64>) {
+     let attempts = Mutex::new(Vec::new());
+     let result = run_with_retry(
          RetryPolicy {
              max_attempts: 2,
              base_delay: Duration::from_millis(200),
-+            retry_delay_ms: None,
++            retry_delay_ms,
              retry_on: RetryOn {
                  retry_429: false,
                  retry_5xx: true,
-@@ -463,6 +469,7 @@ async fn exhausted_http_retries_preserve_deadline_through_error_mapping() {
+@@ -444,13 +455,22 @@ async fn http_retry_backoff_exhausts_attempts() {
+             .collect::<Vec<_>>(),
+         vec![0, 1, 2]
+     );
+-    assert!(
+-        (FIRST_RETRY_MIN_DELAY..=FIRST_RETRY_MAX_DELAY).contains(&(attempts[1].1 - attempts[0].1))
+-    );
+-    assert!(
+-        (SECOND_RETRY_MIN_DELAY..=SECOND_RETRY_MAX_DELAY)
+-            .contains(&(attempts[2].1 - attempts[1].1))
+-    );
++    if let Some(millis) = retry_delay_ms {
++        let expected = Duration::from_millis(millis.unsigned_abs());
++        for pair in attempts.windows(2) {
++            let elapsed = pair[1].1 - pair[0].1;
++            assert!((expected..=expected + Duration::from_millis(1)).contains(&elapsed));
++        }
++    } else {
++        assert!(
++            (FIRST_RETRY_MIN_DELAY..=FIRST_RETRY_MAX_DELAY)
++                .contains(&(attempts[1].1 - attempts[0].1))
++        );
++        assert!(
++            (SECOND_RETRY_MIN_DELAY..=SECOND_RETRY_MAX_DELAY)
++                .contains(&(attempts[2].1 - attempts[1].1))
++        );
++    }
+ }
+ 
+ /// Exhausting HTTP retries and mapping the error preserve the last server deadline.
+@@ -463,6 +483,7 @@ async fn exhausted_http_retries_preserve_deadline_through_error_mapping() {
          RetryPolicy {
              max_attempts: 1,
              base_delay: Duration::from_millis(200),
@@ -1011,7 +1020,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
              retry_on: RetryOn {
                  retry_429: false,
                  retry_5xx: true,
-@@ -500,7 +507,7 @@ async fn exhausted_http_retries_preserve_deadline_through_error_mapping() {
+@@ -500,7 +521,7 @@ async fn exhausted_http_retries_preserve_deadline_through_error_mapping() {
  }
  
  /// Retry advice changes delays but never extends either retry budget or its displayed count.
@@ -1020,7 +1029,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
  #[test_case::test_case(Some("0"), 0, 3; "advice_without_stream_retries")]
  #[test_case::test_case(Some("0"), 2, 9; "advice_with_stream_retries")]
  #[tokio::test(flavor = "current_thread")]
-@@ -524,6 +531,7 @@ async fn responses_http_overload_respects_retry_limits(
+@@ -524,6 +545,7 @@ async fn responses_http_overload_respects_retry_limits(
          .await;
      let test = test_codex()
          .with_config(move |config| {
@@ -1028,7 +1037,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
              config.model_provider.request_max_retries = Some(2);
              config.model_provider.stream_max_retries = Some(stream_max_retries);
          })
-@@ -563,13 +571,9 @@ async fn responses_http_overload_respects_retry_limits(
+@@ -563,13 +585,9 @@ async fn responses_http_overload_respects_retry_limits(
      .expect("overload retries should finish the turn within 10 seconds");
  
      assert_eq!(error_events, 1);
@@ -1045,7 +1054,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
      assert_eq!(reconnect_messages, expected_messages);
      let request_count = server
          .received_requests()
-@@ -595,6 +599,7 @@ async fn responses_http_504_preserves_status_after_stream_retry() -> Result<()>
+@@ -595,6 +613,7 @@ async fn responses_http_504_preserves_status_after_stream_retry() -> Result<()>
          responses::mount_response_sequence(&server, vec![ResponseTemplate::new(504); 2]).await;
      let test = test_codex()
          .with_config(|config| {
@@ -1053,7 +1062,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
              config.service_tier = Some("flex".to_string());
              config.model_provider.request_max_retries = Some(0);
              config.model_provider.stream_max_retries = Some(1);
-@@ -722,6 +727,7 @@ async fn compact_v2_stream_failure_uses_local_backoff_despite_retry_after() -> R
+@@ -722,6 +741,7 @@ async fn compact_v2_stream_failure_uses_local_backoff_despite_retry_after() -> R
      let test = test_codex()
          .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
          .with_config(|config| {
@@ -1061,7 +1070,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
              config.model_provider.request_max_retries = Some(0);
              config.model_provider.stream_max_retries = Some(1);
          })
-@@ -731,7 +737,7 @@ async fn compact_v2_stream_failure_uses_local_backoff_despite_retry_after() -> R
+@@ -731,7 +751,7 @@ async fn compact_v2_stream_failure_uses_local_backoff_despite_retry_after() -> R
  
      test.codex.submit(Op::Compact).await?;
      let retry = telemetry.next_retry().await;
@@ -1070,7 +1079,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
      assert_eq!(
          retry,
          RetryTelemetryEvent {
-@@ -791,6 +797,7 @@ async fn compact_v2_stream_failure_without_retry_after_exhausts_stream_retries()
+@@ -791,6 +811,7 @@ async fn compact_v2_stream_failure_without_retry_after_exhausts_stream_retries()
      let test = test_codex()
          .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
          .with_config(|config| {
@@ -1078,7 +1087,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
              config.model_provider.request_max_retries = Some(0);
              config.model_provider.stream_max_retries = Some(1);
          })
-@@ -800,7 +807,7 @@ async fn compact_v2_stream_failure_without_retry_after_exhausts_stream_retries()
+@@ -800,7 +821,7 @@ async fn compact_v2_stream_failure_without_retry_after_exhausts_stream_retries()
  
      test.codex.submit(Op::Compact).await?;
      let retry = telemetry.next_retry().await;
@@ -1087,7 +1096,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
      assert_eq!(
          retry,
          RetryTelemetryEvent {
-@@ -964,8 +971,9 @@ async fn compact_v2_overload_without_retry_after_exhausts_request_retries() -> R
+@@ -964,8 +985,9 @@ async fn compact_v2_overload_without_retry_after_exhausts_request_retries() -> R
      let test = test_codex()
          .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
          .with_config(|config| {
@@ -1098,7 +1107,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
          })
          .build_with_auto_env(&server)
          .await?;
-@@ -973,7 +981,7 @@ async fn compact_v2_overload_without_retry_after_exhausts_request_retries() -> R
+@@ -973,7 +995,7 @@ async fn compact_v2_overload_without_retry_after_exhausts_request_retries() -> R
  
      test.codex.submit(Op::Compact).await?;
      let first_retry = telemetry.next_retry().await;
@@ -1107,7 +1116,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
      assert_eq!(
          first_retry,
          RetryTelemetryEvent {
-@@ -985,7 +993,7 @@ async fn compact_v2_overload_without_retry_after_exhausts_request_retries() -> R
+@@ -985,7 +1007,7 @@ async fn compact_v2_overload_without_retry_after_exhausts_request_retries() -> R
      );
      wait_for_retry(&mut telemetry, &first_retry).await;
      let second_retry = telemetry.next_retry().await;
@@ -1116,7 +1125,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
      assert_eq!(
          second_retry,
          RetryTelemetryEvent {
-@@ -1088,6 +1096,7 @@ async fn sse_failure_uses_local_backoff_despite_retry_after() -> Result<()> {
+@@ -1088,6 +1110,7 @@ async fn sse_failure_uses_local_backoff_despite_retry_after() -> Result<()> {
      .await;
      let test = test_codex()
          .with_config(|config| {
@@ -1124,7 +1133,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
              config.model_provider.request_max_retries = Some(0);
              config.model_provider.stream_max_retries = Some(1);
          })
-@@ -1096,7 +1105,7 @@ async fn sse_failure_uses_local_backoff_despite_retry_after() -> Result<()> {
+@@ -1096,7 +1119,7 @@ async fn sse_failure_uses_local_backoff_despite_retry_after() -> Result<()> {
  
      submit_user_input(&test, "retry the rate-limited stream").await?;
      let retry = telemetry.next_retry().await;
@@ -1133,7 +1142,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
      assert_eq!(
          retry,
          RetryTelemetryEvent {
-@@ -1144,6 +1153,7 @@ async fn sse_failure_without_retry_after_exhausts_stream_retries(code: &str) ->
+@@ -1144,6 +1167,7 @@ async fn sse_failure_without_retry_after_exhausts_stream_retries(code: &str) ->
      .await;
      let test = test_codex()
          .with_config(|config| {
@@ -1141,7 +1150,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
              config.model_provider.request_max_retries = Some(0);
              config.model_provider.stream_max_retries = Some(1);
          })
-@@ -1152,10 +1162,7 @@ async fn sse_failure_without_retry_after_exhausts_stream_retries(code: &str) ->
+@@ -1152,10 +1176,7 @@ async fn sse_failure_without_retry_after_exhausts_stream_retries(code: &str) ->
  
      submit_user_input(&test, "exhaust the headerless rate-limited stream").await?;
      let retry = telemetry.next_retry().await;
@@ -1153,7 +1162,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
      assert_eq!(
          retry,
          RetryTelemetryEvent {
-@@ -1270,148 +1277,59 @@ async fn sse_failure_uses_server_advice(
+@@ -1270,148 +1291,59 @@ async fn sse_failure_uses_server_advice(
      Ok(())
  }
  
@@ -1337,7 +1346,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
      Ok(())
  }
  
-@@ -1605,6 +1523,7 @@ async fn connection_failures_increment_retry_telemetry_without_consuming_retry_b
+@@ -1605,6 +1537,7 @@ async fn connection_failures_increment_retry_telemetry_without_consuming_retry_b
  
      let test = test_codex()
          .with_config(move |config| {
@@ -1345,7 +1354,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
              config.model_provider.base_url = Some(format!("http://{unavailable_address}/v1"));
              config.model_provider.request_max_retries = Some(0);
              config.model_provider.stream_max_retries = Some(0);
-@@ -1620,7 +1539,7 @@ async fn connection_failures_increment_retry_telemetry_without_consuming_retry_b
+@@ -1620,7 +1553,7 @@ async fn connection_failures_increment_retry_telemetry_without_consuming_retry_b
          first_retry,
          RetryTelemetryEvent {
              attempt: 1,
@@ -1354,7 +1363,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
              layer: "stream".into(),
              operation: "sampling".into(),
          }
-@@ -1632,7 +1551,7 @@ async fn connection_failures_increment_retry_telemetry_without_consuming_retry_b
+@@ -1632,7 +1565,7 @@ async fn connection_failures_increment_retry_telemetry_without_consuming_retry_b
          second_retry,
          RetryTelemetryEvent {
              attempt: 2,
@@ -1363,7 +1372,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
              layer: "stream".into(),
              operation: "sampling".into(),
          }
-@@ -1693,6 +1612,7 @@ async fn websocket_connection_limit_retries_with_local_backoff() -> Result<()> {
+@@ -1693,6 +1626,7 @@ async fn websocket_connection_limit_retries_with_local_backoff() -> Result<()> {
      .await;
      let test = test_codex()
          .with_config(|config| {
@@ -1371,7 +1380,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
              config.model_provider.request_max_retries = Some(0);
              config.model_provider.stream_max_retries = Some(1);
          })
-@@ -1705,7 +1625,7 @@ async fn websocket_connection_limit_retries_with_local_backoff() -> Result<()> {
+@@ -1705,7 +1639,7 @@ async fn websocket_connection_limit_retries_with_local_backoff() -> Result<()> {
      assert_eq!(warmup.body_json()["generate"].as_bool(), Some(false));
      submit_user_input(&test, "retry after reaching the websocket connection limit").await?;
      let retry = telemetry.next_retry().await;
@@ -1380,16 +1389,17 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
      assert_eq!(
          retry,
          RetryTelemetryEvent {
-@@ -1802,10 +1722,16 @@ async fn websocket_failed_event_uses_header_over_plaintext_retry_after() -> Resu
+@@ -1802,10 +1736,17 @@ async fn websocket_failed_event_uses_header_over_plaintext_retry_after() -> Resu
      Ok(())
  }
  
 -/// Advised WebSocket failures reach HTTP after the existing retry budget. HTTP
 -/// recovery uses its own retry budget and honors the preceding advice deadlines.
 +/// WebSocket 耗尽预算后的 HTTP 回退也遵从有符号等待配置。
-+#[test_case::test_case(Some("1"), 200, 2000; "server_advice")]
-+#[test_case::test_case(None, 200, 400; "without_advice")]
++#[test_case::test_case(Some("60"), 200, 400; "server_advice")]
++#[test_case::test_case(None, 200, 200; "without_advice")]
 +#[test_case::test_case(Some("60"), -200, 400; "negative_ignores_advice")]
++#[test_case::test_case(Some("60"), 0, 0; "zero_ignores_advice")]
  #[tokio::test(flavor = "current_thread")]
 -async fn websocket_upgrade_rejection_uses_retry_after() -> Result<()> {
 +async fn websocket_upgrade_rejection_uses_retry_after(
@@ -1400,7 +1410,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
      skip_if_no_network!(Ok(()));
  
      let server = responses::start_mock_server().await;
-@@ -1816,13 +1742,14 @@ async fn websocket_upgrade_rejection_uses_retry_after() -> Result<()> {
+@@ -1816,13 +1757,14 @@ async fn websocket_upgrade_rejection_uses_retry_after() -> Result<()> {
          .expect(/*r*/ 1)
          .mount_as_scoped(&server)
          .await;
@@ -1420,7 +1430,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
          .mount(&server)
          .await;
      let http_overload = ResponseTemplate::new(/*s*/ 503)
-@@ -1842,7 +1769,8 @@ async fn websocket_upgrade_rejection_uses_retry_after() -> Result<()> {
+@@ -1842,7 +1784,8 @@ async fn websocket_upgrade_rejection_uses_retry_after() -> Result<()> {
      )
      .await;
      let test = test_codex()
@@ -1430,7 +1440,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
              config.model_catalog = Some(bundled_models_response().expect("bundled models"));
              config.model_provider.supports_websockets = true;
              config.model_provider.request_max_retries = Some(0);
-@@ -1862,8 +1790,8 @@ async fn websocket_upgrade_rejection_uses_retry_after() -> Result<()> {
+@@ -1862,8 +1805,8 @@ async fn websocket_upgrade_rejection_uses_retry_after() -> Result<()> {
      submit_user_input(&test, "retry the rejected websocket upgrade").await?;
      wait_for_turn_completion(&test).await;
  
@@ -1441,7 +1451,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
      let requests = server.received_requests().await.unwrap_or_default();
      let methods = requests
          .iter()
-@@ -1949,94 +1877,13 @@ async fn websocket_error_uses_nested_retry_after() -> Result<()> {
+@@ -1949,94 +1892,13 @@ async fn websocket_error_uses_nested_retry_after() -> Result<()> {
      Ok(())
  }
  
@@ -1541,7 +1551,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
      let mut telemetry = RetryTelemetryCapture::install();
      let server = responses::start_websocket_server(vec![
          vec![
-@@ -2045,193 +1892,53 @@ async fn websocket_overload_retries_only_while_it_has_retry_after(
+@@ -2045,193 +1907,53 @@ async fn websocket_overload_retries_only_while_it_has_retry_after(
                  responses::ev_completed("prewarm"),
              ],
              vec![json!({
@@ -1764,7 +1774,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..b60c1c01796c7faa7f414990bb001353
      Ok(())
  }
 diff --git a/codex-rs/model-provider-info/src/lib.rs b/codex-rs/model-provider-info/src/lib.rs
-index 96408491631e40298676bb79a6766b79a5abefad..4088f7a23d3e4c2a37a3ceda6c195d6f2c36b467 100644
+index 96408491631e40298676bb79a6766b79a5abefad..b8eb18c158f8f5e9bef8c892a2bce8bb0f5f8146 100644
 --- a/codex-rs/model-provider-info/src/lib.rs
 +++ b/codex-rs/model-provider-info/src/lib.rs
 @@ -76,9 +76,9 @@ const DEFAULT_AWS_CREDENTIAL_EXPORT_TIMEOUT_MS: u64 = 30_000;
@@ -1772,10 +1782,10 @@ index 96408491631e40298676bb79a6766b79a5abefad..4088f7a23d3e4c2a37a3ceda6c195d6f
  pub const DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS: u64 = 15_000;
  /// Hard cap for user-configured `stream_max_retries`.
 -const MAX_STREAM_MAX_RETRIES: u64 = 100;
-+const MAX_STREAM_MAX_RETRIES: u64 = 1000;
++const MAX_STREAM_MAX_RETRIES: u64 = 1_000_000;
  /// Hard cap for user-configured `request_max_retries`.
 -const MAX_REQUEST_MAX_RETRIES: u64 = 100;
-+const MAX_REQUEST_MAX_RETRIES: u64 = 1000;
++const MAX_REQUEST_MAX_RETRIES: u64 = 1_000_000;
  
  const OPENAI_PROVIDER_NAME: &str = "OpenAI";
  const OPENAI_ACTOR_AUTHORIZATION_HEADER: &str = "x-openai-actor-authorization";
@@ -1783,7 +1793,7 @@ index 96408491631e40298676bb79a6766b79a5abefad..4088f7a23d3e4c2a37a3ceda6c195d6f
      pub request_max_retries: Option<u64>,
      /// Number of times to retry reconnecting a dropped streaming response before failing.
      pub stream_max_retries: Option<u64>,
-+    /// 模型重试等待毫秒数，默认 10000；负数忽略服务端建议并取绝对值。
++    /// 模型重试等待毫秒数：非负数为等待上限，负数固定等待绝对值；未配置沿用原版策略。
 +    pub retry_delay_ms: Option<i64>,
      /// Idle timeout (in milliseconds) to wait for activity on a streaming response before treating
      /// the connection as lost.
@@ -1792,7 +1802,7 @@ index 96408491631e40298676bb79a6766b79a5abefad..4088f7a23d3e4c2a37a3ceda6c195d6f
          let retry = ApiRetryConfig {
              max_attempts: self.request_max_retries(),
              base_delay: Duration::from_millis(200),
-+            retry_delay_ms: Some(self.retry_delay_ms.unwrap_or(10_000)),
++            retry_delay_ms: self.retry_delay_ms,
              retry_429: false,
              retry_5xx: true,
              retry_transport: true,
@@ -1829,25 +1839,25 @@ index 96408491631e40298676bb79a6766b79a5abefad..4088f7a23d3e4c2a37a3ceda6c195d6f
          websocket_connect_timeout_ms: None,
          requires_openai_auth: false,
 diff --git a/codex-rs/model-provider-info/src/model_provider_info_tests.rs b/codex-rs/model-provider-info/src/model_provider_info_tests.rs
-index 68b48aadc58475a4fa8c15a04aa651947f87648a..4f2cfaed8f1f9d1c70715addd9bfd354a1d0ba30 100644
+index 68b48aadc58475a4fa8c15a04aa651947f87648a..14fc0da661d8e43c1d716a6594aaf2329495c8ee 100644
 --- a/codex-rs/model-provider-info/src/model_provider_info_tests.rs
 +++ b/codex-rs/model-provider-info/src/model_provider_info_tests.rs
-@@ -5,6 +5,27 @@ use pretty_assertions::assert_eq;
+@@ -5,6 +5,36 @@ use pretty_assertions::assert_eq;
  use std::num::NonZeroU64;
  use tempfile::tempdir;
  
 +#[test]
-+fn retry_configuration_keeps_defaults_and_unlocks_1000() {
++fn retry_configuration_keeps_defaults_and_unlocks_one_million() {
 +    let defaults = ModelProviderInfo::default();
 +    let provider = defaults.to_api_provider(None).unwrap();
-+    assert_eq!(provider.retry.retry_delay_ms, Some(10_000));
++    assert_eq!(provider.retry.retry_delay_ms, None);
 +    for millis in [10_000, -10_000, 0] {
 +        let config = format!(
-+            "retry_delay_ms = {millis}\nrequest_max_retries = 1001\nstream_max_retries = 1001\n"
++            "retry_delay_ms = {millis}\nrequest_max_retries = 1000001\nstream_max_retries = 1000001\n"
 +        );
 +        let info: ModelProviderInfo = toml::from_str(&config).unwrap();
-+        assert_eq!(info.request_max_retries(), 1000);
-+        assert_eq!(info.stream_max_retries(), 1000);
++        assert_eq!(info.request_max_retries(), 1_000_000);
++        assert_eq!(info.stream_max_retries(), 1_000_000);
 +        assert_eq!(
 +            info.to_api_provider(None).unwrap().retry.retry_delay_ms,
 +            Some(millis)
@@ -1855,12 +1865,21 @@ index 68b48aadc58475a4fa8c15a04aa651947f87648a..4f2cfaed8f1f9d1c70715addd9bfd354
 +    }
 +    assert_eq!(defaults.request_max_retries(), DEFAULT_REQUEST_MAX_RETRIES);
 +    assert_eq!(defaults.stream_max_retries(), DEFAULT_STREAM_MAX_RETRIES);
++    for retries in [0, 1001, 999_999, 1_000_000] {
++        let info = ModelProviderInfo {
++            request_max_retries: Some(retries),
++            stream_max_retries: Some(retries),
++            ..Default::default()
++        };
++        assert_eq!(info.request_max_retries(), retries);
++        assert_eq!(info.stream_max_retries(), retries);
++    }
 +}
 +
  #[test]
  fn runtime_internal_metadata_opt_in_is_not_serialized_or_configurable() {
      let trusted = ModelProviderInfo {
-@@ -91,6 +112,7 @@ base_url = "http://localhost:11434/v1"
+@@ -91,6 +121,7 @@ base_url = "http://localhost:11434/v1"
          env_http_headers: None,
          request_max_retries: None,
          stream_max_retries: None,
@@ -1868,7 +1887,7 @@ index 68b48aadc58475a4fa8c15a04aa651947f87648a..4f2cfaed8f1f9d1c70715addd9bfd354
          stream_idle_timeout_ms: None,
          websocket_connect_timeout_ms: None,
          requires_openai_auth: false,
-@@ -133,6 +155,7 @@ query_params = { api-version = "2025-04-01-preview" }
+@@ -133,6 +164,7 @@ query_params = { api-version = "2025-04-01-preview" }
          env_http_headers: None,
          request_max_retries: None,
          stream_max_retries: None,
@@ -1876,7 +1895,7 @@ index 68b48aadc58475a4fa8c15a04aa651947f87648a..4f2cfaed8f1f9d1c70715addd9bfd354
          stream_idle_timeout_ms: None,
          websocket_connect_timeout_ms: None,
          requires_openai_auth: false,
-@@ -179,6 +202,7 @@ supports_standalone_web_search = true
+@@ -179,6 +211,7 @@ supports_standalone_web_search = true
          }),
          request_max_retries: None,
          stream_max_retries: None,
@@ -1884,7 +1903,7 @@ index 68b48aadc58475a4fa8c15a04aa651947f87648a..4f2cfaed8f1f9d1c70715addd9bfd354
          stream_idle_timeout_ms: None,
          websocket_connect_timeout_ms: None,
          requires_openai_auth: false,
-@@ -374,6 +398,7 @@ fn test_create_amazon_bedrock_provider() {
+@@ -374,6 +407,7 @@ fn test_create_amazon_bedrock_provider() {
              env_http_headers: None,
              request_max_retries: None,
              stream_max_retries: None,

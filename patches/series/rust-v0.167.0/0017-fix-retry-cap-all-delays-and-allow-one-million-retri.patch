@@ -1,0 +1,429 @@
+From 4d2a231d2e2b434eff1ffb3a1d9bd20dff7f4a23 Mon Sep 17 00:00:00 2001
+From: owwkmidream <159dreaml@gmail.com>
+Date: Tue, 10 Nov 2026 08:00:34 +0800
+Subject: [PATCH] fix(retry): cap all delays and allow one million retries
+
+---
+ codex-rs/codex-client/src/retry.rs            | 41 ++++++++--------
+ codex-rs/core/config.schema.json              |  2 +-
+ codex-rs/core/src/compact.rs                  | 17 ++++---
+ codex-rs/core/src/responses_retry.rs          | 49 ++++++++++++++-----
+ codex-rs/core/tests/suite/retry_after.rs      | 49 ++++++++++++-------
+ codex-rs/model-provider-info/src/lib.rs       |  8 +--
+ .../src/model_provider_info_tests.rs          | 19 +++++--
+ 7 files changed, 116 insertions(+), 69 deletions(-)
+
+diff --git a/codex-rs/codex-client/src/retry.rs b/codex-rs/codex-client/src/retry.rs
+index f4025e41c2073769b3d41a41dc6a32eb5a36181d..8efba475989b96dae45a6e7dcd4be9e45876b835 100644
+--- a/codex-rs/codex-client/src/retry.rs
++++ b/codex-rs/codex-client/src/retry.rs
+@@ -52,11 +52,14 @@ pub fn backoff(base: Duration, attempt: u64) -> Duration {
+     Duration::from_millis((raw as f64 * jitter) as u64)
+ }
+ 
+-/// 正数优先采用服务端建议；负数固定等待其绝对值，包含 i64::MIN。
+-pub fn configured_retry_delay(millis: i64, server_delay: Option<Duration>) -> Duration {
+-    server_delay
+-        .filter(|_| millis >= 0)
+-        .unwrap_or_else(|| Duration::from_millis(millis.unsigned_abs()))
++/// 非负数限制所有来源的等待上限；负数固定等待绝对值，包含 i64::MIN。
++pub fn configured_retry_delay(millis: i64, original_delay: Duration) -> Duration {
++    let configured = Duration::from_millis(millis.unsigned_abs());
++    if millis < 0 {
++        configured
++    } else {
++        original_delay.min(configured)
++    }
+ }
+ 
+ /// Identifies a retry path and its associated trace-event layer.
+@@ -108,19 +111,15 @@ where
+                     .should_retry(&err, attempt, policy.max_attempts) =>
+             {
+                 let retry_attempt = attempt + 1;
+-                let retry_after = err
+-                    .retry_after()
+-                    .filter(|_| policy.retry_delay_ms.is_none_or(|millis| millis >= 0));
++                let retry_after = err.retry_after();
+                 let delay = retry_after
+                     .map(RetryAfter::remaining_delay)
+-                    .unwrap_or_else(|| {
+-                        policy.retry_delay_ms.map_or_else(
+-                            || backoff(policy.base_delay, retry_attempt),
+-                            |millis| configured_retry_delay(millis, None),
+-                        )
+-                    });
++                    .unwrap_or_else(|| backoff(policy.base_delay, retry_attempt));
++                let delay = policy
++                    .retry_delay_ms
++                    .map_or(delay, |millis| configured_retry_delay(millis, delay));
+                 crate::record_retry!(retry_attempt, delay, RetryOperation::HttpRequest);
+-                if let Some(retry_after) = retry_after {
++                if let Some(retry_after) = retry_after.filter(|_| policy.retry_delay_ms.is_none()) {
+                     tokio::time::sleep_until(retry_after.deadline()).await;
+                 } else {
+                     tokio::time::sleep(delay).await;
+@@ -138,22 +137,22 @@ mod configured_retry_tests {
+ 
+     #[test]
+     fn configured_delay_obeys_sign_and_server_advice() {
+-        let advice = Some(Duration::from_secs(30));
++        let advice = Duration::from_secs(30);
+         assert_eq!(
+             configured_retry_delay(10_000, advice),
+-            Duration::from_secs(30)
++            Duration::from_secs(10)
+         );
+         assert_eq!(
+             configured_retry_delay(-10_000, advice),
+             Duration::from_secs(10)
+         );
+         assert_eq!(
+-            configured_retry_delay(10_000, None),
+-            Duration::from_secs(10)
++            configured_retry_delay(10_000, Duration::from_millis(200)),
++            Duration::from_millis(200)
+         );
+-        assert_eq!(configured_retry_delay(0, None), Duration::ZERO);
++        assert_eq!(configured_retry_delay(0, advice), Duration::ZERO);
+         assert_eq!(
+-            configured_retry_delay(i64::MIN, None),
++            configured_retry_delay(i64::MIN, Duration::ZERO),
+             Duration::from_millis(1_u64 << 63)
+         );
+     }
+diff --git a/codex-rs/core/config.schema.json b/codex-rs/core/config.schema.json
+index ebbaab0364c74b49a5f9458fbeb8c288910cf699..c70f199e82a612f2b7f1ff1802a7d7f379ae2bdb 100644
+--- a/codex-rs/core/config.schema.json
++++ b/codex-rs/core/config.schema.json
+@@ -3181,7 +3181,7 @@
+           "type": "boolean"
+         },
+         "retry_delay_ms": {
+-          "description": "模型重试等待毫秒数，默认 10000；负数忽略服务端建议并取绝对值。",
++          "description": "模型重试等待毫秒数：非负数为等待上限，负数固定等待绝对值；未配置沿用原版策略。",
+           "format": "int64",
+           "type": "integer"
+         },
+diff --git a/codex-rs/core/src/compact.rs b/codex-rs/core/src/compact.rs
+index 92b7c89e84b61e59c59500478168f5501cdb2438..e5677247f6fc7a2405258c7523c09eb5a51e884a 100644
+--- a/codex-rs/core/src/compact.rs
++++ b/codex-rs/core/src/compact.rs
+@@ -25,6 +25,7 @@ use crate::session::step_context::StepContext;
+ use crate::session::turn::get_last_assistant_message_from_turn;
+ use crate::session::turn_context::TurnContext;
+ use crate::state::AutoCompactWindowIds;
++use crate::util::backoff;
+ use codex_analytics::CodexCompactionEvent;
+ use codex_analytics::CompactionImplementation;
+ use codex_analytics::CompactionPhase;
+@@ -374,14 +375,14 @@ async fn run_compact_task_inner_impl(
+             Err(e) => {
+                 if retries < max_retries {
+                     retries += 1;
+-                    let delay = codex_client::configured_retry_delay(
+-                        turn_context
+-                            .provider
+-                            .info()
+-                            .retry_delay_ms
+-                            .unwrap_or(10_000),
+-                        e.server_retry_delay(),
+-                    );
++                    let delay = backoff(retries);
++                    let delay = turn_context
++                        .provider
++                        .info()
++                        .retry_delay_ms
++                        .map_or(delay, |millis| {
++                            codex_client::configured_retry_delay(millis, delay)
++                        });
+                     sess.notify_stream_error(
+                         turn_context.as_ref(),
+                         format!("Reconnecting... {retries}/{max_retries}"),
+diff --git a/codex-rs/core/src/responses_retry.rs b/codex-rs/core/src/responses_retry.rs
+index f78f12cffaaf74d2d62f8c9be552860addc6b10e..35203c94f37c48191ac1008463b772779d699ec1 100644
+--- a/codex-rs/core/src/responses_retry.rs
++++ b/codex-rs/core/src/responses_retry.rs
+@@ -20,16 +20,29 @@ use codex_protocol::protocol::WarningEvent;
+ use tokio::time::Instant;
+ use tracing::warn;
+ 
++const INITIAL_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(5);
++const MAX_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(60);
++
+ #[derive(Debug, Clone, Copy)]
+ pub(crate) enum ResponsesStreamRequest {
+     Sampling,
+     RemoteCompactionV2,
+ }
+ 
+-#[derive(Default)]
+ pub(crate) struct ResponsesStreamRetryState {
+     retries: u64,
+     connection_retries: u64,
++    connection_retry_delay: Duration,
++}
++
++impl Default for ResponsesStreamRetryState {
++    fn default() -> Self {
++        Self {
++            retries: 0,
++            connection_retries: 0,
++            connection_retry_delay: INITIAL_CONNECTION_RETRY_DELAY,
++        }
++    }
+ }
+ 
+ /// Server retry advice retained after stream retries are exhausted. The turn ID
+@@ -73,17 +86,15 @@ pub(crate) async fn handle_response_stream_error(
+         ResponsesStreamRequest::RemoteCompactionV2 => RetryOperation::RemoteCompactionV2,
+     };
+     let retry_count = retry_state.retries.saturating_add(1);
+-    let Some(_) = err.retry_delay(retry_count) else {
++    let Some(delay) = err.retry_delay(retry_count) else {
+         return Err(err);
+     };
+-    let millis = turn_context
+-        .provider
+-        .info()
+-        .retry_delay_ms
+-        .unwrap_or(10_000);
+-    // 同时处理普通重试、传输回退及耗尽后的建议，负数不残留服务端截止时间。
+-    let retry_after = err.retry_after().filter(|_| millis >= 0);
+-    let delay = codex_client::configured_retry_delay(millis, err.server_retry_delay());
++    let millis = turn_context.provider.info().retry_delay_ms;
++    let delay = millis.map_or(delay, |millis| {
++        codex_client::configured_retry_delay(millis, delay)
++    });
++    // 显式配置覆盖所有等待来源，原始服务器截止时间不能绕过上限。
++    let retry_after = err.retry_after().filter(|_| millis.is_none());
+ 
+     if turn_context
+         .config
+@@ -94,7 +105,9 @@ pub(crate) async fn handle_response_stream_error(
+         && !turn_context.session_source.is_internal()
+         && !turn_context.provider.info().is_amazon_bedrock()
+     {
+-        let retry_delay = delay;
++        let retry_delay = millis.map_or(retry_state.connection_retry_delay, |millis| {
++            codex_client::configured_retry_delay(millis, retry_state.connection_retry_delay)
++        });
+         warn!(
+             turn_id = %turn_context.sub_id,
+             error = %err,
+@@ -106,6 +119,10 @@ pub(crate) async fn handle_response_stream_error(
+         retry_state.connection_retries = retry_state.connection_retries.saturating_add(1);
+         codex_client::record_retry!(retry_state.connection_retries, retry_delay, operation);
+         tokio::time::sleep(retry_delay).await;
++        retry_state.connection_retry_delay = retry_state
++            .connection_retry_delay
++            .saturating_mul(2)
++            .min(MAX_CONNECTION_RETRY_DELAY);
+         return Ok(());
+     }
+ 
+@@ -118,7 +135,11 @@ pub(crate) async fn handle_response_stream_error(
+         // 切换传输也采用同一等待配置，避免绕过固定等待或服务端截止时间。
+         if let Some(retry_after) = retry_after {
+             tokio::time::sleep_until(retry_after.deadline()).await;
+-        } else {
++        } else if let Some(millis) = millis {
++            let delay = codex_client::configured_retry_delay(
++                millis,
++                err.server_retry_delay().unwrap_or(Duration::ZERO),
++            );
+             tokio::time::sleep(delay).await;
+         }
+         sess.send_event(
+@@ -164,7 +185,9 @@ pub(crate) async fn handle_response_stream_error(
+         .thread_extension_data
+         .insert(ExhaustedResponseRetry {
+             turn_id: turn_context.sub_id.clone(),
+-            retry_at: retry_after.map(RetryAfter::deadline),
++            retry_at: millis
++                .map(|_| Instant::now() + delay)
++                .or_else(|| retry_after.map(RetryAfter::deadline)),
+         });
+     Err(err)
+ }
+diff --git a/codex-rs/core/tests/suite/retry_after.rs b/codex-rs/core/tests/suite/retry_after.rs
+index b60c1c01796c7faa7f414990bb00135351c184d6..87756da7d74cb5d128b730f19b696d1adb69e5dc 100644
+--- a/codex-rs/core/tests/suite/retry_after.rs
++++ b/codex-rs/core/tests/suite/retry_after.rs
+@@ -275,18 +275,18 @@ async fn wait_for_turn_completion(test: &TestCodex) {
+     assert_eq!(completed.error, None, "turn should complete successfully");
+ }
+ 
+-/// 正数遵从建议，负数在 HTTP 与流重连两层都使用固定等待。
++/// HTTP 与流重连两层均限制建议等待，负数固定等待，零立即重试。
+ #[test_case::test_case(None; "default_advice")]
+ #[test_case::test_case(Some(200); "positive_advice")]
+ #[test_case::test_case(Some(-200); "negative_ignores_advice")]
++#[test_case::test_case(Some(0); "zero_ignores_advice")]
+ #[tokio::test(flavor = "current_thread")]
+ async fn responses_http_uses_retry_after(retry_delay_ms: Option<i64>) -> Result<()> {
+     skip_if_no_network!(Ok(()));
+     let mut telemetry = RetryTelemetryCapture::install();
+     let server = responses::start_mock_server().await;
+-    let fixed = retry_delay_ms.is_some_and(|millis| millis < 0);
+     // 错误地遵从 60 秒建议会触发现有 10 秒测试超时。
+-    let header = if fixed { "60" } else { "1" };
++    let header = if retry_delay_ms.is_some() { "60" } else { "1" };
+     let overload = ResponseTemplate::new(503)
+         .insert_header("Retry-After", header)
+         .set_body_json(json!({ "error": { "code": "server_is_overloaded" } }));
+@@ -314,9 +314,10 @@ async fn responses_http_uses_retry_after(retry_delay_ms: Option<i64>) -> Result<
+     submit_user_input(&test, "retry the upstream overload").await?;
+     for layer in ["http", "stream"] {
+         let retry = telemetry.next_retry().await;
+-        let minimum = if fixed {
+-            assert_eq!(retry.delay, Duration::from_millis(200));
+-            Duration::from_millis(200)
++        let minimum = if let Some(millis) = retry_delay_ms {
++            let expected = Duration::from_millis(millis.unsigned_abs());
++            assert_eq!(retry.delay, expected);
++            expected
+         } else {
+             assert!(retry.delay <= Duration::from_secs(1));
+             Duration::from_secs(1)
+@@ -406,14 +407,18 @@ async fn responses_http_429_uses_retry_after() -> Result<()> {
+ }
+ 
+ /// Check backoff without a live server or tracing events coordinating the retry loop.
++#[test_case::test_case(None; "original_backoff")]
++#[test_case::test_case(Some(100); "capped_backoff")]
++#[test_case::test_case(Some(-300); "fixed_backoff")]
++#[test_case::test_case(Some(0); "immediate_backoff")]
+ #[tokio::test(start_paused = true)]
+-async fn http_retry_backoff_exhausts_attempts() {
++async fn http_retry_backoff_exhausts_attempts(retry_delay_ms: Option<i64>) {
+     let attempts = Mutex::new(Vec::new());
+     let result = run_with_retry(
+         RetryPolicy {
+             max_attempts: 2,
+             base_delay: Duration::from_millis(200),
+-            retry_delay_ms: None,
++            retry_delay_ms,
+             retry_on: RetryOn {
+                 retry_429: false,
+                 retry_5xx: true,
+@@ -450,13 +455,22 @@ async fn http_retry_backoff_exhausts_attempts() {
+             .collect::<Vec<_>>(),
+         vec![0, 1, 2]
+     );
+-    assert!(
+-        (FIRST_RETRY_MIN_DELAY..=FIRST_RETRY_MAX_DELAY).contains(&(attempts[1].1 - attempts[0].1))
+-    );
+-    assert!(
+-        (SECOND_RETRY_MIN_DELAY..=SECOND_RETRY_MAX_DELAY)
+-            .contains(&(attempts[2].1 - attempts[1].1))
+-    );
++    if let Some(millis) = retry_delay_ms {
++        let expected = Duration::from_millis(millis.unsigned_abs());
++        for pair in attempts.windows(2) {
++            let elapsed = pair[1].1 - pair[0].1;
++            assert!((expected..=expected + Duration::from_millis(1)).contains(&elapsed));
++        }
++    } else {
++        assert!(
++            (FIRST_RETRY_MIN_DELAY..=FIRST_RETRY_MAX_DELAY)
++                .contains(&(attempts[1].1 - attempts[0].1))
++        );
++        assert!(
++            (SECOND_RETRY_MIN_DELAY..=SECOND_RETRY_MAX_DELAY)
++                .contains(&(attempts[2].1 - attempts[1].1))
++        );
++    }
+ }
+ 
+ /// Exhausting HTTP retries and mapping the error preserve the last server deadline.
+@@ -1723,9 +1737,10 @@ async fn websocket_failed_event_uses_header_over_plaintext_retry_after() -> Resu
+ }
+ 
+ /// WebSocket 耗尽预算后的 HTTP 回退也遵从有符号等待配置。
+-#[test_case::test_case(Some("1"), 200, 2000; "server_advice")]
+-#[test_case::test_case(None, 200, 400; "without_advice")]
++#[test_case::test_case(Some("60"), 200, 400; "server_advice")]
++#[test_case::test_case(None, 200, 200; "without_advice")]
+ #[test_case::test_case(Some("60"), -200, 400; "negative_ignores_advice")]
++#[test_case::test_case(Some("60"), 0, 0; "zero_ignores_advice")]
+ #[tokio::test(flavor = "current_thread")]
+ async fn websocket_upgrade_rejection_uses_retry_after(
+     header: Option<&str>,
+diff --git a/codex-rs/model-provider-info/src/lib.rs b/codex-rs/model-provider-info/src/lib.rs
+index 4088f7a23d3e4c2a37a3ceda6c195d6f2c36b467..b8eb18c158f8f5e9bef8c892a2bce8bb0f5f8146 100644
+--- a/codex-rs/model-provider-info/src/lib.rs
++++ b/codex-rs/model-provider-info/src/lib.rs
+@@ -76,9 +76,9 @@ const DEFAULT_AWS_CREDENTIAL_EXPORT_TIMEOUT_MS: u64 = 30_000;
+ const DEFAULT_AWS_AUTH_REFRESH_TIMEOUT_MS: u64 = 300_000;
+ pub const DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS: u64 = 15_000;
+ /// Hard cap for user-configured `stream_max_retries`.
+-const MAX_STREAM_MAX_RETRIES: u64 = 1000;
++const MAX_STREAM_MAX_RETRIES: u64 = 1_000_000;
+ /// Hard cap for user-configured `request_max_retries`.
+-const MAX_REQUEST_MAX_RETRIES: u64 = 1000;
++const MAX_REQUEST_MAX_RETRIES: u64 = 1_000_000;
+ 
+ const OPENAI_PROVIDER_NAME: &str = "OpenAI";
+ const OPENAI_ACTOR_AUTHORIZATION_HEADER: &str = "x-openai-actor-authorization";
+@@ -209,7 +209,7 @@ pub struct ModelProviderInfo {
+     pub request_max_retries: Option<u64>,
+     /// Number of times to retry reconnecting a dropped streaming response before failing.
+     pub stream_max_retries: Option<u64>,
+-    /// 模型重试等待毫秒数，默认 10000；负数忽略服务端建议并取绝对值。
++    /// 模型重试等待毫秒数：非负数为等待上限，负数固定等待绝对值；未配置沿用原版策略。
+     pub retry_delay_ms: Option<i64>,
+     /// Idle timeout (in milliseconds) to wait for activity on a streaming response before treating
+     /// the connection as lost.
+@@ -498,7 +498,7 @@ other non-default provider fields are not supported"
+         let retry = ApiRetryConfig {
+             max_attempts: self.request_max_retries(),
+             base_delay: Duration::from_millis(200),
+-            retry_delay_ms: Some(self.retry_delay_ms.unwrap_or(10_000)),
++            retry_delay_ms: self.retry_delay_ms,
+             retry_429: false,
+             retry_5xx: true,
+             retry_transport: true,
+diff --git a/codex-rs/model-provider-info/src/model_provider_info_tests.rs b/codex-rs/model-provider-info/src/model_provider_info_tests.rs
+index 4f2cfaed8f1f9d1c70715addd9bfd354a1d0ba30..14fc0da661d8e43c1d716a6594aaf2329495c8ee 100644
+--- a/codex-rs/model-provider-info/src/model_provider_info_tests.rs
++++ b/codex-rs/model-provider-info/src/model_provider_info_tests.rs
+@@ -6,17 +6,17 @@ use std::num::NonZeroU64;
+ use tempfile::tempdir;
+ 
+ #[test]
+-fn retry_configuration_keeps_defaults_and_unlocks_1000() {
++fn retry_configuration_keeps_defaults_and_unlocks_one_million() {
+     let defaults = ModelProviderInfo::default();
+     let provider = defaults.to_api_provider(None).unwrap();
+-    assert_eq!(provider.retry.retry_delay_ms, Some(10_000));
++    assert_eq!(provider.retry.retry_delay_ms, None);
+     for millis in [10_000, -10_000, 0] {
+         let config = format!(
+-            "retry_delay_ms = {millis}\nrequest_max_retries = 1001\nstream_max_retries = 1001\n"
++            "retry_delay_ms = {millis}\nrequest_max_retries = 1000001\nstream_max_retries = 1000001\n"
+         );
+         let info: ModelProviderInfo = toml::from_str(&config).unwrap();
+-        assert_eq!(info.request_max_retries(), 1000);
+-        assert_eq!(info.stream_max_retries(), 1000);
++        assert_eq!(info.request_max_retries(), 1_000_000);
++        assert_eq!(info.stream_max_retries(), 1_000_000);
+         assert_eq!(
+             info.to_api_provider(None).unwrap().retry.retry_delay_ms,
+             Some(millis)
+@@ -24,6 +24,15 @@ fn retry_configuration_keeps_defaults_and_unlocks_1000() {
+     }
+     assert_eq!(defaults.request_max_retries(), DEFAULT_REQUEST_MAX_RETRIES);
+     assert_eq!(defaults.stream_max_retries(), DEFAULT_STREAM_MAX_RETRIES);
++    for retries in [0, 1001, 999_999, 1_000_000] {
++        let info = ModelProviderInfo {
++            request_max_retries: Some(retries),
++            stream_max_retries: Some(retries),
++            ..Default::default()
++        };
++        assert_eq!(info.request_max_retries(), retries);
++        assert_eq!(info.stream_max_retries(), retries);
++    }
+ }
+ 
+ #[test]
