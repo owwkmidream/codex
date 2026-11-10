@@ -56,7 +56,7 @@ case "$action" in
 esac
 
 for tool in node curl cygpath sha256sum tar.exe powershell.exe; do command -v "$tool" >/dev/null || fail "缺少命令：$tool"; done
-[[ $(node -p 'process.platform+"/"+process.arch') == win32/x64 ]] || fail '需要 Windows x64 Node.js。'
+node -e 'if(process.platform!=="win32"||process.arch!=="x64")process.exit(1)' || fail '需要 Windows x64 Node.js。'
 archive_tool="$(cygpath -u "$SYSTEMROOT")/System32/tar.exe"
 [[ -f "$archive_tool" ]] || fail '缺少 Windows 系统 tar.exe。'
 npm_cmd=$(command -v npm.cmd) || fail '找不到 npm.cmd，请先安装 Node.js/npm 和 Codex。'
