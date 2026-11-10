@@ -83,6 +83,14 @@ gh run view RUN_ID --log-failed
 - 24 个 series 补丁在官方提交 `086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a` 的干净 worktree 重放，与 `56acf58` 对照无差异；合并补丁在独立 index 重放，与该源码对照通过。rustfmt 1.95.0 与源码空白检查通过。
 - 未在本机运行 Cargo 构建或测试；推送后以 `tag=rust-v0.167.0`、`force=true` 启动新 dispatch。状态为“实现已提交，集成验证未完成”。
 
+## 远程压缩 HTTP 首次重试断言修复：0025
+
+- 源码提交 `8cbabb2`：`compact_v2_overload_without_retry_after_exhausts_request_retries` 首次等待改用 180～200ms 范围断言；第二次原退避为 360～440ms，Capped 后仍精确断言 200ms。保留两次重试、四次请求及终止错误检查。
+- 失败证据：[CI 42889615709](https://github.com/owwkmidream/codex/actions/runs/42889615709)，维护提交 `d6906b5`。重试集成 46 项通过、1 项失败，首次实际 188ms 与固定 200ms 断言不符；0024 的两个用例通过，后续 TUI 回归未执行。诊断时 build 仍运行中。
+- 核对本文件剩余 200ms 等值断言：第二次 HTTP 退避和网络重连原等待均高于上限，保留等值检查；带服务器建议、固定及零等待路径保留对应检查。
+- 在上一轮从官方基线重放的干净 worktree 追加 0025 后，完整 25 个 series 的最终源码与 `8cbabb2` 对照无差异；合并补丁在官方基线独立 index 重放，对照通过。rustfmt 1.95.0 与源码空白检查通过。
+- 未在本机运行 Cargo 构建或测试；推送后新 dispatch 验证。状态为“实现已提交，集成验证未完成”。
+
 ## 验收缺口
 
 - `0017` 需实际成功的 build/test；完成前状态为“实现已提交，集成验证未完成”。

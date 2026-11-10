@@ -1286,7 +1286,7 @@ index c48ae764020676c93c8eb6e5d283d273a4b22143..992be34a44524ee38910445a9c9f648b
          websocket_connect_timeout_ms,
          requires_openai_auth: false,
 diff --git a/codex-rs/core/tests/suite/retry_after.rs b/codex-rs/core/tests/suite/retry_after.rs
-index 81bc8bc349cbae00373dff817b269dde3e3e4443..ab34cd7626efae5d25cd11875948aeb31cd5cead 100644
+index 81bc8bc349cbae00373dff817b269dde3e3e4443..fd4b507c6fdb97ce423951b48e9828252da1db3d 100644
 --- a/codex-rs/core/tests/suite/retry_after.rs
 +++ b/codex-rs/core/tests/suite/retry_after.rs
 @@ -50,6 +50,14 @@ const FIRST_RETRY_MAX_DELAY: Duration = Duration::from_millis(220);
@@ -1569,7 +1569,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..ab34cd7626efae5d25cd11875948aeb3
      test.codex.submit(Op::Compact).await?;
      let first_retry = telemetry.next_retry().await;
 -    assert!((FIRST_RETRY_MIN_DELAY..FIRST_RETRY_MAX_DELAY).contains(&first_retry.delay));
-+    assert_eq!(first_retry.delay, Duration::from_millis(200));
++    assert_capped_first_retry_delay(first_retry.delay);
      assert_eq!(
          first_retry,
          RetryTelemetryEvent {

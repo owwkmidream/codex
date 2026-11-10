@@ -1,0 +1,22 @@
+From 8cbabb24aa99ed222476ab4d1810b7ce332639a5 Mon Sep 17 00:00:00 2001
+From: owwkmidream <159dreaml@gmail.com>
+Date: Wed, 11 Nov 2026 05:39:34 +0800
+Subject: [PATCH] test: accept capped jitter on compaction HTTP first retry
+
+---
+ codex-rs/core/tests/suite/retry_after.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/codex-rs/core/tests/suite/retry_after.rs b/codex-rs/core/tests/suite/retry_after.rs
+index ab34cd7626efae5d25cd11875948aeb31cd5cead..fd4b507c6fdb97ce423951b48e9828252da1db3d 100644
+--- a/codex-rs/core/tests/suite/retry_after.rs
++++ b/codex-rs/core/tests/suite/retry_after.rs
+@@ -1013,7 +1013,7 @@ async fn compact_v2_overload_without_retry_after_exhausts_request_retries() -> R
+ 
+     test.codex.submit(Op::Compact).await?;
+     let first_retry = telemetry.next_retry().await;
+-    assert_eq!(first_retry.delay, Duration::from_millis(200));
++    assert_capped_first_retry_delay(first_retry.delay);
+     assert_eq!(
+         first_retry,
+         RetryTelemetryEvent {
