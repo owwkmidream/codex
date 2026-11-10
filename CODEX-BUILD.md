@@ -51,7 +51,7 @@ Ctrl+C 复制；Enter 复制并跟随最新输出；Space 引用不写入剪贴�
 
 ## 安装与 daemon 更新
 
-推荐使用 [scripts/README.md](scripts/README.md) 的安装、恢复和状态命令。本机部署由用户发起。手动安装：
+推荐在 Git Bash 使用单文件脚本 `bash scripts/codex-patch.sh`，安装和还原均匹配已有 npm 包版本；参数、摘要识别及 daemon 行为见 [scripts/README.md](scripts/README.md)。本机部署由用户发起。手动安装：
 
 1. 下载 Release zip，核对其中 `BUILD-INFO.txt` 的 `upstream_tag`、`patch_baseline` 和 `patch_is_exact`。
 2. 安装同版本完整 npm 包，例如 `npm install -g @openai/codex@0.167.0`，使辅助程序匹配。

@@ -1,61 +1,43 @@
-# Windows 补丁管理
+# Windows 二进制补丁管理
 
-在独立的普通用户终端运行，先退出正在使用目标文件的 Codex CLI。需要 Windows x64、x64 Node.js/npm，以及 GitHub/npm 网络访问。脚本针对当前 `npm root -g` 对应的安装，支持 Windows PowerShell 5.1 和 PowerShell 7。
+在普通用户的 Windows x64 Git Bash 中执行。需要已安装 x64 Node.js/npm 和 Codex，以及 Git Bash 的 curl、sha256sum、cygpath 和系统 tar.exe、PowerShell。交付入口只有 `codex-patch.sh`，不依赖旁边的 PowerShell 脚本。
 
-双击 `codex-patch.bat` 打开菜单；也可在 PowerShell 中执行：
-
-```powershell
-.\scripts\codex-patch.ps1 -Action Install
+```bash
+bash scripts/codex-patch.sh                 # 交互菜单
+bash scripts/codex-patch.sh install --yes   # 安装当前 npm 包版本对应的补丁
+bash scripts/codex-patch.sh restore --yes   # 还原同版本官方二进制
+bash scripts/codex-patch.sh status          # 查看 CLI/daemon 来源与状态
+bash scripts/codex-patch.sh sync --yes      # 将当前 CLI 同步给 daemon
 ```
 
-| 操作 | 命令参数 | 结果 |
-|---|---|---|
-| 安装或更新补丁 | `-Action Install` | 下载本仓库最新已发布正式 Release，下载 npm 同版本完整包，替换 CLI 并同步 daemon。 |
-| 指定补丁版本 | `-Action Install -Version 0.167.0` | 使用指定版本，尚未发布则在替换前报错。 |
-| 卸载补丁、恢复官方最新版 | `-Action Official` 或 `-Action Uninstall` | 从 npm 下载完整官方最新版，同时替换 CLI 和 daemon；保留 Codex、配置和会话数据。 |
-| 查看本地备份 | `-Action Backups` | 列出备份编号、CLI 版本及原 daemon 运行状态。 |
-| 恢复备份 | `-Action Restore -BackupId 备份编号` | 分别恢复 CLI 和 daemon 的原完整包；省略编号则使用最近一个含 CLI 的备份。 |
-| 查看状态 | `-Action Status` | 显示版本、路径、来源、磁盘文件一致性、daemon 状态及自动更新开关。 |
-| 核验手动安装的补丁 | `-Action Status -VerifyRelease` | 下载各自版本的 Release，按实际文件内容核验。 |
-| 只同步 daemon | `-Action Sync` | 将当前 CLI 完整包复制并固定给 daemon。 |
+省略 `--yes` 时，修改操作先请求确认。操作前关闭使用目标文件的其他 CLI 会话。脚本显示当前步骤、查询命令和下载进度，查询超时 120 秒、下载超时 600 秒。
 
-上述参数同样可传给 `.bat`。自动化执行时追加 `-Yes` 跳过确认，例如：
+## 四项操作
 
-```powershell
-.\scripts\codex-patch.bat -Action Install -Yes
-```
+- **install**：按已安装 npm 包版本下载对应 Release；缺少补丁或摘要则提示退出。校验 SHA-256 和版本后只替换 exe，自动执行 `daemon update --from-cli --yes`；不下载官方包。
+- **restore**：通过 npm HTTP 元数据下载同版本 Windows 平台包，校验包的 SHA-512 integrity，提取并替换官方 exe。随后执行 `daemon update` 恢复官方更新通道；daemon 的官方通道版本可能与 CLI 不同。
+- **status**：只下载对应版本的 `binary-hashes.json`，计算已有本地文件的 hash，识别官方版、补丁版或未知；不会为了识别而下载二进制。
+- **sync**：独立执行 from-cli 同步；安装流程也包含此操作。
 
-## 安装、备份与更新行为
+安装和同步通过 from-cli 固定 daemon 包；恢复官方更新使用上游命令，不直接编辑自动更新设置。各操作保留 daemon 原运行/停止状态；首次创建管理包时可能短暂启动。
 
-“最新补丁”取 GitHub 已发布的 Release，可能落后于 npm，也可能低于当前 CLI 版本；执行前会展示目标版本。脚本先下载、解包并核对版本，再开始修改现有安装。GitHub 提供下载摘要时同时验证 SHA256。
+## 文件与失败处理
 
-npm 官方包在空的临时前缀下载，随后将完整包和 npm 生成的启动入口复制到当前 npm 前缀。这样恢复同版本官方包时也会覆盖已修改的文件，并保持辅助程序匹配。
+脚本只管理当前 npm 环境的既有安装，版本升级通过 npm 完成。保留启动入口、辅助程序、配置及会话；不创建备份，不支持指定版本或备份恢复。历史 `.ps1`/`.bat` 保留兼容，其备份式流程与本脚本不同。
 
-每次修改前备份完整 CLI 包、npm 启动入口和 daemon 包。默认保存在 `$CODEX_HOME/patch-manager/backups`；未设置 `CODEX_HOME` 时使用用户目录的 `.codex`。可用 `-StateDirectory` 改变管理数据目录。备份保留原样，可手动清理不再需要的备份；本次下载目录执行结束后自动清理。
+下载、摘要及版本校验完成后，先在目标目录准备文件，再替换 exe。下载或校验失败不修改安装；替换后同步失败会返回错误并指出阶段，此时重新运行 sync，或用 restore 恢复官方版。不自动回滚二进制。
 
-同步统一调用 `daemon update --from-cli --yes`，关闭 `updater.autoUpdateEnabled` 并固定本地包。**恢复官方版或备份后，自动更新也保持关闭**。daemon 原来运行则恢复运行，原来停止则保持停止；首次建立包时可能短暂启动后停止。需要恢复官方生产更新通道时，按 [CODEX-BUILD.md](../CODEX-BUILD.md) 的 daemon 更新说明处理。
+## Release 摘要
 
-发生错误时尝试从操作前备份回滚；错误会返回非零退出码。若回滚未完成，使用错误中给出的备份编号执行 `Restore`。首次安装之前没有旧 CLI 时，备份不包含可恢复的软件包，可用 `Official` 重新安装官方版。切换 Node/npm 环境后，需要切回备份所属的 npm root 才能恢复。
-
-## 状态的含义
-
-“已确认补丁版”表示与从本仓库 Release 下载并登记的二进制内容一致；“已登记 npm 官方版”表示与本脚本下载的 npm 二进制一致。已有文件未登记时显示“未知”，可用 `-VerifyRelease` 核验；仅凭相同版本号无法识别补丁。
-
-“磁盘文件一致”比较 CLI 和 daemon 文件内容。运行中的 daemon 是否已加载新文件，还需结合运行版本及最近同步/重启结果；同版本手动替换文件后应重新同步。
-
-## 脚本格式
-
-- `.bat`、`.cmd`：由 Windows `cmd.exe` 执行的批处理。这里的 `.bat` 只负责启动 PowerShell 菜单。
-- `.ps1`：PowerShell 脚本，适合处理 JSON、网络下载、文件和进程。本实现的逻辑位于此文件。
-- `.sh`：通常由 `sh`/Bash 执行。PowerShell 可以调用已安装的 Git Bash，例如 `bash ./script.sh`，或 WSL，例如 `wsl bash ./script.sh`；脚本仍由 Bash 解释，路径和可用命令取决于该环境。
-
-`.bat` 优先调用 PowerShell 7，未安装时使用 Windows PowerShell 5.1；其 `ExecutionPolicy Bypass` 仅用于本次启动，不修改系统执行策略。
+CI 校验 npm 平台包 integrity 后计算官方 exe SHA-256，并与构建出的补丁 exe SHA-256 一起发布为独立 `binary-hashes.json` 附件，含 version、target、official_sha256、patched_sha256。历史 Release 尚无摘要时状态显示未知，安装提示缺少摘要；还原不依赖 Release。
 
 ## 开发验证
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/tests/codex-patch.Tests.ps1
-pwsh.exe -NoProfile -File scripts/tests/codex-patch.Tests.ps1
+在 Windows CI 的 Git Bash 执行隔离回归：
+
+```bash
+bash -n scripts/codex-patch.sh
+bash scripts/tests/codex-patch-shell.Tests.sh
 ```
 
-测试使用临时 npm/daemon/HTTP 替身，覆盖完整包备份、独立恢复、同版本官方恢复、失败回滚、下载摘要和路径边界；不会安装或重启本机 Codex。
+fixture 覆盖查询反馈、空格路径、失败退出、摘要分类、错误版本拒绝，以及真实 main 的安装/还原文件替换、daemon 运行状态保持和状态查询流量；网络和 daemon 使用替身，不修改真实安装。真实环境仍需用户部署验收。

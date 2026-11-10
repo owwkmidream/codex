@@ -35,6 +35,17 @@ env:
   BINARY: codex
 
 jobs:
+  script-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bash 管理脚本隔离回归
+        shell: bash
+        timeout-minutes: 1
+        run: |
+          bash -n scripts/codex-patch.sh
+          bash scripts/tests/codex-patch-shell.Tests.sh
+
   # ── 阶段 1：确定目标 tag，并检查是否已构建过 ────────────────────────
   resolve:
     runs-on: ubuntu-latest
@@ -572,10 +583,41 @@ jobs:
           git -C .. diff --binary --full-index "${tag}" HEAD -- . ':!codex-rs/Cargo.lock' > dist/codex-cli.patch
           cd dist && 7z a -tzip "../codex-${tag}-windows-x64.zip" ./
 
+      - name: 发布用二进制摘要
+        working-directory: upstream/codex-rs
+        shell: bash
+        env:
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          python - <<'PY'
+          import base64, hashlib, io, json, os, pathlib, tarfile, urllib.request
+          version = os.environ['TAG'].removeprefix('rust-v')
+          target = 'x86_64-pc-windows-msvc'
+          url = f'https://registry.npmjs.org/@openai/codex/{version}-win32-x64'
+          with urllib.request.urlopen(url, timeout=60) as response:
+              metadata = json.load(response)
+          dist = metadata['dist']
+          if not dist['tarball'].startswith('https://registry.npmjs.org/'):
+              raise RuntimeError('Unexpected npm tarball URL')
+          with urllib.request.urlopen(dist['tarball'], timeout=120) as response:
+              archive = response.read()
+          algorithm, expected = dist['integrity'].split('-', 1)
+          if algorithm != 'sha512' or base64.b64encode(hashlib.sha512(archive).digest()).decode() != expected:
+              raise RuntimeError('npm integrity mismatch')
+          with tarfile.open(fileobj=io.BytesIO(archive), mode='r:gz') as package:
+              official = package.extractfile(f'package/vendor/{target}/bin/codex.exe').read()
+          manifest = dict(version=version, target=target,
+                          official_sha256=hashlib.sha256(official).hexdigest(),
+                          patched_sha256=hashlib.sha256(pathlib.Path('dist/codex.exe').read_bytes()).hexdigest())
+          pathlib.Path('binary-hashes.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+          PY
+
       - uses: actions/upload-artifact@v4
         with:
           name: codex-windows-x64
-          path: upstream/codex-rs/codex-*.zip
+          path: |
+            upstream/codex-rs/codex-*.zip
+            upstream/codex-rs/binary-hashes.json
 
   # ── 阶段 3b：并行回归本地文件链接 ─────────────────────────────────
   # 与 release 构建并行，避免把测试时间串到 1 小时以上的构建之后。
@@ -711,7 +753,7 @@ jobs:
 
   # ── 阶段 4：发 Release 并记录已构建 tag ───────────────────────────
   release:
-    needs: [resolve, build, test]
+    needs: [resolve, build, test, script-test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -736,6 +778,7 @@ jobs:
           ### 下载与安装
 
           下载本页 zip，内含 `codex.exe`、`BUILD-INFO.txt` 和实际应用的 `codex-cli.patch`。
+          独立附件 `binary-hashes.json` 提供同版本官方与补丁二进制的 SHA-256，状态检查无需下载 zip。
 
           安装前核对 `BUILD-INFO.txt` 的 `upstream_tag`、`patch_baseline` 和 `patch_is_exact`。补丁可能由其他基线迁移，实际差异以 zip 内补丁为准。
 
