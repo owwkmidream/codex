@@ -3897,7 +3897,7 @@ index ef5954a853e340b35fc1bf3470c495af1091cf06..b7111faff605f2ea5617a1e203e728cf
  
      pub(super) fn on_rate_limit_error(&mut self, error_kind: RateLimitErrorKind, message: String) {
 diff --git a/codex-rs/tui/src/config_panel/config_panel_tests.rs b/codex-rs/tui/src/config_panel/config_panel_tests.rs
-index 32e1c67c9f1224d03604ffeaa36ed321735e5d50..6a5244a84fd0e20851f6459ec903011255cd0678 100644
+index 32e1c67c9f1224d03604ffeaa36ed321735e5d50..532cefe6dd1122c6a8e6e732fbb442d0b82f3cec 100644
 --- a/codex-rs/tui/src/config_panel/config_panel_tests.rs
 +++ b/codex-rs/tui/src/config_panel/config_panel_tests.rs
 @@ -27,6 +27,7 @@ const STATUS: ConfigPanelStatus = ConfigPanelStatus {
@@ -3920,7 +3920,7 @@ index 32e1c67c9f1224d03604ffeaa36ed321735e5d50..6a5244a84fd0e20851f6459ec9030112
          assert_eq!(panel.picker.active_tab_id(), Some(section.title()));
          assert_eq!(panel.desired_height(/*width*/ 140), height);
          let narrow_height = panel.desired_height(/*width*/ 50);
-@@ -88,6 +92,91 @@ fn config_panel_renders_each_group_at_a_stable_height() {
+@@ -88,6 +92,92 @@ fn config_panel_renders_each_group_at_a_stable_height() {
      }
  }
  
@@ -3996,15 +3996,16 @@ index 32e1c67c9f1224d03604ffeaa36ed321735e5d50..6a5244a84fd0e20851f6459ec9030112
 +        for _ in 0..5 {
 +            panel.handle_key_event(KeyCode::Right.into());
 +        }
-+        panel.handle_key_event(KeyCode::Down.into());
-+        panel.handle_key_event(KeyCode::Enter.into());
-+        assert!(rx.try_recv().is_err());
 +        assert!(render(&panel, 140).contains("Use a custom provider"));
-+        panel.handle_key_event(KeyCode::Up.into());
++        // 禁用行会被键盘导航跳过，向下后仍可打开 Delay 编辑器。
++        panel.handle_key_event(KeyCode::Down.into());
 +        panel.handle_key_event(KeyCode::Enter.into());
 +        assert!(matches!(
 +            rx.try_recv().unwrap(),
-+            AppEvent::OpenConfigEditor(_)
++            AppEvent::OpenConfigEditor(ConfigEditorHandoff {
++                editor: ConfigEditor::RetryDelayMode,
++                ..
++            })
 +        ));
 +    }
 +}

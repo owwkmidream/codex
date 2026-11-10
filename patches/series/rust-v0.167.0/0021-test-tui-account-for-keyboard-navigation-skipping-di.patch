@@ -1,0 +1,36 @@
+From 2361d1fd54492a8f25aa4fdf7612652cdb84f974 Mon Sep 17 00:00:00 2001
+From: owwkmidream <159dreaml@gmail.com>
+Date: Tue, 10 Nov 2026 13:08:31 +0800
+Subject: [PATCH] test(tui): account for keyboard navigation skipping disabled
+ retry rows
+
+---
+ codex-rs/tui/src/config_panel/config_panel_tests.rs | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/codex-rs/tui/src/config_panel/config_panel_tests.rs b/codex-rs/tui/src/config_panel/config_panel_tests.rs
+index 6a5244a84fd0e20851f6459ec903011255cd0678..532cefe6dd1122c6a8e6e732fbb442d0b82f3cec 100644
+--- a/codex-rs/tui/src/config_panel/config_panel_tests.rs
++++ b/codex-rs/tui/src/config_panel/config_panel_tests.rs
+@@ -164,15 +164,16 @@ fn builtin_stream_retries_are_unavailable_while_delay_remains_editable() {
+         for _ in 0..5 {
+             panel.handle_key_event(KeyCode::Right.into());
+         }
+-        panel.handle_key_event(KeyCode::Down.into());
+-        panel.handle_key_event(KeyCode::Enter.into());
+-        assert!(rx.try_recv().is_err());
+         assert!(render(&panel, 140).contains("Use a custom provider"));
+-        panel.handle_key_event(KeyCode::Up.into());
++        // 禁用行会被键盘导航跳过，向下后仍可打开 Delay 编辑器。
++        panel.handle_key_event(KeyCode::Down.into());
+         panel.handle_key_event(KeyCode::Enter.into());
+         assert!(matches!(
+             rx.try_recv().unwrap(),
+-            AppEvent::OpenConfigEditor(_)
++            AppEvent::OpenConfigEditor(ConfigEditorHandoff {
++                editor: ConfigEditor::RetryDelayMode,
++                ..
++            })
+         ));
+     }
+ }
