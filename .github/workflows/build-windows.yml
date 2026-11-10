@@ -702,7 +702,9 @@ jobs:
           export STABLE_GIT_COMMIT="$(git rev-parse HEAD)"
           rustfmt --edition 2024 --check codex-client/src/retry.rs \
             model-provider-info/src/lib.rs model-provider-info/src/model_provider_info_tests.rs \
-            core/src/compact.rs core/src/responses_retry.rs core/tests/suite/retry_after.rs
+            core/src/compact.rs core/src/responses_retry.rs core/tests/suite/retry_after.rs \
+            core/tests/suite/client.rs core/tests/suite/client_websockets.rs \
+            core/tests/suite/stream_error_allows_next_turn.rs core/tests/suite/stream_no_completed.rs
           cargo test --locked --profile ci-test -p codex-client --lib configured_retry_tests
           cargo test --locked --profile ci-test -p codex-model-provider-info --lib retry_configuration
           cargo test --locked --profile ci-test -p codex-core --lib responses_retry::tests

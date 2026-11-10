@@ -31,6 +31,13 @@ gh run view RUN_ID
 gh run view RUN_ID --log-failed
 ```
 
+## 集成测试构造方修复：0018
+
+- 源码提交 `88d27c0`；补齐 4 个 core 集成测试文件中 7 处 `ModelProviderInfo` 的 `retry_delay_ms: None`，保持未配置时的官方等待策略。
+- [CI 42730102080](https://github.com/owwkmidream/codex/actions/runs/42730102080)：build 成功；test 在 `cargo test --locked --profile ci-test -p codex-core --test all retry_after::` 编译阶段报 7 处 E0063，release 跳过。重试单元测试通过，集成及后续 TUI 回归未完成。
+- 18 个 series 补丁已在官方提交 `086ccc8` 的干净 worktree 重放，与源码提交对照无差异；合并补丁在独立 index 重放，对照同样通过。
+- CI 格式检查加入这 4 个受影响测试文件；本机未运行 Rust 编译或测试。修复仍需新 CI 验证，状态为“实现已提交，集成验证未完成”。
+
 ## 验收缺口
 
 - `0017` 需实际成功的 build/test；完成前状态为“实现已提交，集成验证未完成”。

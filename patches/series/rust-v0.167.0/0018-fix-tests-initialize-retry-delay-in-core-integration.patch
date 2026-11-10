@@ -1,0 +1,85 @@
+From 88d27c0cc6eb8698df82d6ea3d5ab16d24168ba1 Mon Sep 17 00:00:00 2001
+From: owwkmidream <159dreaml@gmail.com>
+Date: Tue, 10 Nov 2026 11:24:45 +0800
+Subject: [PATCH] fix(tests): initialize retry delay in core integration
+ providers
+
+---
+ codex-rs/core/tests/suite/client.rs                        | 4 ++++
+ codex-rs/core/tests/suite/client_websockets.rs             | 1 +
+ codex-rs/core/tests/suite/stream_error_allows_next_turn.rs | 1 +
+ codex-rs/core/tests/suite/stream_no_completed.rs           | 1 +
+ 4 files changed, 7 insertions(+)
+
+diff --git a/codex-rs/core/tests/suite/client.rs b/codex-rs/core/tests/suite/client.rs
+index 630c5153842dd89f702c18beb28fd843f9cf7292..80afdaec234cfa4952291c9f4e9e4e33081ea1ac 100644
+--- a/codex-rs/core/tests/suite/client.rs
++++ b/codex-rs/core/tests/suite/client.rs
+@@ -1780,6 +1780,7 @@ async fn send_provider_auth_request(server: &MockServer, auth: ModelProviderAuth
+         env_http_headers: None,
+         request_max_retries: Some(0),
+         stream_max_retries: Some(0),
++        retry_delay_ms: None,
+         stream_idle_timeout_ms: Some(5_000),
+         websocket_connect_timeout_ms: None,
+         requires_openai_auth: false,
+@@ -3289,6 +3290,7 @@ async fn azure_responses_request_does_not_store_and_preserves_prefixed_item_ids(
+         env_http_headers: None,
+         request_max_retries: Some(0),
+         stream_max_retries: Some(0),
++        retry_delay_ms: None,
+         stream_idle_timeout_ms: Some(5_000),
+         websocket_connect_timeout_ms: None,
+         requires_openai_auth: false,
+@@ -4141,6 +4143,7 @@ async fn azure_overrides_assign_properties_used_for_responses_url() {
+         env_http_headers: None,
+         request_max_retries: None,
+         stream_max_retries: None,
++        retry_delay_ms: None,
+         stream_idle_timeout_ms: None,
+         websocket_connect_timeout_ms: None,
+         requires_openai_auth: false,
+@@ -4232,6 +4235,7 @@ async fn env_var_overrides_loaded_auth() {
+         env_http_headers: None,
+         request_max_retries: None,
+         stream_max_retries: None,
++        retry_delay_ms: None,
+         stream_idle_timeout_ms: None,
+         websocket_connect_timeout_ms: None,
+         requires_openai_auth: false,
+diff --git a/codex-rs/core/tests/suite/client_websockets.rs b/codex-rs/core/tests/suite/client_websockets.rs
+index c48ae764020676c93c8eb6e5d283d273a4b22143..992be34a44524ee38910445a9c9f648b6fc37661 100755
+--- a/codex-rs/core/tests/suite/client_websockets.rs
++++ b/codex-rs/core/tests/suite/client_websockets.rs
+@@ -2730,6 +2730,7 @@ fn websocket_provider_with_connect_timeout(
+         env_http_headers: None,
+         request_max_retries: Some(0),
+         stream_max_retries: Some(0),
++        retry_delay_ms: None,
+         stream_idle_timeout_ms: Some(5_000),
+         websocket_connect_timeout_ms,
+         requires_openai_auth: false,
+diff --git a/codex-rs/core/tests/suite/stream_error_allows_next_turn.rs b/codex-rs/core/tests/suite/stream_error_allows_next_turn.rs
+index 033c291f6d02cdcff1db19472d13f6d6b9fa6eea..79f986b1d47fa970fea2739e1c8ae02e5cd62ad9 100644
+--- a/codex-rs/core/tests/suite/stream_error_allows_next_turn.rs
++++ b/codex-rs/core/tests/suite/stream_error_allows_next_turn.rs
+@@ -79,6 +79,7 @@ async fn continue_after_stream_error() {
+         env_http_headers: None,
+         request_max_retries: Some(1),
+         stream_max_retries: Some(1),
++        retry_delay_ms: None,
+         stream_idle_timeout_ms: Some(2_000),
+         websocket_connect_timeout_ms: None,
+         requires_openai_auth: false,
+diff --git a/codex-rs/core/tests/suite/stream_no_completed.rs b/codex-rs/core/tests/suite/stream_no_completed.rs
+index 2bcef8928faf47a17694855deb7f6c8a1f5a2ce4..a3648c911c5549e7765bfb7832270d58ed33e0bd 100644
+--- a/codex-rs/core/tests/suite/stream_no_completed.rs
++++ b/codex-rs/core/tests/suite/stream_no_completed.rs
+@@ -65,6 +65,7 @@ async fn retries_on_early_close() {
+         // exercise retry path: first attempt yields incomplete stream, so allow 1 retry
+         request_max_retries: Some(0),
+         stream_max_retries: Some(1),
++        retry_delay_ms: None,
+         stream_idle_timeout_ms: Some(2000),
+         websocket_connect_timeout_ms: None,
+         requires_openai_auth: false,
