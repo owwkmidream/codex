@@ -532,40 +532,15 @@ index b10fa50794de347b73a76c83d0b6b36e055a7842..8efba475989b96dae45a6e7dcd4be9e4
 +        );
 +    }
 +}
-diff --git a/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.proto b/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.proto
-index 1e7d72bf33f8512696dacd6693139a2227883a2c..cdff7a6bd97733bbcb509eb0eba3e023e8244ff2 100644
---- a/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.proto
-+++ b/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.proto
-@@ -54,6 +54,7 @@ message ModelProvider {
-   optional string location = 21;
-   optional string credential_file = 22;
-   optional ModelProviderCapabilities capabilities = 23;
-+  optional int64 retry_delay_ms = 24;
- }
- 
- message ModelProviderCapabilities {
-diff --git a/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.rs b/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.rs
-index c6e5b161960dfab0d894cb770324ae5fc3589616..8a5b4dddcfead0fe293922c3a1686960e0013a6b 100644
---- a/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.rs
-+++ b/codex-rs/config/src/thread_config/proto/codex.thread_config.v1.rs
-@@ -87,6 +87,8 @@ pub struct ModelProvider {
-     pub credential_file: ::core::option::Option<::prost::alloc::string::String>,
-     #[prost(message, optional, tag = "23")]
-     pub capabilities: ::core::option::Option<ModelProviderCapabilities>,
-+    #[prost(int64, optional, tag = "24")]
-+    pub retry_delay_ms: ::core::option::Option<i64>,
- }
- #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
- pub struct ModelProviderCapabilities {
 diff --git a/codex-rs/config/src/thread_config/remote.rs b/codex-rs/config/src/thread_config/remote.rs
-index fd616daa271de69d8a56f23cd281120abd278314..563ee008173c03d531ec9fe6b1bdb42cca85fd81 100644
+index fd616daa271de69d8a56f23cd281120abd278314..52c49bb7bd97c70410983fb003c775bb7e09ea64 100644
 --- a/codex-rs/config/src/thread_config/remote.rs
 +++ b/codex-rs/config/src/thread_config/remote.rs
 @@ -190,6 +190,7 @@ fn model_provider_from_proto(
          env_http_headers: provider.env_http_headers.map(|map| map.values),
          request_max_retries: provider.request_max_retries,
          stream_max_retries: provider.stream_max_retries,
-+        retry_delay_ms: provider.retry_delay_ms,
++        retry_delay_ms: None,
          stream_idle_timeout_ms: provider.stream_idle_timeout_ms,
          websocket_connect_timeout_ms: provider.websocket_connect_timeout_ms,
          requires_openai_auth: provider.requires_openai_auth,
@@ -573,68 +548,430 @@ index fd616daa271de69d8a56f23cd281120abd278314..563ee008173c03d531ec9fe6b1bdb42c
          env_http_headers,
          request_max_retries,
          stream_max_retries,
-+        retry_delay_ms,
-         stream_idle_timeout_ms,
-         websocket_connect_timeout_ms,
-         requires_openai_auth,
-@@ -261,6 +263,7 @@ fn model_provider_to_proto(
-         env_http_headers: env_http_headers.map(|values| proto::StringMap { values }),
-         request_max_retries,
-         stream_max_retries,
-+        retry_delay_ms,
++        retry_delay_ms: _,
          stream_idle_timeout_ms,
          websocket_connect_timeout_ms,
          requires_openai_auth,
 diff --git a/codex-rs/core/config.schema.json b/codex-rs/core/config.schema.json
-index f5149c6efdf7ab9f1550aa0639dd5f2401205f25..c70f199e82a612f2b7f1ff1802a7d7f379ae2bdb 100644
+index f5149c6efdf7ab9f1550aa0639dd5f2401205f25..63063ef247d3fc1d46b1d15d74d14202efb64c9b 100644
 --- a/codex-rs/core/config.schema.json
 +++ b/codex-rs/core/config.schema.json
-@@ -3180,6 +3180,11 @@
-           "description": "Does this provider require an OpenAI API key or ChatGPT login token? If true, the user is presented with a login screen on first run, and credentials are stored using the backend selected by `cli_auth_credentials_store`. If false (the default), the login screen is skipped, and the API key (if needed) comes from the environment variable specified by `env_key`.",
-           "type": "boolean"
-         },
-+        "retry_delay_ms": {
-+          "description": "模型重试等待毫秒数：非负数为等待上限，负数固定等待绝对值；未配置沿用原版策略。",
-+          "format": "int64",
-+          "type": "integer"
-+        },
-         "stream_idle_timeout_ms": {
-           "description": "Idle timeout (in milliseconds) to wait for activity on a streaming response before treating the connection as lost.",
-           "format": "uint64",
-@@ -8679,4 +8684,4 @@
+@@ -8679,4 +8679,4 @@
    },
    "title": "ConfigToml",
    "type": "object"
 -}
 \ No newline at end of file
 +}
+diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
+index 889a62680f58370efe3518bd72af035ffcd4b3fd..3a866930ce3de5dcdb829c5922976dd36f49d4d6 100644
+--- a/codex-rs/core/src/client.rs
++++ b/codex-rs/core/src/client.rs
+@@ -327,6 +327,7 @@ pub struct ModelClient {
+ /// contract and can cause routing bugs.
+ pub struct ModelClientSession {
+     client: ModelClient,
++    retry_delay_ms: Option<i64>,
+     websocket_session: WebsocketSession,
+     /// Turn state for sticky routing.
+     ///
+@@ -345,6 +346,7 @@ pub struct ModelClientSession {
+ /// Executes HTTP Responses requests without owning a turn's WebSocket state.
+ pub(crate) struct ResponsesHttpExecutor<'a> {
+     client: &'a ModelClient,
++    retry_delay_ms: Option<i64>,
+ }
+ 
+ #[derive(Debug, Clone)]
+@@ -753,6 +755,7 @@ impl ModelClient {
+         }
+         ModelClientSession {
+             client: self.clone(),
++            retry_delay_ms: self.state.provider.info().retry_delay_ms,
+             websocket_session,
+             turn_state: Arc::new(OnceLock::new()),
+         }
+@@ -1555,6 +1558,10 @@ impl Drop for ModelClientSession {
+ }
+ 
+ impl ModelClientSession {
++    pub(crate) fn set_retry_delay(&mut self, millis: Option<i64>) {
++        self.retry_delay_ms = millis;
++    }
++
+     pub(crate) fn inference_tools_changed(&self, tools: &Arc<[ToolSpec]>) -> bool {
+         let previous = self
+             .client
+@@ -1569,7 +1576,15 @@ impl ModelClientSession {
+ 
+ impl<'a> ResponsesHttpExecutor<'a> {
+     pub(crate) fn new(client: &'a ModelClient) -> Self {
+-        Self { client }
++        Self {
++            client,
++            retry_delay_ms: client.state.provider.info().retry_delay_ms,
++        }
++    }
++
++    pub(crate) fn with_retry_delay(mut self, millis: Option<i64>) -> Self {
++        self.retry_delay_ms = millis;
++        self
+     }
+ 
+     #[allow(clippy::too_many_arguments)]
+@@ -1707,10 +1722,12 @@ impl ModelClientSession {
+         let mut provider_auth_recovery_attempted = false;
+         let mut pending_retry = PendingUnauthorizedRetry::default();
+         loop {
+-            let client_setup = self
++            let mut client_setup = self
+                 .client
+                 .current_client_setup(ClientRouting::Workspace)
+                 .await?;
++            // 使用本轮快照，避免保存设置时改变进行中的 HTTP 重试。
++            client_setup.api_provider.retry.retry_delay_ms = self.retry_delay_ms;
+             let auth_context = AuthRequestTelemetryContext::new(
+                 client_setup.auth.as_ref().map(CodexAuth::auth_mode),
+                 client_setup.api_auth.as_ref(),
+@@ -1923,10 +1940,11 @@ impl ResponsesHttpExecutor<'_> {
+         let mut provider_auth_recovery_attempted = false;
+         let mut pending_retry = PendingUnauthorizedRetry::default();
+         loop {
+-            let client_setup = self
++            let mut client_setup = self
+                 .client
+                 .current_client_setup(ClientRouting::Workspace)
+                 .await?;
++            client_setup.api_provider.retry.retry_delay_ms = self.retry_delay_ms;
+             if expected_auth_owner.is_some_and(|owner| {
+                 Some(owner) != client_setup.auth_owner_generation
+                     || Some(owner) != self.client.auth_owner_generation()
+@@ -2535,6 +2553,7 @@ impl ModelClientSession {
+                 }
+ 
+                 ResponsesHttpExecutor::new(&self.client)
++                    .with_retry_delay(self.retry_delay_ms)
+                     .stream_responses_http(
+                         &self.turn_state,
+                         /*expected_auth_owner*/ None,
 diff --git a/codex-rs/core/src/compact.rs b/codex-rs/core/src/compact.rs
-index 2f6a91de7054cf67bcda1dc9ee5955d82e9d14dc..e5677247f6fc7a2405258c7523c09eb5a51e884a 100644
+index 2f6a91de7054cf67bcda1dc9ee5955d82e9d14dc..76bb87bf90f41c81b22988095690e92aabcb78d9 100644
 --- a/codex-rs/core/src/compact.rs
 +++ b/codex-rs/core/src/compact.rs
-@@ -376,6 +376,13 @@ async fn run_compact_task_inner_impl(
+@@ -290,11 +290,12 @@ async fn run_compact_task_inner_impl(
+         fallback_instructions.text.clear();
+     }
+ 
+-    let max_retries = turn_context.provider.info().stream_max_retries();
++    let max_retries = turn_context.retry_settings().stream_max_retries;
+     let mut retries = 0;
+     // Reuse one client session so turn-scoped state (sticky routing and websocket incremental
+     // request tracking) survives retries within this compact turn.
+     let mut client_session = sess.services.model_client.new_session();
++    client_session.set_retry_delay(turn_context.retry_settings().delay_ms);
+     let compaction_response = loop {
+         // Clone is required because of the loop
+         let mut turn_input = history
+@@ -376,6 +377,12 @@ async fn run_compact_task_inner_impl(
                  if retries < max_retries {
                      retries += 1;
                      let delay = backoff(retries);
 +                    let delay = turn_context
-+                        .provider
-+                        .info()
-+                        .retry_delay_ms
++                        .retry_settings()
++                        .delay_ms
 +                        .map_or(delay, |millis| {
 +                            codex_client::configured_retry_delay(millis, delay)
 +                        });
                      sess.notify_stream_error(
                          turn_context.as_ref(),
                          format!("Reconnecting... {retries}/{max_retries}"),
+diff --git a/codex-rs/core/src/compact_remote_v2.rs b/codex-rs/core/src/compact_remote_v2.rs
+index f84dc6e1bbc120840a1f56c584b66fe190e4672b..02b84484ea9281e0e07a400f43d4e1c57f0859c3 100644
+--- a/codex-rs/core/src/compact_remote_v2.rs
++++ b/codex-rs/core/src/compact_remote_v2.rs
+@@ -301,7 +301,8 @@ async fn run_remote_compaction_request_v2(
+             let trace = InferenceTraceContext::disabled();
+             // Replay the routing token without letting this request change foreground routing.
+             let turn_state = Arc::new(turn_state.map(OnceLock::from).unwrap_or_default());
+-            let http_executor = ResponsesHttpExecutor::new(&sess.services.model_client);
++            let http_executor = ResponsesHttpExecutor::new(&sess.services.model_client)
++                .with_retry_delay(turn_context.retry_settings().delay_ms);
+             let stream = tokio::select! {
+                 biased;
+                 _ = cancellation.cancelled() => return Err(CodexErr::TurnAborted),
+@@ -323,9 +324,8 @@ async fn run_remote_compaction_request_v2(
+     };
+     let settings = &turn_context.initial_settings;
+     let max_retries = turn_context
+-        .provider
+-        .info()
+-        .stream_max_retries()
++        .retry_settings()
++        .stream_max_retries
+         .min(MAX_REMOTE_COMPACTION_V2_STREAM_RETRIES);
+     let mut retry_state = ResponsesStreamRetryState::default();
+     loop {
+diff --git a/codex-rs/core/src/compact_remote_v2_attempt.rs b/codex-rs/core/src/compact_remote_v2_attempt.rs
+index 37bbc15afb315c66511489ec003fc006a1752ac0..d7c6409ff7f304a642eb0645f509680f9a450f0d 100644
+--- a/codex-rs/core/src/compact_remote_v2_attempt.rs
++++ b/codex-rs/core/src/compact_remote_v2_attempt.rs
+@@ -144,6 +144,7 @@ pub(super) async fn run_remote_compact_v2_attempt(
+             let client_session = client_session.unwrap_or_else(|| {
+                 owned_client_session.insert(sess.services.model_client.new_session())
+             });
++            client_session.set_retry_delay(step_context.turn.retry_settings().delay_ms);
+             (
+                 model_info,
+                 input_goal_ids,
+diff --git a/codex-rs/core/src/custom_retry.rs b/codex-rs/core/src/custom_retry.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..dd2838114403d0be95526e95049bf65872abba28
+--- /dev/null
++++ b/codex-rs/core/src/custom_retry.rs
+@@ -0,0 +1,222 @@
++//! Patch preferences kept outside the official config.toml schema.
++
++use crate::config::Config;
++use codex_model_provider_info::ModelProviderInfo;
++use serde::Deserialize;
++use serde::Serialize;
++use std::io;
++use std::path::Path;
++
++#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
++#[serde(rename_all = "snake_case")]
++pub enum RetryDelayMode {
++    #[default]
++    Default,
++    Capped,
++    Fixed,
++}
++
++#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
++#[serde(default)]
++pub struct CustomRetrySettings {
++    pub retry_delay_mode: RetryDelayMode,
++    pub retry_delay_ms: u64,
++}
++
++impl Default for CustomRetrySettings {
++    fn default() -> Self {
++        Self {
++            retry_delay_mode: RetryDelayMode::Default,
++            retry_delay_ms: 10_000,
++        }
++    }
++}
++
++impl CustomRetrySettings {
++    pub fn load(codex_home: &Path) -> io::Result<Self> {
++        let source = match std::fs::read_to_string(codex_home.join("custom.toml")) {
++            Ok(source) => source,
++            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Self::default()),
++            Err(error) => return Err(error),
++        };
++        let settings: Self = toml::from_str(&source).map_err(io::Error::other)?;
++        settings.validate()?;
++        Ok(settings)
++    }
++
++    pub fn validate(self) -> io::Result<()> {
++        if self.retry_delay_ms > i64::MAX as u64 {
++            return Err(io::Error::new(
++                io::ErrorKind::InvalidInput,
++                "Delay must be between 0 and 9223372036854775807 ms",
++            ));
++        }
++        Ok(())
++    }
++
++    pub fn signed_delay(self) -> Option<i64> {
++        match self.retry_delay_mode {
++            RetryDelayMode::Default => None,
++            RetryDelayMode::Capped => Some(self.retry_delay_ms as i64),
++            RetryDelayMode::Fixed => Some(-(self.retry_delay_ms as i64)),
++        }
++    }
++}
++
++/// 每轮固定一次快照；当前轮等待期间的保存只影响下一轮。
++#[derive(Clone, Copy, Debug)]
++pub(crate) struct TurnRetrySettings {
++    pub(crate) delay_ms: Option<i64>,
++    pub(crate) stream_max_retries: u64,
++}
++
++impl TurnRetrySettings {
++    pub(crate) fn load(config: &Config, provider: &ModelProviderInfo) -> Self {
++        let delay_ms = match CustomRetrySettings::load(config.codex_home.as_path()) {
++            Ok(settings) => settings.signed_delay(),
++            Err(error) => {
++                tracing::warn!(%error, "Could not read custom.toml; using default retry timing");
++                None
++            }
++        };
++        Self {
++            // 此字段仅供内部构造方使用，已禁止从 provider TOML 反序列化。
++            delay_ms: delay_ms.or(provider.retry_delay_ms),
++            stream_max_retries: refreshed_stream_retries(config, provider).unwrap_or_else(|error| {
++                tracing::warn!(%error, "Could not refresh stream_max_retries; retaining session config");
++                provider.stream_max_retries()
++            }),
++        }
++    }
++}
++
++fn refreshed_stream_retries(config: &Config, provider: &ModelProviderInfo) -> io::Result<u64> {
++    let stack = &config.config_layer_stack;
++    let Some(path) = stack.get_user_config_file() else {
++        return Ok(provider.stream_max_retries());
++    };
++    let source = match std::fs::read_to_string(path.as_path()) {
++        Ok(source) => source,
++        Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
++        Err(error) => return Err(error),
++    };
++    let updated =
++        stack.with_user_config(path, toml::from_str(&source).map_err(io::Error::other)?)?;
++    let original = stack.effective_config();
++    let refreshed = updated.effective_config();
++    let count = |value: &toml::Value| {
++        value
++            .get("model_providers")
++            .and_then(|providers| providers.get(&config.model_provider_id))
++            .and_then(|provider| provider.get("stream_max_retries"))
++            .cloned()
++    };
++    if count(&original) == count(&refreshed) {
++        return Ok(provider.stream_max_retries());
++    }
++    // 只刷新官方字段，合并仍由官方配置层完成，不引入额外优先级。
++    let mut info = provider.clone();
++    info.stream_max_retries = count(&refreshed)
++        .map(|value| value.try_into().map_err(io::Error::other))
++        .transpose()?;
++    Ok(info.stream_max_retries())
++}
++
++impl crate::session::turn_context::TurnContext {
++    pub(crate) fn retry_settings(&self) -> TurnRetrySettings {
++        self.extension_data
++            .get::<TurnRetrySettings>()
++            .map(|settings| *settings)
++            .unwrap_or_else(|| TurnRetrySettings::load(&self.config, self.provider.info()))
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[tokio::test]
++    async fn saves_take_effect_next_turn_and_default_restores_official_count() -> anyhow::Result<()>
++    {
++        use crate::config::ConfigBuilder;
++        use crate::config::ConfigOverrides;
++        use crate::config::LoaderOverrides;
++
++        let home = tempfile::tempdir()?;
++        let path = home.path().join("config.toml");
++        std::fs::write(&path, "[model_providers.openai]\nstream_max_retries = 2\n")?;
++        let config = ConfigBuilder::default()
++            .codex_home(home.path().to_path_buf())
++            .harness_overrides(ConfigOverrides {
++                cwd: Some(home.path().to_path_buf()),
++                ..Default::default()
++            })
++            .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
++            .build()
++            .await?;
++        let first = TurnRetrySettings::load(&config, &config.model_provider);
++        assert_eq!(first.stream_max_retries, 2);
++        assert_eq!(first.delay_ms, None);
++
++        std::fs::write(
++            home.path().join("custom.toml"),
++            "retry_delay_mode = 'fixed'\nretry_delay_ms = 25\n",
++        )?;
++        std::fs::write(&path, "[model_providers.openai]\nstream_max_retries = 0\n")?;
++        let next = TurnRetrySettings::load(&config, &config.model_provider);
++        assert_eq!(next.delay_ms, Some(-25));
++        assert_eq!(next.stream_max_retries, 0);
++        assert_eq!(first.delay_ms, None);
++        assert_eq!(first.stream_max_retries, 2);
++
++        std::fs::write(&path, "")?;
++        let reset = TurnRetrySettings::load(&config, &config.model_provider);
++        assert_eq!(
++            reset.stream_max_retries,
++            ModelProviderInfo::default().stream_max_retries()
++        );
++        let mut other_provider = config.model_provider.clone();
++        other_provider.name = "another provider".into();
++        assert_eq!(
++            TurnRetrySettings::load(&config, &other_provider).delay_ms,
++            next.delay_ms
++        );
++        Ok(())
++    }
++
++    #[test]
++    fn independent_file_supports_all_delay_modes_and_zero() -> io::Result<()> {
++        let home = tempfile::tempdir()?;
++        assert_eq!(
++            CustomRetrySettings::load(home.path())?,
++            CustomRetrySettings::default()
++        );
++        for (mode, millis, expected) in [
++            (RetryDelayMode::Default, 200, None),
++            (RetryDelayMode::Capped, 200, Some(200)),
++            (RetryDelayMode::Fixed, 200, Some(-200)),
++            (RetryDelayMode::Fixed, 0, Some(0)),
++        ] {
++            let settings = CustomRetrySettings {
++                retry_delay_mode: mode,
++                retry_delay_ms: millis,
++            };
++            std::fs::write(
++                home.path().join("custom.toml"),
++                toml::to_string(&settings).unwrap(),
++            )?;
++            assert_eq!(
++                CustomRetrySettings::load(home.path())?.signed_delay(),
++                expected
++            );
++        }
++        std::fs::write(home.path().join("custom.toml"), "retry_delay_ms = -1")?;
++        assert!(CustomRetrySettings::load(home.path()).is_err());
++        std::fs::write(
++            home.path().join("custom.toml"),
++            "retry_delay_mode = 'invalid'",
++        )?;
++        assert!(CustomRetrySettings::load(home.path()).is_err());
++        Ok(())
++    }
++}
+diff --git a/codex-rs/core/src/lib.rs b/codex-rs/core/src/lib.rs
+index 51573406cbac98747a83e8b6fa7594b2b6c59063..dd00b1c3a2303dc593295a37bdb89bc314876ad3 100644
+--- a/codex-rs/core/src/lib.rs
++++ b/codex-rs/core/src/lib.rs
+@@ -92,6 +92,7 @@ pub mod connectors;
+ pub mod context;
+ mod context_manager;
+ mod current_time;
++pub mod custom_retry;
+ pub mod cyber_access_program;
+ mod elicitation;
+ mod environment_selection;
 diff --git a/codex-rs/core/src/responses_retry.rs b/codex-rs/core/src/responses_retry.rs
-index 6a4214609c9f9d2ddb61026d17a232497bd792d9..35203c94f37c48191ac1008463b772779d699ec1 100644
+index 6a4214609c9f9d2ddb61026d17a232497bd792d9..7f879fa87ff28923251015cfedbd825cdd885843 100644
 --- a/codex-rs/core/src/responses_retry.rs
 +++ b/codex-rs/core/src/responses_retry.rs
 @@ -1,6 +1,6 @@
  //! Shared retry and transport fallback decisions for Responses requests.
  //! Content-filter guidance is recorded for sampling requests before retry decisions.
 -//! Server advice controls timing without extending configured retry limits.
-+//! Provider retry_delay_ms controls timing without extending configured retry limits.
++//! Turn-scoped custom retry timing does not extend configured retry limits.
  
  use std::time::Duration;
  
@@ -643,7 +980,7 @@ index 6a4214609c9f9d2ddb61026d17a232497bd792d9..35203c94f37c48191ac1008463b77277
          return Err(err);
      };
 -    let retry_after = err.retry_after();
-+    let millis = turn_context.provider.info().retry_delay_ms;
++    let millis = turn_context.retry_settings().delay_ms;
 +    let delay = millis.map_or(delay, |millis| {
 +        codex_client::configured_retry_delay(millis, delay)
 +    });
@@ -725,10 +1062,27 @@ index f365c4e2e8cba703f2189ecff0acaf6aacd20ef1..38068f08e64807e692be593ccd8a4978
          let started_at_ms = turn_context
              .turn_timing_state
 diff --git a/codex-rs/core/src/session/turn.rs b/codex-rs/core/src/session/turn.rs
-index b25f718d4704d16f6f113c26ec0d6db1aaee9704..232ce430ad6a6256d4030152f9ad2ae97e9cb22e 100644
+index b25f718d4704d16f6f113c26ec0d6db1aaee9704..8cad5d34bea992a649c335baf229eb1cb9df85ee 100644
 --- a/codex-rs/core/src/session/turn.rs
 +++ b/codex-rs/core/src/session/turn.rs
-@@ -2319,6 +2319,7 @@ pub(super) fn realtime_text_for_event(msg: &EventMsg) -> Option<RealtimeEventTex
+@@ -211,6 +211,7 @@ pub(crate) async fn run_turn(
+ 
+     let mut client_session =
+         prewarmed_client_session.unwrap_or_else(|| sess.services.model_client.new_session());
++    client_session.set_retry_delay(turn_context.retry_settings().delay_ms);
+     // TODO(ccunningham): Pre-turn compaction runs before context updates and the
+     // new user message are recorded. Estimate pending incoming items (context
+     // diffs/full reinjection + user input) and trigger compaction preemptively
+@@ -1819,7 +1820,7 @@ async fn run_sampling_request(
+         Arc::clone(&step_context),
+         Arc::clone(&turn_diff_tracker),
+     );
+-    let max_retries = turn_context.provider.info().stream_max_retries();
++    let max_retries = turn_context.retry_settings().stream_max_retries;
+     let incremental_tools = sess
+         .current_window_uses_incremental_tools(&step_context)
+         .await;
+@@ -2319,6 +2320,7 @@ pub(super) fn realtime_text_for_event(msg: &EventMsg) -> Option<RealtimeEventTex
          | EventMsg::RealtimeConversationClosed(_)
          | EventMsg::ModelReroute(_)
          | EventMsg::ModelVerification(_)
@@ -736,7 +1090,7 @@ index b25f718d4704d16f6f113c26ec0d6db1aaee9704..232ce430ad6a6256d4030152f9ad2ae9
          | EventMsg::TurnModerationMetadata(_)
          | EventMsg::SafetyBuffering(_)
          | EventMsg::ContextCompacted(_)
-@@ -2829,6 +2830,15 @@ async fn try_run_sampling_request(
+@@ -2829,6 +2831,15 @@ async fn try_run_sampling_request(
      } else {
          None
      };
@@ -752,7 +1106,7 @@ index b25f718d4704d16f6f113c26ec0d6db1aaee9704..232ce430ad6a6256d4030152f9ad2ae9
      let stream = client_session
          .stream(
              &prompt,
-@@ -2896,6 +2906,7 @@ async fn try_run_sampling_request(
+@@ -2896,6 +2907,7 @@ async fn try_run_sampling_request(
          !sess.services.extensions.turn_item_contributors().is_empty();
      let mut active_item_is_streaming_to_client = false;
      let receiving_span = trace_span!("receiving_stream");
@@ -760,7 +1114,7 @@ index b25f718d4704d16f6f113c26ec0d6db1aaee9704..232ce430ad6a6256d4030152f9ad2ae9
      let outcome: CodexResult<SamplingRequestResult> = loop {
          let handle_responses = trace_span!(
              parent: &receiving_span,
-@@ -2988,12 +2999,45 @@ async fn try_run_sampling_request(
+@@ -2988,12 +3000,45 @@ async fn try_run_sampling_request(
              }
          };
  
@@ -810,6 +1164,21 @@ index b25f718d4704d16f6f113c26ec0d6db1aaee9704..232ce430ad6a6256d4030152f9ad2ae9
              ResponseEvent::Created { response_id } => {
                  response_id_for_assessment.clone_from(&response_id);
                  if let Some(response_id) = response_id {
+diff --git a/codex-rs/core/src/session/turn_context.rs b/codex-rs/core/src/session/turn_context.rs
+index c08333d3501032a19b38fcf6f5479e50d9592acb..61c12a876287c6c8f561c0266c31473d4eacc542 100644
+--- a/codex-rs/core/src/session/turn_context.rs
++++ b/codex-rs/core/src/session/turn_context.rs
+@@ -1116,6 +1116,10 @@ impl Session {
+             session_configuration.turn_extension_init.clone(),
+         ));
+         extension_data.insert(skills_snapshot);
++        extension_data.insert(crate::custom_retry::TurnRetrySettings::load(
++            &per_turn_config,
++            provider.info(),
++        ));
+         TurnContext {
+             sub_id,
+             trace_id: current_span_trace_id(),
 diff --git a/codex-rs/core/src/session/turn_tests.rs b/codex-rs/core/src/session/turn_tests.rs
 index c1554d79c0241e43f59cb02e9ca62f8811f66ddb..ccd25aaf1e3550d9474e4089ba128a5fc7ed0a06 100644
 --- a/codex-rs/core/src/session/turn_tests.rs
@@ -902,7 +1271,7 @@ index c48ae764020676c93c8eb6e5d283d273a4b22143..992be34a44524ee38910445a9c9f648b
          websocket_connect_timeout_ms,
          requires_openai_auth: false,
 diff --git a/codex-rs/core/tests/suite/retry_after.rs b/codex-rs/core/tests/suite/retry_after.rs
-index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1adb69e5dc 100644
+index 81bc8bc349cbae00373dff817b269dde3e3e4443..6d9077317e27b823a5d7b92db1787acc6030afe1 100644
 --- a/codex-rs/core/tests/suite/retry_after.rs
 +++ b/codex-rs/core/tests/suite/retry_after.rs
 @@ -275,22 +275,26 @@ async fn wait_for_turn_completion(test: &TestCodex) {
@@ -941,17 +1310,27 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
              responses::sse_response(responses::sse(vec![
                  responses::ev_response_created("recovered"),
                  responses::ev_completed("recovered"),
-@@ -299,7 +303,8 @@ async fn responses_http_uses_retry_after() -> Result<()> {
+@@ -299,7 +303,18 @@ async fn responses_http_uses_retry_after() -> Result<()> {
      )
      .await;
      let test = test_codex()
 -        .with_config(|config| {
 +        .with_config(move |config| {
-+            config.model_provider.retry_delay_ms = retry_delay_ms;
++            if let Some(millis) = retry_delay_ms {
++                let mode = if millis < 0 { "fixed" } else { "capped" };
++                std::fs::write(
++                    config.codex_home.join("custom.toml"),
++                    format!(
++                        "retry_delay_mode = '{mode}'\nretry_delay_ms = {}\n",
++                        millis.unsigned_abs()
++                    ),
++                )
++                .unwrap();
++            }
              config.model_provider.request_max_retries = Some(1);
              config.model_provider.stream_max_retries = Some(1);
          })
-@@ -307,32 +312,33 @@ async fn responses_http_uses_retry_after() -> Result<()> {
+@@ -307,32 +322,33 @@ async fn responses_http_uses_retry_after() -> Result<()> {
          .await?;
  
      submit_user_input(&test, "retry the upstream overload").await?;
@@ -1010,7 +1389,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
      assert_eq!(response_mock.requests().len(), 3);
      assert_eq!(
          telemetry.events.try_recv(),
-@@ -401,13 +407,18 @@ async fn responses_http_429_uses_retry_after() -> Result<()> {
+@@ -401,13 +417,18 @@ async fn responses_http_429_uses_retry_after() -> Result<()> {
  }
  
  /// Check backoff without a live server or tracing events coordinating the retry loop.
@@ -1030,7 +1409,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
              retry_on: RetryOn {
                  retry_429: false,
                  retry_5xx: true,
-@@ -444,13 +455,22 @@ async fn http_retry_backoff_exhausts_attempts() {
+@@ -444,13 +465,22 @@ async fn http_retry_backoff_exhausts_attempts() {
              .collect::<Vec<_>>(),
          vec![0, 1, 2]
      );
@@ -1060,7 +1439,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
  }
  
  /// Exhausting HTTP retries and mapping the error preserve the last server deadline.
-@@ -463,6 +483,7 @@ async fn exhausted_http_retries_preserve_deadline_through_error_mapping() {
+@@ -463,6 +493,7 @@ async fn exhausted_http_retries_preserve_deadline_through_error_mapping() {
          RetryPolicy {
              max_attempts: 1,
              base_delay: Duration::from_millis(200),
@@ -1068,7 +1447,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
              retry_on: RetryOn {
                  retry_429: false,
                  retry_5xx: true,
-@@ -500,7 +521,7 @@ async fn exhausted_http_retries_preserve_deadline_through_error_mapping() {
+@@ -500,7 +531,7 @@ async fn exhausted_http_retries_preserve_deadline_through_error_mapping() {
  }
  
  /// Retry advice changes delays but never extends either retry budget or its displayed count.
@@ -1077,7 +1456,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
  #[test_case::test_case(Some("0"), 0, 3; "advice_without_stream_retries")]
  #[test_case::test_case(Some("0"), 2, 9; "advice_with_stream_retries")]
  #[tokio::test(flavor = "current_thread")]
-@@ -524,6 +545,7 @@ async fn responses_http_overload_respects_retry_limits(
+@@ -524,6 +555,7 @@ async fn responses_http_overload_respects_retry_limits(
          .await;
      let test = test_codex()
          .with_config(move |config| {
@@ -1085,7 +1464,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
              config.model_provider.request_max_retries = Some(2);
              config.model_provider.stream_max_retries = Some(stream_max_retries);
          })
-@@ -563,13 +585,9 @@ async fn responses_http_overload_respects_retry_limits(
+@@ -563,13 +595,9 @@ async fn responses_http_overload_respects_retry_limits(
      .expect("overload retries should finish the turn within 10 seconds");
  
      assert_eq!(error_events, 1);
@@ -1102,7 +1481,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
      assert_eq!(reconnect_messages, expected_messages);
      let request_count = server
          .received_requests()
-@@ -595,6 +613,7 @@ async fn responses_http_504_preserves_status_after_stream_retry() -> Result<()>
+@@ -595,6 +623,7 @@ async fn responses_http_504_preserves_status_after_stream_retry() -> Result<()>
          responses::mount_response_sequence(&server, vec![ResponseTemplate::new(504); 2]).await;
      let test = test_codex()
          .with_config(|config| {
@@ -1110,7 +1489,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
              config.service_tier = Some("flex".to_string());
              config.model_provider.request_max_retries = Some(0);
              config.model_provider.stream_max_retries = Some(1);
-@@ -722,6 +741,7 @@ async fn compact_v2_stream_failure_uses_local_backoff_despite_retry_after() -> R
+@@ -722,6 +751,7 @@ async fn compact_v2_stream_failure_uses_local_backoff_despite_retry_after() -> R
      let test = test_codex()
          .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
          .with_config(|config| {
@@ -1118,7 +1497,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
              config.model_provider.request_max_retries = Some(0);
              config.model_provider.stream_max_retries = Some(1);
          })
-@@ -731,7 +751,7 @@ async fn compact_v2_stream_failure_uses_local_backoff_despite_retry_after() -> R
+@@ -731,7 +761,7 @@ async fn compact_v2_stream_failure_uses_local_backoff_despite_retry_after() -> R
  
      test.codex.submit(Op::Compact).await?;
      let retry = telemetry.next_retry().await;
@@ -1127,7 +1506,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
      assert_eq!(
          retry,
          RetryTelemetryEvent {
-@@ -791,6 +811,7 @@ async fn compact_v2_stream_failure_without_retry_after_exhausts_stream_retries()
+@@ -791,6 +821,7 @@ async fn compact_v2_stream_failure_without_retry_after_exhausts_stream_retries()
      let test = test_codex()
          .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
          .with_config(|config| {
@@ -1135,7 +1514,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
              config.model_provider.request_max_retries = Some(0);
              config.model_provider.stream_max_retries = Some(1);
          })
-@@ -800,7 +821,7 @@ async fn compact_v2_stream_failure_without_retry_after_exhausts_stream_retries()
+@@ -800,7 +831,7 @@ async fn compact_v2_stream_failure_without_retry_after_exhausts_stream_retries()
  
      test.codex.submit(Op::Compact).await?;
      let retry = telemetry.next_retry().await;
@@ -1144,7 +1523,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
      assert_eq!(
          retry,
          RetryTelemetryEvent {
-@@ -964,8 +985,9 @@ async fn compact_v2_overload_without_retry_after_exhausts_request_retries() -> R
+@@ -964,8 +995,9 @@ async fn compact_v2_overload_without_retry_after_exhausts_request_retries() -> R
      let test = test_codex()
          .with_auth(CodexAuth::create_dummy_chatgpt_auth_for_testing())
          .with_config(|config| {
@@ -1155,7 +1534,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
          })
          .build_with_auto_env(&server)
          .await?;
-@@ -973,7 +995,7 @@ async fn compact_v2_overload_without_retry_after_exhausts_request_retries() -> R
+@@ -973,7 +1005,7 @@ async fn compact_v2_overload_without_retry_after_exhausts_request_retries() -> R
  
      test.codex.submit(Op::Compact).await?;
      let first_retry = telemetry.next_retry().await;
@@ -1164,7 +1543,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
      assert_eq!(
          first_retry,
          RetryTelemetryEvent {
-@@ -985,7 +1007,7 @@ async fn compact_v2_overload_without_retry_after_exhausts_request_retries() -> R
+@@ -985,7 +1017,7 @@ async fn compact_v2_overload_without_retry_after_exhausts_request_retries() -> R
      );
      wait_for_retry(&mut telemetry, &first_retry).await;
      let second_retry = telemetry.next_retry().await;
@@ -1173,7 +1552,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
      assert_eq!(
          second_retry,
          RetryTelemetryEvent {
-@@ -1088,6 +1110,7 @@ async fn sse_failure_uses_local_backoff_despite_retry_after() -> Result<()> {
+@@ -1088,6 +1120,7 @@ async fn sse_failure_uses_local_backoff_despite_retry_after() -> Result<()> {
      .await;
      let test = test_codex()
          .with_config(|config| {
@@ -1181,7 +1560,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
              config.model_provider.request_max_retries = Some(0);
              config.model_provider.stream_max_retries = Some(1);
          })
-@@ -1096,7 +1119,7 @@ async fn sse_failure_uses_local_backoff_despite_retry_after() -> Result<()> {
+@@ -1096,7 +1129,7 @@ async fn sse_failure_uses_local_backoff_despite_retry_after() -> Result<()> {
  
      submit_user_input(&test, "retry the rate-limited stream").await?;
      let retry = telemetry.next_retry().await;
@@ -1190,7 +1569,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
      assert_eq!(
          retry,
          RetryTelemetryEvent {
-@@ -1144,6 +1167,7 @@ async fn sse_failure_without_retry_after_exhausts_stream_retries(code: &str) ->
+@@ -1144,6 +1177,7 @@ async fn sse_failure_without_retry_after_exhausts_stream_retries(code: &str) ->
      .await;
      let test = test_codex()
          .with_config(|config| {
@@ -1198,7 +1577,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
              config.model_provider.request_max_retries = Some(0);
              config.model_provider.stream_max_retries = Some(1);
          })
-@@ -1152,10 +1176,7 @@ async fn sse_failure_without_retry_after_exhausts_stream_retries(code: &str) ->
+@@ -1152,10 +1186,7 @@ async fn sse_failure_without_retry_after_exhausts_stream_retries(code: &str) ->
  
      submit_user_input(&test, "exhaust the headerless rate-limited stream").await?;
      let retry = telemetry.next_retry().await;
@@ -1210,7 +1589,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
      assert_eq!(
          retry,
          RetryTelemetryEvent {
-@@ -1270,148 +1291,59 @@ async fn sse_failure_uses_server_advice(
+@@ -1270,148 +1301,59 @@ async fn sse_failure_uses_server_advice(
      Ok(())
  }
  
@@ -1394,7 +1773,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
      Ok(())
  }
  
-@@ -1605,6 +1537,7 @@ async fn connection_failures_increment_retry_telemetry_without_consuming_retry_b
+@@ -1605,6 +1547,7 @@ async fn connection_failures_increment_retry_telemetry_without_consuming_retry_b
  
      let test = test_codex()
          .with_config(move |config| {
@@ -1402,7 +1781,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
              config.model_provider.base_url = Some(format!("http://{unavailable_address}/v1"));
              config.model_provider.request_max_retries = Some(0);
              config.model_provider.stream_max_retries = Some(0);
-@@ -1620,7 +1553,7 @@ async fn connection_failures_increment_retry_telemetry_without_consuming_retry_b
+@@ -1620,7 +1563,7 @@ async fn connection_failures_increment_retry_telemetry_without_consuming_retry_b
          first_retry,
          RetryTelemetryEvent {
              attempt: 1,
@@ -1411,7 +1790,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
              layer: "stream".into(),
              operation: "sampling".into(),
          }
-@@ -1632,7 +1565,7 @@ async fn connection_failures_increment_retry_telemetry_without_consuming_retry_b
+@@ -1632,7 +1575,7 @@ async fn connection_failures_increment_retry_telemetry_without_consuming_retry_b
          second_retry,
          RetryTelemetryEvent {
              attempt: 2,
@@ -1420,7 +1799,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
              layer: "stream".into(),
              operation: "sampling".into(),
          }
-@@ -1693,6 +1626,7 @@ async fn websocket_connection_limit_retries_with_local_backoff() -> Result<()> {
+@@ -1693,6 +1636,7 @@ async fn websocket_connection_limit_retries_with_local_backoff() -> Result<()> {
      .await;
      let test = test_codex()
          .with_config(|config| {
@@ -1428,7 +1807,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
              config.model_provider.request_max_retries = Some(0);
              config.model_provider.stream_max_retries = Some(1);
          })
-@@ -1705,7 +1639,7 @@ async fn websocket_connection_limit_retries_with_local_backoff() -> Result<()> {
+@@ -1705,7 +1649,7 @@ async fn websocket_connection_limit_retries_with_local_backoff() -> Result<()> {
      assert_eq!(warmup.body_json()["generate"].as_bool(), Some(false));
      submit_user_input(&test, "retry after reaching the websocket connection limit").await?;
      let retry = telemetry.next_retry().await;
@@ -1437,7 +1816,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
      assert_eq!(
          retry,
          RetryTelemetryEvent {
-@@ -1802,10 +1736,17 @@ async fn websocket_failed_event_uses_header_over_plaintext_retry_after() -> Resu
+@@ -1802,10 +1746,17 @@ async fn websocket_failed_event_uses_header_over_plaintext_retry_after() -> Resu
      Ok(())
  }
  
@@ -1458,7 +1837,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
      skip_if_no_network!(Ok(()));
  
      let server = responses::start_mock_server().await;
-@@ -1816,13 +1757,14 @@ async fn websocket_upgrade_rejection_uses_retry_after() -> Result<()> {
+@@ -1816,13 +1767,14 @@ async fn websocket_upgrade_rejection_uses_retry_after() -> Result<()> {
          .expect(/*r*/ 1)
          .mount_as_scoped(&server)
          .await;
@@ -1478,7 +1857,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
          .mount(&server)
          .await;
      let http_overload = ResponseTemplate::new(/*s*/ 503)
-@@ -1842,7 +1784,8 @@ async fn websocket_upgrade_rejection_uses_retry_after() -> Result<()> {
+@@ -1842,7 +1794,8 @@ async fn websocket_upgrade_rejection_uses_retry_after() -> Result<()> {
      )
      .await;
      let test = test_codex()
@@ -1488,7 +1867,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
              config.model_catalog = Some(bundled_models_response().expect("bundled models"));
              config.model_provider.supports_websockets = true;
              config.model_provider.request_max_retries = Some(0);
-@@ -1862,8 +1805,8 @@ async fn websocket_upgrade_rejection_uses_retry_after() -> Result<()> {
+@@ -1862,8 +1815,8 @@ async fn websocket_upgrade_rejection_uses_retry_after() -> Result<()> {
      submit_user_input(&test, "retry the rejected websocket upgrade").await?;
      wait_for_turn_completion(&test).await;
  
@@ -1499,7 +1878,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
      let requests = server.received_requests().await.unwrap_or_default();
      let methods = requests
          .iter()
-@@ -1949,94 +1892,13 @@ async fn websocket_error_uses_nested_retry_after() -> Result<()> {
+@@ -1949,94 +1902,13 @@ async fn websocket_error_uses_nested_retry_after() -> Result<()> {
      Ok(())
  }
  
@@ -1599,7 +1978,7 @@ index 81bc8bc349cbae00373dff817b269dde3e3e4443..87756da7d74cb5d128b730f19b696d1a
      let mut telemetry = RetryTelemetryCapture::install();
      let server = responses::start_websocket_server(vec![
          vec![
-@@ -2045,193 +1907,53 @@ async fn websocket_overload_retries_only_while_it_has_retry_after(
+@@ -2045,193 +1917,53 @@ async fn websocket_overload_retries_only_while_it_has_retry_after(
                  responses::ev_completed("prewarm"),
              ],
              vec![json!({
@@ -1846,7 +2225,7 @@ index 2bcef8928faf47a17694855deb7f6c8a1f5a2ce4..a3648c911c5549e7765bfb7832270d58
          websocket_connect_timeout_ms: None,
          requires_openai_auth: false,
 diff --git a/codex-rs/model-provider-info/src/lib.rs b/codex-rs/model-provider-info/src/lib.rs
-index 96408491631e40298676bb79a6766b79a5abefad..b8eb18c158f8f5e9bef8c892a2bce8bb0f5f8146 100644
+index 96408491631e40298676bb79a6766b79a5abefad..1f039680b823268dcc8d5039181b43cf91aab63a 100644
 --- a/codex-rs/model-provider-info/src/lib.rs
 +++ b/codex-rs/model-provider-info/src/lib.rs
 @@ -76,9 +76,9 @@ const DEFAULT_AWS_CREDENTIAL_EXPORT_TIMEOUT_MS: u64 = 30_000;
@@ -1861,16 +2240,18 @@ index 96408491631e40298676bb79a6766b79a5abefad..b8eb18c158f8f5e9bef8c892a2bce8bb
  
  const OPENAI_PROVIDER_NAME: &str = "OpenAI";
  const OPENAI_ACTOR_AUTHORIZATION_HEADER: &str = "x-openai-actor-authorization";
-@@ -209,6 +209,8 @@ pub struct ModelProviderInfo {
+@@ -209,6 +209,10 @@ pub struct ModelProviderInfo {
      pub request_max_retries: Option<u64>,
      /// Number of times to retry reconnecting a dropped streaming response before failing.
      pub stream_max_retries: Option<u64>,
-+    /// 模型重试等待毫秒数：非负数为等待上限，负数固定等待绝对值；未配置沿用原版策略。
++    /// 运行时重试等待；持久化设置位于独立 custom.toml，不属于 provider 配置。
++    #[serde(skip)]
++    #[schemars(skip)]
 +    pub retry_delay_ms: Option<i64>,
      /// Idle timeout (in milliseconds) to wait for activity on a streaming response before treating
      /// the connection as lost.
      pub stream_idle_timeout_ms: Option<u64>,
-@@ -496,6 +498,7 @@ other non-default provider fields are not supported"
+@@ -496,6 +500,7 @@ other non-default provider fields are not supported"
          let retry = ApiRetryConfig {
              max_attempts: self.request_max_retries(),
              base_delay: Duration::from_millis(200),
@@ -1878,7 +2259,7 @@ index 96408491631e40298676bb79a6766b79a5abefad..b8eb18c158f8f5e9bef8c892a2bce8bb
              retry_429: false,
              retry_5xx: true,
              retry_transport: true,
-@@ -600,6 +603,7 @@ other non-default provider fields are not supported"
+@@ -600,6 +605,7 @@ other non-default provider fields are not supported"
              // Use global defaults for retry/timeout unless overridden in config.toml.
              request_max_retries: None,
              stream_max_retries: None,
@@ -1886,7 +2267,7 @@ index 96408491631e40298676bb79a6766b79a5abefad..b8eb18c158f8f5e9bef8c892a2bce8bb
              stream_idle_timeout_ms: None,
              websocket_connect_timeout_ms: None,
              requires_openai_auth: true,
-@@ -643,6 +647,7 @@ other non-default provider fields are not supported"
+@@ -643,6 +649,7 @@ other non-default provider fields are not supported"
              env_http_headers: None,
              request_max_retries: None,
              stream_max_retries: None,
@@ -1894,7 +2275,7 @@ index 96408491631e40298676bb79a6766b79a5abefad..b8eb18c158f8f5e9bef8c892a2bce8bb
              stream_idle_timeout_ms: None,
              websocket_connect_timeout_ms: None,
              requires_openai_auth: false,
-@@ -683,6 +688,7 @@ other non-default provider fields are not supported"
+@@ -683,6 +690,7 @@ other non-default provider fields are not supported"
              env_http_headers: None,
              request_max_retries: None,
              stream_max_retries: None,
@@ -1902,7 +2283,7 @@ index 96408491631e40298676bb79a6766b79a5abefad..b8eb18c158f8f5e9bef8c892a2bce8bb
              stream_idle_timeout_ms: None,
              websocket_connect_timeout_ms: None,
              requires_openai_auth: false,
-@@ -928,6 +934,7 @@ pub fn create_oss_provider_with_base_url(base_url: &str, wire_api: WireApi) -> M
+@@ -928,6 +936,7 @@ pub fn create_oss_provider_with_base_url(base_url: &str, wire_api: WireApi) -> M
          env_http_headers: None,
          request_max_retries: None,
          stream_max_retries: None,
@@ -1911,10 +2292,10 @@ index 96408491631e40298676bb79a6766b79a5abefad..b8eb18c158f8f5e9bef8c892a2bce8bb
          websocket_connect_timeout_ms: None,
          requires_openai_auth: false,
 diff --git a/codex-rs/model-provider-info/src/model_provider_info_tests.rs b/codex-rs/model-provider-info/src/model_provider_info_tests.rs
-index 68b48aadc58475a4fa8c15a04aa651947f87648a..14fc0da661d8e43c1d716a6594aaf2329495c8ee 100644
+index 68b48aadc58475a4fa8c15a04aa651947f87648a..b09591f910a65a590a1576bb204962195887aa85 100644
 --- a/codex-rs/model-provider-info/src/model_provider_info_tests.rs
 +++ b/codex-rs/model-provider-info/src/model_provider_info_tests.rs
-@@ -5,6 +5,36 @@ use pretty_assertions::assert_eq;
+@@ -5,6 +5,44 @@ use pretty_assertions::assert_eq;
  use std::num::NonZeroU64;
  use tempfile::tempdir;
  
@@ -1932,7 +2313,15 @@ index 68b48aadc58475a4fa8c15a04aa651947f87648a..14fc0da661d8e43c1d716a6594aaf232
 +        assert_eq!(info.stream_max_retries(), 1_000_000);
 +        assert_eq!(
 +            info.to_api_provider(None).unwrap().retry.retry_delay_ms,
-+            Some(millis)
++            None
++        );
++        assert!(
++            !toml::to_string(&ModelProviderInfo {
++                retry_delay_ms: Some(millis),
++                ..info
++            })
++            .unwrap()
++            .contains("retry_delay_ms")
 +        );
 +    }
 +    assert_eq!(defaults.request_max_retries(), DEFAULT_REQUEST_MAX_RETRIES);
@@ -1951,7 +2340,7 @@ index 68b48aadc58475a4fa8c15a04aa651947f87648a..14fc0da661d8e43c1d716a6594aaf232
  #[test]
  fn runtime_internal_metadata_opt_in_is_not_serialized_or_configurable() {
      let trusted = ModelProviderInfo {
-@@ -91,6 +121,7 @@ base_url = "http://localhost:11434/v1"
+@@ -91,6 +129,7 @@ base_url = "http://localhost:11434/v1"
          env_http_headers: None,
          request_max_retries: None,
          stream_max_retries: None,
@@ -1959,7 +2348,7 @@ index 68b48aadc58475a4fa8c15a04aa651947f87648a..14fc0da661d8e43c1d716a6594aaf232
          stream_idle_timeout_ms: None,
          websocket_connect_timeout_ms: None,
          requires_openai_auth: false,
-@@ -133,6 +164,7 @@ query_params = { api-version = "2025-04-01-preview" }
+@@ -133,6 +172,7 @@ query_params = { api-version = "2025-04-01-preview" }
          env_http_headers: None,
          request_max_retries: None,
          stream_max_retries: None,
@@ -1967,7 +2356,7 @@ index 68b48aadc58475a4fa8c15a04aa651947f87648a..14fc0da661d8e43c1d716a6594aaf232
          stream_idle_timeout_ms: None,
          websocket_connect_timeout_ms: None,
          requires_openai_auth: false,
-@@ -179,6 +211,7 @@ supports_standalone_web_search = true
+@@ -179,6 +219,7 @@ supports_standalone_web_search = true
          }),
          request_max_retries: None,
          stream_max_retries: None,
@@ -1975,7 +2364,7 @@ index 68b48aadc58475a4fa8c15a04aa651947f87648a..14fc0da661d8e43c1d716a6594aaf232
          stream_idle_timeout_ms: None,
          websocket_connect_timeout_ms: None,
          requires_openai_auth: false,
-@@ -374,6 +407,7 @@ fn test_create_amazon_bedrock_provider() {
+@@ -374,6 +415,7 @@ fn test_create_amazon_bedrock_provider() {
              env_http_headers: None,
              request_max_retries: None,
              stream_max_retries: None,
@@ -2149,11 +2538,177 @@ index 8e7b3f7b8a1f8960f85e219716632ebb366662a3..bbcafa1ffd29754166c96309918a41fe
          ServerNotification::HookStarted(notification) => Some(notification.thread_id.as_str()),
          ServerNotification::TurnCompleted(notification) => Some(notification.thread_id.as_str()),
          ServerNotification::HookCompleted(notification) => Some(notification.thread_id.as_str()),
+diff --git a/codex-rs/tui/src/app/config_panel.rs b/codex-rs/tui/src/app/config_panel.rs
+index f9c57dd132cec1a5fe7ef73d1d8daae4502e6d75..9e37d6af99baf127493d428a31869cd41c34ccb1 100644
+--- a/codex-rs/tui/src/app/config_panel.rs
++++ b/codex-rs/tui/src/app/config_panel.rs
+@@ -8,6 +8,84 @@ use crate::legacy_core::config::load_config_toml_with_layer_stack;
+ use crate::local_settings::LocalSettings;
+ 
+ impl App {
++    pub(super) async fn save_custom_retry(
++        &mut self,
++        edit: crate::config_panel::custom::CustomRetryEdit,
++    ) {
++        use crate::config_panel::custom::CustomRetryEdit;
++        use crate::legacy_core::config::edit::ConfigEdit;
++        use crate::legacy_core::custom_retry::CustomRetrySettings;
++        use crate::legacy_core::custom_retry::RetryDelayMode;
++
++        let result: std::io::Result<()> = async {
++            let (path, edits) = match edit {
++                CustomRetryEdit::StreamRetries { provider_id, count } => {
++                    if count.is_some_and(|count| count > 1_000_000) {
++                        return Err(std::io::Error::other(
++                            "Stream retries must be between 0 and 1000000",
++                        ));
++                    }
++                    let segments = vec![
++                        "model_providers".into(),
++                        provider_id,
++                        "stream_max_retries".into(),
++                    ];
++                    let edit = match count {
++                        Some(count) => ConfigEdit::SetPath {
++                            segments,
++                            value: toml_edit::value(count as i64),
++                        },
++                        None => ConfigEdit::ClearPath { segments },
++                    };
++                    (
++                        self.local_settings.user_config_path.to_path_buf(),
++                        vec![edit],
++                    )
++                }
++                edit => {
++                    let home = self.local_settings.codex_home.as_path();
++                    let mut settings = CustomRetrySettings::load(home)?;
++                    match edit {
++                        CustomRetryEdit::DelayMode(mode) => settings.retry_delay_mode = mode,
++                        CustomRetryEdit::DelayMillis(millis) => settings.retry_delay_ms = millis,
++                        CustomRetryEdit::StreamRetries { .. } => unreachable!(),
++                    }
++                    settings.validate()?;
++                    let mode = match settings.retry_delay_mode {
++                        RetryDelayMode::Default => "default",
++                        RetryDelayMode::Capped => "capped",
++                        RetryDelayMode::Fixed => "fixed",
++                    };
++                    (
++                        home.join("custom.toml"),
++                        vec![
++                            ConfigEdit::SetPath {
++                                segments: vec!["retry_delay_mode".into()],
++                                value: toml_edit::value(mode),
++                            },
++                            ConfigEdit::SetPath {
++                                segments: vec!["retry_delay_ms".into()],
++                                value: toml_edit::value(settings.retry_delay_ms as i64),
++                            },
++                        ],
++                    )
++                }
++            };
++            // 复用官方定点编辑和原子保存，保留文件中的其他字段与注释。
++            ConfigEditsBuilder::for_config_path(&path)
++                .with_edits(edits)
++                .apply()
++                .await
++                .map_err(std::io::Error::other)
++        }
++        .await;
++        let notice = match result {
++            Ok(()) => "Saved · applies next turn".into(),
++            Err(error) => format!("Could not save: {error}"),
++        };
++        self.chat_widget.refresh_config_panel(Some(notice));
++    }
++
+     pub(super) async fn save_config_preference(
+         &mut self,
+         tui: &mut tui::Tui,
+diff --git a/codex-rs/tui/src/app/config_panel_tests.rs b/codex-rs/tui/src/app/config_panel_tests.rs
+index 039670f165fd28ab032c44ed2adddbb754abdf22..77cf781e2435751c5d8d399735cdc0aca217f75e 100644
+--- a/codex-rs/tui/src/app/config_panel_tests.rs
++++ b/codex-rs/tui/src/app/config_panel_tests.rs
+@@ -32,6 +32,64 @@ fn next_config_preference(rx: &mut UnboundedReceiver<AppEvent>) -> Result<Config
+     Ok(preference)
+ }
+ 
++#[tokio::test]
++async fn custom_retry_saves_official_count_and_independent_delay() -> Result<()> {
++    use crate::config_panel::custom::CustomRetryEdit;
++    use crate::legacy_core::custom_retry::CustomRetrySettings;
++    use crate::legacy_core::custom_retry::RetryDelayMode;
++
++    let home = tempfile::tempdir()?;
++    let path = home.path().join("config.toml");
++    std::fs::write(
++        &path,
++        "# keep this comment\n[model_providers.openai]\nstream_max_retries = 2\n[model_providers.other]\nstream_max_retries = 7\n",
++    )?;
++    let mut app = Box::pin(make_test_app()).await;
++    app.local_settings.codex_home = AbsolutePathBuf::from_absolute_path(home.path())?;
++    app.local_settings.user_config_path = AbsolutePathBuf::from_absolute_path(&path)?;
++    app.save_custom_retry(CustomRetryEdit::StreamRetries {
++        provider_id: "openai".into(),
++        count: Some(1_000_000),
++    })
++    .await;
++    let source = std::fs::read_to_string(&path)?;
++    assert!(source.contains("# keep this comment"));
++    let config: toml::Value = toml::from_str(&source)?;
++    assert_eq!(
++        config["model_providers"]["openai"]["stream_max_retries"].as_integer(),
++        Some(1_000_000)
++    );
++    assert_eq!(
++        config["model_providers"]["other"]["stream_max_retries"].as_integer(),
++        Some(7)
++    );
++    app.save_custom_retry(CustomRetryEdit::DelayMode(RetryDelayMode::Fixed))
++        .await;
++    app.save_custom_retry(CustomRetryEdit::DelayMillis(0)).await;
++    assert_eq!(
++        CustomRetrySettings::load(home.path())?.signed_delay(),
++        Some(0)
++    );
++    assert_eq!(std::fs::read_to_string(&path)?, source);
++    app.save_custom_retry(CustomRetryEdit::StreamRetries {
++        provider_id: "openai".into(),
++        count: None,
++    })
++    .await;
++    let reset: toml::Value = toml::from_str(&std::fs::read_to_string(&path)?)?;
++    assert!(
++        reset["model_providers"]["openai"]
++            .get("stream_max_retries")
++            .is_none()
++    );
++    assert!(
++        reset["model_providers"]["other"]
++            .get("stream_max_retries")
++            .is_some()
++    );
++    Ok(())
++}
++
+ #[tokio::test]
+ async fn config_toggle_save_uses_host_config_and_applies_live_while_offline() -> Result<()> {
+     let root = tempfile::tempdir()?;
 diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
-index ba6e3f8af0a5333e63b2789704e75a4c2e590268..f5235eab027fc954cea32292e1255233e7f4de5d 100644
+index ba6e3f8af0a5333e63b2789704e75a4c2e590268..beb2b99d45b74d7a75541a7d7a8fef2c2340564c 100644
 --- a/codex-rs/tui/src/app/event_dispatch.rs
 +++ b/codex-rs/tui/src/app/event_dispatch.rs
-@@ -140,6 +140,7 @@ impl App {
+@@ -78,6 +78,7 @@ impl App {
+                     | AppEvent::TestConfigNotification
+                     | AppEvent::SendConfigTestNotification { .. }
+                     | AppEvent::SaveConfigPreference(_)
++                    | AppEvent::SaveCustomRetry(_)
+                     | AppEvent::CopyWarning(_)
+                     | AppEvent::UpdateWarnings { .. }
+                     | AppEvent::CopySelection { .. }
+@@ -140,6 +141,7 @@ impl App {
                          ..
                      }
                      | AppEvent::RevertSessionForPromptEdit { .. }
@@ -2161,7 +2716,7 @@ index ba6e3f8af0a5333e63b2789704e75a4c2e590268..f5235eab027fc954cea32292e1255233
                      | AppEvent::SetThreadGoalDraft { .. }
                      | AppEvent::SetThreadGoalStatus {
                          status: ThreadGoalStatus::Active,
-@@ -734,6 +735,42 @@ impl App {
+@@ -734,6 +736,42 @@ impl App {
                  }
                  tui.frame_requester().schedule_frame();
              }
@@ -2204,6 +2759,17 @@ index ba6e3f8af0a5333e63b2789704e75a4c2e590268..f5235eab027fc954cea32292e1255233
              AppEvent::RevertSessionForPromptEdit {
                  thread_id,
                  selected_cell,
+@@ -3530,6 +3568,10 @@ impl App {
+             AppEvent::SaveConfigPreference(preference) => {
+                 self.save_config_preference(tui, preference).await;
+             }
++            AppEvent::SaveCustomRetry(edit) => {
++                self.save_custom_retry(edit).await;
++                tui.frame_requester().schedule_frame();
++            }
+             AppEvent::PersistAgentsOverviewGrouping(grouping) => {
+                 self.persist_agents_overview_grouping(grouping).await;
+             }
 diff --git a/codex-rs/tui/src/app/footer_selection.rs b/codex-rs/tui/src/app/footer_selection.rs
 index 411a476707afccbee531ea011e99f44d86ee7c01..3048642cb8e669eb7ea072432eeeef64c6297c02 100644
 --- a/codex-rs/tui/src/app/footer_selection.rs
@@ -2386,7 +2952,7 @@ index 03ede0382347977fdbe8cd5ce19c17bb29e2add3..3c6a0b8999e42b23b809cc1fc78696cf
  }
  
 diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
-index 9c848858c6db4c4ccbb827bda612f6761fc69879..1b09e0187500a1e009176ec21f8b5669e8c55416 100644
+index 9c848858c6db4c4ccbb827bda612f6761fc69879..58d805592d2b1159081cdd83dab2a4c1ffd77bf9 100644
 --- a/codex-rs/tui/src/app_event.rs
 +++ b/codex-rs/tui/src/app_event.rs
 @@ -676,6 +676,15 @@ pub(crate) enum AppEvent {
@@ -2405,6 +2971,14 @@ index 9c848858c6db4c4ccbb827bda612f6761fc69879..1b09e0187500a1e009176ec21f8b5669
      FinishPromptRevert {
          thread_id: ThreadId,
          nth_user_message: usize,
+@@ -1691,6 +1700,7 @@ pub(crate) enum AppEvent {
+ 
+     /// Requests saving a local `/config` preference and refreshing its effective value.
+     SaveConfigPreference(crate::config_panel::ConfigPreference),
++    SaveCustomRetry(crate::config_panel::custom::CustomRetryEdit),
+ 
+     /// Save the transcript renderer preference for the next launch only.
+     FullscreenTranscriptSelected {
 diff --git a/codex-rs/tui/src/bottom_pane/mod.rs b/codex-rs/tui/src/bottom_pane/mod.rs
 index aef7c535b135f1143fc15f2ff79626b915d29fa9..3ecf4693ef7ebe2030e064cd208399ab57301256 100644
 --- a/codex-rs/tui/src/bottom_pane/mod.rs
@@ -2557,6 +3131,70 @@ index e05180a9eebfbe2c34e0a8a4deacf63be4f4a7f6..330b4e5639df6c896a84a8c9971d3804
      }
  
      pub(super) fn clear_context_compaction(&mut self) {
+diff --git a/codex-rs/tui/src/chatwidget/config_panel.rs b/codex-rs/tui/src/chatwidget/config_panel.rs
+index 444b2a7106533af93ec2f901ab273754a5482e22..5ece293cd38678608c9875ea796423c65350e111 100644
+--- a/codex-rs/tui/src/chatwidget/config_panel.rs
++++ b/codex-rs/tui/src/chatwidget/config_panel.rs
+@@ -26,6 +26,39 @@ impl ChatWidget {
+         resume_current_availability: crate::config_panel::ResumeCurrentAvailability,
+     ) {
+         match handoff.editor {
++            ConfigEditor::RetryDelayMode
++            | ConfigEditor::RetryDelayMillis
++            | ConfigEditor::StreamRetries => {
++                let state = crate::config_panel::custom::CustomRetryStatus::load(
++                    self.local_settings.codex_home.as_path(),
++                    self.local_settings.user_config_path.as_path(),
++                    &self.config.model_provider_id,
++                );
++                match state {
++                    Ok(state) => match handoff.editor {
++                        ConfigEditor::RetryDelayMode => {
++                            let params = crate::config_panel::custom::delay_modes(
++                                &state,
++                                &self.bottom_pane.list_keymap(),
++                            );
++                            self.bottom_pane.show_selection_view(params);
++                        }
++                        _ => self.bottom_pane.show_view(Box::new(
++                            crate::config_panel::custom::RetryNumberEditor::new(
++                                handoff.editor,
++                                state,
++                                self.app_event_tx.clone(),
++                            ),
++                        )),
++                    },
++                    Err(error) => {
++                        self.config_editor_open_failed(format!(
++                            "Could not read retry settings: {error}"
++                        ));
++                        return;
++                    }
++                }
++            }
+             ConfigEditor::Theme => self.open_theme_picker(),
+             ConfigEditor::Effects => {
+                 let keymap = self.bottom_pane.list_keymap();
+@@ -201,6 +234,19 @@ impl ChatWidget {
+                 self.local_settings.transcript_mode,
+             ),
+             custom_notification_filters: self.local_settings.custom_notification_filters,
++            custom: crate::config_panel::custom::CustomRetryStatus::load(
++                self.local_settings.codex_home.as_path(),
++                self.local_settings.user_config_path.as_path(),
++                &self.config.model_provider_id,
++            )
++            .or_else(|_| -> std::io::Result<_> {
++                Ok(crate::config_panel::custom::CustomRetryStatus {
++                    provider_id: self.config.model_provider_id.clone(),
++                    stream_retries: None,
++                    delay: Default::default(),
++                })
++            })
++            .ok(),
+         }
+     }
+ 
 diff --git a/codex-rs/tui/src/chatwidget/constructor.rs b/codex-rs/tui/src/chatwidget/constructor.rs
 index 6e405d201e550a151303851a2c4af4ba5089b947..51798229ba53bc78ef95ecd7d057a6b55c3014ae 100644
 --- a/codex-rs/tui/src/chatwidget/constructor.rs
@@ -3216,6 +3854,555 @@ index ef5954a853e340b35fc1bf3470c495af1091cf06..b7111faff605f2ea5617a1e203e728cf
      }
  
      pub(super) fn on_rate_limit_error(&mut self, error_kind: RateLimitErrorKind, message: String) {
+diff --git a/codex-rs/tui/src/config_panel/config_panel_tests.rs b/codex-rs/tui/src/config_panel/config_panel_tests.rs
+index 32e1c67c9f1224d03604ffeaa36ed321735e5d50..6446b56468d2c3ae052331a5b2a10f1087ab9fce 100644
+--- a/codex-rs/tui/src/config_panel/config_panel_tests.rs
++++ b/codex-rs/tui/src/config_panel/config_panel_tests.rs
+@@ -27,6 +27,7 @@ const STATUS: ConfigPanelStatus = ConfigPanelStatus {
+     copy_on_select: true,
+     right_click_paste: Ok(false),
+     custom_notification_filters: false,
++    custom: None,
+ };
+ 
+ fn panel() -> (ConfigPanel, UnboundedReceiver<AppEvent>) {
+@@ -67,7 +68,10 @@ fn render(view: &impl Renderable, width: u16) -> String {
+ fn config_panel_renders_each_group_at_a_stable_height() {
+     let (mut panel, _rx) = panel();
+     let height = panel.desired_height(/*width*/ 140);
+-    for section in ConfigSection::ALL {
++    for section in ConfigSection::ALL
++        .into_iter()
++        .filter(|section| *section != ConfigSection::Custom)
++    {
+         assert_eq!(panel.picker.active_tab_id(), Some(section.title()));
+         assert_eq!(panel.desired_height(/*width*/ 140), height);
+         let narrow_height = panel.desired_height(/*width*/ 50);
+@@ -88,6 +92,59 @@ fn config_panel_renders_each_group_at_a_stable_height() {
+     }
+ }
+ 
++#[test]
++fn custom_group_shows_provider_and_only_exposes_active_delay_input() {
++    use crate::legacy_core::custom_retry::CustomRetrySettings;
++    use crate::legacy_core::custom_retry::RetryDelayMode;
++
++    let (tx, mut rx) = unbounded_channel();
++    let mut status = STATUS;
++    status.custom = Some(custom::CustomRetryStatus {
++        provider_id: "openai".into(),
++        stream_retries: Some(42),
++        delay: CustomRetrySettings::default(),
++    });
++    let mut panel = ConfigPanel::new(
++        &Tui::default(),
++        AppEventSender::new(tx),
++        RuntimeKeymap::defaults().list,
++        status.clone(),
++    );
++    for _ in 0..5 {
++        panel.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
++    }
++    let screen = render(&panel, 140);
++    assert!(screen.contains("Custom"));
++    assert!(screen.contains("Retry delay mode"));
++    assert!(screen.contains("openai · 42"));
++    assert!(!screen.contains("Retry delay (ms)"));
++    panel.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
++    assert!(matches!(
++        rx.try_recv().unwrap(),
++        AppEvent::OpenConfigEditor(ConfigEditorHandoff {
++            editor: ConfigEditor::RetryDelayMode,
++            ..
++        })
++    ));
++
++    status.custom.as_mut().unwrap().delay.retry_delay_mode = RetryDelayMode::Fixed;
++    panel.update_config_panel(&ConfigPanelUpdate {
++        tui: Tui::default(),
++        keymap: RuntimeKeymap::defaults().list,
++        status,
++        notice: Some("Saved · applies next turn".into()),
++    });
++    let screen = render(&panel, 140);
++    assert!(screen.contains("Retry delay (ms)"));
++    assert!(screen.contains("10000 ms"));
++    assert!(screen.contains("Saved · applies next turn"));
++    assert!(render(&panel, 50).contains("Custom"));
++    println!(
++        "Custom panel (140 columns):\n{screen}\nCustom panel (50 columns):\n{}",
++        render(&panel, 50)
++    );
++}
++
+ #[test]
+ fn effects_picker_groups_animation_settings() {
+     let (tx, mut rx) = unbounded_channel();
+diff --git a/codex-rs/tui/src/config_panel/custom.rs b/codex-rs/tui/src/config_panel/custom.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..e9504be0c6cbb1e32505ae82da3713f22ce54aaf
+--- /dev/null
++++ b/codex-rs/tui/src/config_panel/custom.rs
+@@ -0,0 +1,271 @@
++//! Editors for the patch delay preference and the official provider retry count.
++
++use super::ConfigEditor;
++use crate::app_event::AppEvent;
++use crate::app_event_sender::AppEventSender;
++use crate::bottom_pane::BottomPaneView;
++use crate::bottom_pane::CancellationEvent;
++use crate::bottom_pane::SelectionItem;
++use crate::bottom_pane::SelectionViewParams;
++use crate::bottom_pane::popup_consts::picker_hint_line_for_keymap;
++use crate::keymap::ListKeymap;
++use crate::legacy_core::custom_retry::CustomRetrySettings;
++use crate::legacy_core::custom_retry::RetryDelayMode;
++use crate::render::renderable::Renderable;
++use crossterm::event::KeyCode;
++use crossterm::event::KeyEvent;
++use crossterm::event::KeyEventKind;
++use crossterm::event::KeyModifiers;
++use ratatui::buffer::Buffer;
++use ratatui::layout::Rect;
++use ratatui::text::Line;
++use ratatui::widgets::Paragraph;
++use ratatui::widgets::Widget;
++use std::io;
++use std::path::Path;
++
++#[derive(Clone, Debug)]
++pub(crate) enum CustomRetryEdit {
++    DelayMode(RetryDelayMode),
++    DelayMillis(u64),
++    StreamRetries {
++        provider_id: String,
++        count: Option<u64>,
++    },
++}
++
++#[derive(Clone, Debug)]
++pub(crate) struct CustomRetryStatus {
++    pub(crate) delay: CustomRetrySettings,
++    pub(crate) provider_id: String,
++    pub(crate) stream_retries: Option<u64>,
++}
++
++impl CustomRetryStatus {
++    pub(crate) fn load(home: &Path, config_path: &Path, provider_id: &str) -> io::Result<Self> {
++        let source = match std::fs::read_to_string(config_path) {
++            Ok(source) => source,
++            Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
++            Err(error) => return Err(error),
++        };
++        let config: toml::Value = toml::from_str(&source).map_err(io::Error::other)?;
++        let stream_retries = config
++            .get("model_providers")
++            .and_then(|providers| providers.get(provider_id))
++            .and_then(|provider| provider.get("stream_max_retries"))
++            .map(|value| value.clone().try_into().map_err(io::Error::other))
++            .transpose()?;
++        Ok(Self {
++            delay: CustomRetrySettings::load(home)?,
++            provider_id: provider_id.to_string(),
++            stream_retries,
++        })
++    }
++}
++
++pub(crate) fn delay_modes(state: &CustomRetryStatus, keymap: &ListKeymap) -> SelectionViewParams {
++    SelectionViewParams {
++        title: Some("Retry delay mode".into()),
++        subtitle: Some("All providers · saved automatically · applies next turn".into()),
++        footer_hint: Some(picker_hint_line_for_keymap(keymap)),
++        allow_input_when_disconnected: true,
++        initial_selected_idx: Some(match state.delay.retry_delay_mode {
++            RetryDelayMode::Default => 0,
++            RetryDelayMode::Capped => 1,
++            RetryDelayMode::Fixed => 2,
++        }),
++        items: [
++            (
++                "Default",
++                "Use the original waiting strategy",
++                RetryDelayMode::Default,
++            ),
++            (
++                "Capped",
++                "Limit every retry wait to the configured milliseconds",
++                RetryDelayMode::Capped,
++            ),
++            (
++                "Fixed",
++                "Always wait the configured milliseconds",
++                RetryDelayMode::Fixed,
++            ),
++        ]
++        .into_iter()
++        .map(|(name, description, mode)| SelectionItem {
++            name: name.into(),
++            description: Some(description.into()),
++            is_current: mode == state.delay.retry_delay_mode,
++            dismiss_on_select: true,
++            actions: vec![Box::new(move |tx| {
++                tx.send(AppEvent::SaveCustomRetry(CustomRetryEdit::DelayMode(mode)))
++            })],
++            ..Default::default()
++        })
++        .collect(),
++        ..SelectionViewParams::picker()
++    }
++}
++
++pub(crate) struct RetryNumberEditor {
++    editor: ConfigEditor,
++    state: CustomRetryStatus,
++    input: String,
++    error: Option<String>,
++    complete: bool,
++    tx: AppEventSender,
++}
++
++impl RetryNumberEditor {
++    pub(crate) fn new(editor: ConfigEditor, state: CustomRetryStatus, tx: AppEventSender) -> Self {
++        let input = if editor == ConfigEditor::StreamRetries {
++            state
++                .stream_retries
++                .map(|count| count.to_string())
++                .unwrap_or_default()
++        } else {
++            state.delay.retry_delay_ms.to_string()
++        };
++        Self {
++            editor,
++            state,
++            input,
++            error: None,
++            complete: false,
++            tx,
++        }
++    }
++
++    fn accept(&mut self) {
++        let stream = self.editor == ConfigEditor::StreamRetries;
++        let count = if stream && self.input.is_empty() {
++            None
++        } else {
++            let maximum = if stream { 1_000_000 } else { i64::MAX as u64 };
++            match self.input.parse::<u64>() {
++                Ok(value) if value <= maximum => Some(value),
++                _ => {
++                    self.error = Some(format!("Enter a whole number from 0 to {maximum}"));
++                    return;
++                }
++            }
++        };
++        // 空值只用于恢复官方次数默认值；Delay 保持非负数输入。
++        let edit = if stream {
++            CustomRetryEdit::StreamRetries {
++                provider_id: self.state.provider_id.clone(),
++                count,
++            }
++        } else {
++            CustomRetryEdit::DelayMillis(count.expect("delay requires a number"))
++        };
++        self.tx.send(AppEvent::SaveCustomRetry(edit));
++        self.complete = true;
++    }
++}
++
++impl BottomPaneView for RetryNumberEditor {
++    fn handle_key_event(&mut self, key: KeyEvent) {
++        if key.kind == KeyEventKind::Release {
++            return;
++        }
++        self.error = None;
++        match key.code {
++            KeyCode::Esc => self.complete = true,
++            KeyCode::Enter => self.accept(),
++            KeyCode::Backspace => {
++                self.input.pop();
++            }
++            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
++                self.input.clear()
++            }
++            KeyCode::Char(ch)
++                if ch.is_ascii_digit() && key.modifiers.is_empty() && self.input.len() < 20 =>
++            {
++                self.input.push(ch)
++            }
++            _ => {}
++        }
++    }
++
++    fn handle_paste(&mut self, text: String) -> bool {
++        let text = text.trim();
++        if text.len() <= 20 && text.chars().all(|ch| ch.is_ascii_digit()) {
++            self.input = text.to_string();
++            self.error = None;
++        } else {
++            self.error = Some("Enter nonnegative whole numbers only".into());
++        }
++        true
++    }
++
++    fn is_complete(&self) -> bool {
++        self.complete
++    }
++    fn accepts_input_when_disconnected(&self) -> bool {
++        true
++    }
++    fn on_ctrl_c(&mut self) -> CancellationEvent {
++        self.complete = true;
++        CancellationEvent::Handled
++    }
++}
++
++impl Renderable for RetryNumberEditor {
++    fn desired_height(&self, _width: u16) -> u16 {
++        6
++    }
++
++    fn render(&self, area: Rect, buf: &mut Buffer) {
++        let stream = self.editor == ConfigEditor::StreamRetries;
++        let title = if stream {
++            format!("Stream Max Retry · {}", self.state.provider_id)
++        } else {
++            "Retry delay (ms) · all providers".into()
++        };
++        Paragraph::new(vec![
++            Line::from(title),
++            Line::from(if stream {
++                "0–1,000,000 · empty = Default"
++            } else {
++                "Nonnegative milliseconds · 0 = immediate"
++            }),
++            Line::from(format!("> {}▏", self.input)),
++            Line::from(
++                self.error
++                    .clone()
++                    .unwrap_or_else(|| "Applies next turn".into()),
++            ),
++            Line::from("Enter save · Esc cancel · Ctrl+U clear"),
++        ])
++        .render(area, buf);
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use tokio::sync::mpsc::unbounded_channel;
++
++    #[test]
++    fn stream_editor_validates_bounds_and_default() {
++        let (tx, mut rx) = unbounded_channel();
++        let state = CustomRetryStatus {
++            delay: CustomRetrySettings::default(),
++            provider_id: "openai".into(),
++            stream_retries: Some(5),
++        };
++        let mut editor =
++            RetryNumberEditor::new(ConfigEditor::StreamRetries, state, AppEventSender::new(tx));
++        editor.input = "1000001".into();
++        editor.accept();
++        assert!(!editor.complete);
++        assert!(rx.try_recv().is_err());
++        editor.input.clear();
++        editor.accept();
++        assert!(matches!(
++            rx.try_recv().unwrap(),
++            AppEvent::SaveCustomRetry(CustomRetryEdit::StreamRetries { count: None, .. })
++        ));
++    }
++}
+diff --git a/codex-rs/tui/src/config_panel/input.rs b/codex-rs/tui/src/config_panel/input.rs
+index a3202b8b1b0eed4656f5d4a7f210630cf52381e0..b5b6af851e0994568979ae9694a5ed3e5c583567 100644
+--- a/codex-rs/tui/src/config_panel/input.rs
++++ b/codex-rs/tui/src/config_panel/input.rs
+@@ -96,7 +96,7 @@ impl BottomPaneView for ConfigPanel {
+             query: self.picker.search_query().map(str::to_string),
+             notice: update.notice.clone(),
+         };
+-        self.settings = settings(&update.tui, update.status);
++        self.settings = settings(&update.tui, &update.status);
+         self.saving = false;
+         self.picker = super::render::picker(
+             &self.settings,
+diff --git a/codex-rs/tui/src/config_panel/mod.rs b/codex-rs/tui/src/config_panel/mod.rs
+index 7b2bd712c4832d73ff77c7258ab1853bb4f1800a..783bac6dd98880087ed8e1a1f552e283290c1bb7 100644
+--- a/codex-rs/tui/src/config_panel/mod.rs
++++ b/codex-rs/tui/src/config_panel/mod.rs
+@@ -3,6 +3,7 @@
+ //! This module defines the stable grouping, copy, search terms, and displayed values. Rendering
+ //! and interaction live in later modules so they can consume one ordered catalog.
+ 
++pub(crate) mod custom;
+ mod input;
+ mod render;
+ mod toggle;
+@@ -63,6 +64,9 @@ pub(crate) enum ConfigEditor {
+     CopyOnSelect,
+     RightClickPaste,
+     NotificationCondition,
++    RetryDelayMode,
++    RetryDelayMillis,
++    StreamRetries,
+ }
+ 
+ #[derive(Clone, Copy)]
+@@ -72,11 +76,12 @@ pub(crate) enum ResumeCurrentAvailability {
+ }
+ 
+ /// Effective state the panel cannot derive from the `Tui` preferences alone.
+-#[derive(Clone, Copy)]
++#[derive(Clone)]
+ pub(crate) struct ConfigPanelStatus {
+     pub(crate) copy_on_select: bool,
+     pub(crate) right_click_paste: Result<bool, &'static str>,
+     pub(crate) custom_notification_filters: bool,
++    pub(crate) custom: Option<custom::CustomRetryStatus>,
+ }
+ 
+ /// State shared by the panel that queued an editor and the event that will open it.
+@@ -136,8 +141,38 @@ impl ConfigEditorHandoff {
+ }
+ 
+ impl ConfigEditor {
+-    fn value(self, tui: &Tui, status: ConfigPanelStatus) -> ConfigSettingValue {
++    fn value(self, tui: &Tui, status: &ConfigPanelStatus) -> ConfigSettingValue {
+         let label = match self {
++            Self::RetryDelayMode => format!(
++                "{:?}",
++                status
++                    .custom
++                    .as_ref()
++                    .map(|state| state.delay.retry_delay_mode)
++                    .unwrap_or_default()
++            ),
++            Self::RetryDelayMillis => format!(
++                "{} ms",
++                status
++                    .custom
++                    .as_ref()
++                    .map(|state| state.delay.retry_delay_ms)
++                    .unwrap_or(10_000)
++            ),
++            Self::StreamRetries => status
++                .custom
++                .as_ref()
++                .map(|state| {
++                    format!(
++                        "{} · {}",
++                        state.provider_id,
++                        state
++                            .stream_retries
++                            .map(|count| count.to_string())
++                            .unwrap_or_else(|| "Default".into())
++                    )
++                })
++                .unwrap_or_else(|| "Default".into()),
+             Self::Theme => tui.theme.clone().unwrap_or_else(|| "Automatic".to_string()),
+             Self::SessionPickerLayout => match tui.session_picker_view.unwrap_or_default() {
+                 codex_config::types::SessionPickerViewMode::Comfortable => "Comfortable",
+@@ -195,15 +230,17 @@ enum ConfigSection {
+     Input,
+     Sessions,
+     TextSelection,
++    Custom,
+ }
+ 
+ impl ConfigSection {
+-    const ALL: [Self; 5] = [
++    const ALL: [Self; 6] = [
+         Self::Appearance,
+         Self::Notifications,
+         Self::Input,
+         Self::Sessions,
+         Self::TextSelection,
++        Self::Custom,
+     ];
+ 
+     fn title(self) -> &'static str {
+@@ -213,6 +250,7 @@ impl ConfigSection {
+             Self::Input => "Input",
+             Self::Sessions => "Sessions",
+             Self::TextSelection => "Text selection",
++            Self::Custom => "Custom",
+         }
+     }
+ }
+@@ -266,12 +304,33 @@ impl ConfigSettingValue {
+     }
+ }
+ 
+-fn settings(tui: &Tui, status: ConfigPanelStatus) -> Vec<ConfigSetting> {
++fn settings(tui: &Tui, status: &ConfigPanelStatus) -> Vec<ConfigSetting> {
+     let notifications_enabled = !matches!(
+         tui.notification_settings.notifications,
+         Notifications::Enabled(false)
+     );
+     vec![
++        ConfigSetting {
++            section: ConfigSection::Custom,
++            label: "Retry delay mode",
++            description: "Default, capped, or fixed waiting for all providers; applies next turn",
++            keywords: "retry delay wait backoff custom fixed capped",
++            value: ConfigEditor::RetryDelayMode.value(tui, status),
++        },
++        ConfigSetting {
++            section: ConfigSection::Custom,
++            label: "Retry delay (ms)",
++            description: "Nonnegative milliseconds; zero retries immediately; applies next turn",
++            keywords: "retry delay milliseconds time wait",
++            value: ConfigEditor::RetryDelayMillis.value(tui, status),
++        },
++        ConfigSetting {
++            section: ConfigSection::Custom,
++            label: "Stream Max Retry",
++            description: "Edit stream_max_retries for the displayed provider; applies next turn",
++            keywords: "stream retry retries attempts provider count",
++            value: ConfigEditor::StreamRetries.value(tui, status),
++        },
+         ConfigSetting {
+             section: ConfigSection::Appearance,
+             label: "Theme",
+@@ -437,6 +496,15 @@ fn settings(tui: &Tui, status: ConfigPanelStatus) -> Vec<ConfigSetting> {
+             value: ConfigEditor::RightClickPaste.value(tui, status),
+         },
+     ]
++    .into_iter()
++    .filter(|setting| {
++        let custom_available = setting.section != ConfigSection::Custom || status.custom.is_some();
++        let delay_active = status.custom.as_ref().is_some_and(|state| {
++            state.delay.retry_delay_mode != crate::legacy_core::custom_retry::RetryDelayMode::Default
++        });
++        custom_available && (setting.label != "Retry delay (ms)" || delay_active)
++    })
++    .collect()
+ }
+ 
+ pub(crate) struct ConfigPanel {
+@@ -454,7 +522,7 @@ impl ConfigPanel {
+         keymap: ListKeymap,
+         status: ConfigPanelStatus,
+     ) -> Self {
+-        let settings = settings(tui, status);
++        let settings = settings(tui, &status);
+         let picker = render::picker(
+             &settings,
+             app_event_tx.clone(),
+diff --git a/codex-rs/tui/src/config_panel/render.rs b/codex-rs/tui/src/config_panel/render.rs
+index d4d9aed1318c368bf62cc1139221e0595f455702..7d0276f3cad49c9a316fec011110620c7bb027b7 100644
+--- a/codex-rs/tui/src/config_panel/render.rs
++++ b/codex-rs/tui/src/config_panel/render.rs
+@@ -481,6 +481,7 @@ pub(super) fn picker(
+             .max(),
+         tabs: ConfigSection::ALL
+             .iter()
++            .filter(|section| settings.iter().any(|setting| setting.section == **section))
+             .map(|section| {
+                 let title = section.title();
+                 SelectionTab {
 diff --git a/codex-rs/tui/src/history_cell/notices.rs b/codex-rs/tui/src/history_cell/notices.rs
 index 9f5e2137f0ecb1b70c7a17b3ed14659d5b308b7a..ce6a54b8b72e80dd5273e8e0a517b5bacbf22b59 100644
 --- a/codex-rs/tui/src/history_cell/notices.rs

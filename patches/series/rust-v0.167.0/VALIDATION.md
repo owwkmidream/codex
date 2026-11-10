@@ -38,6 +38,15 @@ gh run view RUN_ID --log-failed
 - 18 个 series 补丁已在官方提交 `086ccc8` 的干净 worktree 重放，与源码提交对照无差异；合并补丁在独立 index 重放，对照同样通过。
 - CI 格式检查加入这 4 个受影响测试文件；本机未运行 Rust 编译或测试。修复仍需新 CI 验证，状态为“实现已提交，集成验证未完成”。
 
+## Custom 配置入口：0019
+
+- 源码提交 `ee3b3ac`：`/config → Custom` 编辑当前 provider 的官方 `stream_max_retries`；全局 Delay 独立存储到 `$CODEX_HOME/custom.toml`，支持 Default/Capped/Fixed、非负毫秒和零等待。不迁移旧字段。
+- 核心层按轮固定 Delay 和 Stream 次数快照；模型 HTTP、流重连、本地压缩及传输回退使用本轮设置。新增独立文件、次数刷新与默认恢复、保存不改动其他 provider、输入边界及宽窄终端渲染回归。
+- 19 个 series 补丁在官方提交 `086ccc8` 的干净 worktree 重放成功，与源码提交 `git diff --exit-code` 无差异；合并补丁在独立 index 重放，与源码提交同样无差异。
+- 本机 rustfmt 1.95.0 格式检查、源码空白检查通过；补丁维护脚本隔离回归 `python scripts/tests/test_apply_patches.py`：7 项通过，16.731 秒。未在本机运行 Cargo 构建或测试。
+- 上一轮 [CI 42749759334](https://github.com/owwkmidream/codex/actions/runs/42749759334) 的重试集成命令 `cargo test --locked --profile ci-test -p codex-core --test all retry_after::` 在 Windows 以 `0xc00000fd / STATUS_STACK_OVERFLOW` 退出；本次将重试和 TUI 回归的 `RUST_MIN_STACK` 设为 16 MiB，并加入 Custom 回归及受影响文件格式检查。
+- 本修订需由推送后的新 dispatch 验证；状态为“实现已提交，集成验证未完成”。真实终端操作及独立 daemon 的下轮生效仍需构建产物验收。
+
 ## 验收缺口
 
 - `0017` 需实际成功的 build/test；完成前状态为“实现已提交，集成验证未完成”。

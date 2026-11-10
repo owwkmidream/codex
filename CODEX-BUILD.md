@@ -21,22 +21,32 @@
 
 ### 重试配置
 
-在现有 provider 表中设置：
+`/config → Custom` 提供快捷编辑，自动保存后下一轮生效，当前轮重试保持原设置。
+
+**Stream Max Retry** 直接读写当前 provider 的官方字段，页面显示 provider ID；次数为 `0～1,000,000`，清空输入恢复 Default。仍可在现有 provider 表中手动设置：
 
 ```toml
 [model_providers.openai]
 request_max_retries = 1000000
 stream_max_retries = 1000000
-retry_delay_ms = 10000
 ```
 
 - 次数表示首次请求之外的重试次数；两项上限均为 1,000,000，默认次数保持上游值。
-- 未配置 `retry_delay_ms`：沿用官方原版各路径的等待策略，保留补丁扩展的可重试错误类型。
-- 正数：等待上限，取原等待与配置值的较小值，覆盖指数退避、服务器建议等所有来源。
-- 零：立即重试，包括服务器建议等待的情况。
-- 负数：忽略所有等待来源，固定等待绝对值毫秒数，例如 `-10000` 为 10 秒。
 
-等待配置适用于模型 HTTP、流重连、本地压缩和传输回退；非模型 HTTP 客户端保留原退避行为。`0017` 在保留 `0001` 历史的基础上实现当前语义。
+**Retry Delay** 是跨 provider 的全局设置，独立保存在 `$CODEX_HOME/custom.toml`，不向官方 `config.toml` 或其 schema 添加字段：
+
+```toml
+retry_delay_mode = "capped"
+retry_delay_ms = 10000
+```
+
+- `default`：沿用官方原版各路径的等待策略，保留补丁扩展的可重试错误类型；界面隐藏毫秒输入。
+- `capped`：等待上限，取原等待与配置值的较小值，覆盖指数退避、服务器建议等所有来源。
+- `fixed`：忽略所有等待来源，固定等待指定毫秒数。
+- 时间只接受非负整数；`capped`、`fixed` 下零表示立即重试。未设置时为 Default，首次选择 Capped/Fixed 的时间为 10,000 毫秒。
+- 不迁移或读取旧 provider 下的 `retry_delay_ms`；有旧字段时需自行移除。
+
+等待配置适用于模型 HTTP、流重连、本地压缩和传输回退；非模型 HTTP 客户端保留原退避行为。核心层每轮读取设置，TUI、`codex exec` 和使用同一 `$CODEX_HOME` 的独立 daemon 共用；远程主机需要其自身的配置文件。Stream 次数保留官方配置层优先级，Custom 只编辑当前用户配置文件。`0019` 在保留历史补丁的基础上提供当前配置入口与持久化。
 
 ### 选择与文件链接
 
