@@ -714,7 +714,8 @@ jobs:
             tui/src/config_panel/mod.rs tui/src/config_panel/input.rs tui/src/config_panel/render.rs \
             tui/src/config_panel/custom.rs tui/src/config_panel/config_panel_tests.rs \
             tui/src/app/config_panel.rs tui/src/app/config_panel_tests.rs \
-            tui/src/chatwidget/config_panel.rs tui/src/app/event_dispatch.rs tui/src/app_event.rs
+            tui/src/chatwidget/config_panel.rs tui/src/app/event_dispatch.rs tui/src/app_event.rs \
+            app-server-client/src/lib.rs
           cargo test --locked --profile ci-test -p codex-client --lib configured_retry_tests
           cargo test --locked --profile ci-test -p codex-model-provider-info --lib retry_configuration
           cargo test --locked --profile ci-test -p codex-core --lib responses_retry::tests

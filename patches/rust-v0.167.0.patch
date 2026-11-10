@@ -1,3 +1,16 @@
+diff --git a/codex-rs/app-server-client/src/lib.rs b/codex-rs/app-server-client/src/lib.rs
+index c4b9011f60fdb2fe93c9a3d50f95966984e872c9..9cf7ded32c7dfa0f1176ba24e5972f94265d0b60 100644
+--- a/codex-rs/app-server-client/src/lib.rs
++++ b/codex-rs/app-server-client/src/lib.rs
+@@ -87,6 +87,8 @@ pub use crate::remote::RemoteAppServerEndpoint;
+ /// module exists so clients can remove a direct `codex-core` dependency
+ /// while legacy startup/config paths are migrated to RPCs.
+ pub mod legacy_core {
++    pub use codex_core::custom_retry;
++
+     pub mod config {
+         pub use codex_core::config::*;
+ 
 diff --git a/codex-rs/app-server-protocol/src/protocol/common.rs b/codex-rs/app-server-protocol/src/protocol/common.rs
 index bf2ebde276a5b66f57b537d518d0233a3a2f5ac4..406186d5701046c8c573ec046a7c9b13cacb8dff 100644
 --- a/codex-rs/app-server-protocol/src/protocol/common.rs
@@ -725,10 +738,10 @@ index 37bbc15afb315c66511489ec003fc006a1752ac0..d7c6409ff7f304a642eb0645f509680f
                  input_goal_ids,
 diff --git a/codex-rs/core/src/custom_retry.rs b/codex-rs/core/src/custom_retry.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..dd2838114403d0be95526e95049bf65872abba28
+index 0000000000000000000000000000000000000000..f10506e8c1fead6819057876a4a7bb7b2fe33041
 --- /dev/null
 +++ b/codex-rs/core/src/custom_retry.rs
-@@ -0,0 +1,222 @@
+@@ -0,0 +1,224 @@
 +//! Patch preferences kept outside the official config.toml schema.
 +
 +use crate::config::Config;
@@ -875,7 +888,9 @@ index 0000000000000000000000000000000000000000..dd2838114403d0be95526e95049bf658
 +
 +        let home = tempfile::tempdir()?;
 +        let path = home.path().join("config.toml");
-+        std::fs::write(&path, "[model_providers.openai]\nstream_max_retries = 2\n")?;
++        // 内置 provider 禁止覆盖次数；使用可被官方配置加载器接受的自定义 provider。
++        let provider_config = "model_provider = 'retry-test'\n[model_providers.retry-test]\nname = 'Retry test'\nbase_url = 'https://example.test/v1'\nwire_api = 'responses'\n";
++        std::fs::write(&path, format!("{provider_config}stream_max_retries = 2\n"))?;
 +        let config = ConfigBuilder::default()
 +            .codex_home(home.path().to_path_buf())
 +            .harness_overrides(ConfigOverrides {
@@ -893,14 +908,14 @@ index 0000000000000000000000000000000000000000..dd2838114403d0be95526e95049bf658
 +            home.path().join("custom.toml"),
 +            "retry_delay_mode = 'fixed'\nretry_delay_ms = 25\n",
 +        )?;
-+        std::fs::write(&path, "[model_providers.openai]\nstream_max_retries = 0\n")?;
++        std::fs::write(&path, format!("{provider_config}stream_max_retries = 0\n"))?;
 +        let next = TurnRetrySettings::load(&config, &config.model_provider);
 +        assert_eq!(next.delay_ms, Some(-25));
 +        assert_eq!(next.stream_max_retries, 0);
 +        assert_eq!(first.delay_ms, None);
 +        assert_eq!(first.stream_max_retries, 2);
 +
-+        std::fs::write(&path, "")?;
++        std::fs::write(&path, provider_config)?;
 +        let reset = TurnRetrySettings::load(&config, &config.model_provider);
 +        assert_eq!(
 +            reset.stream_max_retries,
@@ -2539,10 +2554,10 @@ index 8e7b3f7b8a1f8960f85e219716632ebb366662a3..bbcafa1ffd29754166c96309918a41fe
          ServerNotification::TurnCompleted(notification) => Some(notification.thread_id.as_str()),
          ServerNotification::HookCompleted(notification) => Some(notification.thread_id.as_str()),
 diff --git a/codex-rs/tui/src/app/config_panel.rs b/codex-rs/tui/src/app/config_panel.rs
-index f9c57dd132cec1a5fe7ef73d1d8daae4502e6d75..9e37d6af99baf127493d428a31869cd41c34ccb1 100644
+index f9c57dd132cec1a5fe7ef73d1d8daae4502e6d75..80b5ceb432c21c04ce3edc71e4eb416e56b43827 100644
 --- a/codex-rs/tui/src/app/config_panel.rs
 +++ b/codex-rs/tui/src/app/config_panel.rs
-@@ -8,6 +8,84 @@ use crate::legacy_core::config::load_config_toml_with_layer_stack;
+@@ -8,6 +8,89 @@ use crate::legacy_core::config::load_config_toml_with_layer_stack;
  use crate::local_settings::LocalSettings;
  
  impl App {
@@ -2558,6 +2573,11 @@ index f9c57dd132cec1a5fe7ef73d1d8daae4502e6d75..9e37d6af99baf127493d428a31869cd4
 +        let result: std::io::Result<()> = async {
 +            let (path, edits) = match edit {
 +                CustomRetryEdit::StreamRetries { provider_id, count } => {
++                    if !crate::config_panel::custom::stream_retries_editable(&provider_id) {
++                        return Err(std::io::Error::other(
++                            crate::config_panel::custom::STREAM_RETRY_UNAVAILABLE,
++                        ));
++                    }
 +                    if count.is_some_and(|count| count > 1_000_000) {
 +                        return Err(std::io::Error::other(
 +                            "Stream retries must be between 0 and 1000000",
@@ -2628,10 +2648,10 @@ index f9c57dd132cec1a5fe7ef73d1d8daae4502e6d75..9e37d6af99baf127493d428a31869cd4
          &mut self,
          tui: &mut tui::Tui,
 diff --git a/codex-rs/tui/src/app/config_panel_tests.rs b/codex-rs/tui/src/app/config_panel_tests.rs
-index 039670f165fd28ab032c44ed2adddbb754abdf22..77cf781e2435751c5d8d399735cdc0aca217f75e 100644
+index 039670f165fd28ab032c44ed2adddbb754abdf22..38777cd76374866b6aa84d5775e1ce69190d9b66 100644
 --- a/codex-rs/tui/src/app/config_panel_tests.rs
 +++ b/codex-rs/tui/src/app/config_panel_tests.rs
-@@ -32,6 +32,64 @@ fn next_config_preference(rx: &mut UnboundedReceiver<AppEvent>) -> Result<Config
+@@ -32,6 +32,86 @@ fn next_config_preference(rx: &mut UnboundedReceiver<AppEvent>) -> Result<Config
      Ok(preference)
  }
  
@@ -2645,13 +2665,13 @@ index 039670f165fd28ab032c44ed2adddbb754abdf22..77cf781e2435751c5d8d399735cdc0ac
 +    let path = home.path().join("config.toml");
 +    std::fs::write(
 +        &path,
-+        "# keep this comment\n[model_providers.openai]\nstream_max_retries = 2\n[model_providers.other]\nstream_max_retries = 7\n",
++        "# keep this comment\nmodel_provider = 'retry-test'\n[model_providers.retry-test]\nname = 'Retry test'\nwire_api = 'responses'\nstream_max_retries = 2\n[model_providers.other]\nname = 'Other'\nwire_api = 'responses'\nstream_max_retries = 7\n",
 +    )?;
 +    let mut app = Box::pin(make_test_app()).await;
 +    app.local_settings.codex_home = AbsolutePathBuf::from_absolute_path(home.path())?;
 +    app.local_settings.user_config_path = AbsolutePathBuf::from_absolute_path(&path)?;
 +    app.save_custom_retry(CustomRetryEdit::StreamRetries {
-+        provider_id: "openai".into(),
++        provider_id: "retry-test".into(),
 +        count: Some(1_000_000),
 +    })
 +    .await;
@@ -2659,7 +2679,7 @@ index 039670f165fd28ab032c44ed2adddbb754abdf22..77cf781e2435751c5d8d399735cdc0ac
 +    assert!(source.contains("# keep this comment"));
 +    let config: toml::Value = toml::from_str(&source)?;
 +    assert_eq!(
-+        config["model_providers"]["openai"]["stream_max_retries"].as_integer(),
++        config["model_providers"]["retry-test"]["stream_max_retries"].as_integer(),
 +        Some(1_000_000)
 +    );
 +    assert_eq!(
@@ -2675,13 +2695,13 @@ index 039670f165fd28ab032c44ed2adddbb754abdf22..77cf781e2435751c5d8d399735cdc0ac
 +    );
 +    assert_eq!(std::fs::read_to_string(&path)?, source);
 +    app.save_custom_retry(CustomRetryEdit::StreamRetries {
-+        provider_id: "openai".into(),
++        provider_id: "retry-test".into(),
 +        count: None,
 +    })
 +    .await;
 +    let reset: toml::Value = toml::from_str(&std::fs::read_to_string(&path)?)?;
 +    assert!(
-+        reset["model_providers"]["openai"]
++        reset["model_providers"]["retry-test"]
 +            .get("stream_max_retries")
 +            .is_none()
 +    );
@@ -2690,6 +2710,28 @@ index 039670f165fd28ab032c44ed2adddbb754abdf22..77cf781e2435751c5d8d399735cdc0ac
 +            .get("stream_max_retries")
 +            .is_some()
 +    );
++    Ok(())
++}
++
++#[tokio::test]
++async fn custom_retry_rejects_builtin_provider_without_changing_config() -> Result<()> {
++    use crate::config_panel::custom::CustomRetryEdit;
++
++    let home = tempfile::tempdir()?;
++    let path = home.path().join("config.toml");
++    let source = "# Built-in provider uses official defaults\nmodel_provider = 'openai'\n";
++    std::fs::write(&path, source)?;
++    let mut app = Box::pin(make_test_app()).await;
++    app.local_settings.codex_home = AbsolutePathBuf::from_absolute_path(home.path())?;
++    app.local_settings.user_config_path = AbsolutePathBuf::from_absolute_path(&path)?;
++    for count in [Some(42), None] {
++        app.save_custom_retry(CustomRetryEdit::StreamRetries {
++            provider_id: "openai".into(),
++            count,
++        })
++        .await;
++        assert_eq!(std::fs::read_to_string(&path)?, source);
++    }
 +    Ok(())
 +}
 +
@@ -3855,7 +3897,7 @@ index ef5954a853e340b35fc1bf3470c495af1091cf06..b7111faff605f2ea5617a1e203e728cf
  
      pub(super) fn on_rate_limit_error(&mut self, error_kind: RateLimitErrorKind, message: String) {
 diff --git a/codex-rs/tui/src/config_panel/config_panel_tests.rs b/codex-rs/tui/src/config_panel/config_panel_tests.rs
-index 32e1c67c9f1224d03604ffeaa36ed321735e5d50..6446b56468d2c3ae052331a5b2a10f1087ab9fce 100644
+index 32e1c67c9f1224d03604ffeaa36ed321735e5d50..6a5244a84fd0e20851f6459ec903011255cd0678 100644
 --- a/codex-rs/tui/src/config_panel/config_panel_tests.rs
 +++ b/codex-rs/tui/src/config_panel/config_panel_tests.rs
 @@ -27,6 +27,7 @@ const STATUS: ConfigPanelStatus = ConfigPanelStatus {
@@ -3878,7 +3920,7 @@ index 32e1c67c9f1224d03604ffeaa36ed321735e5d50..6446b56468d2c3ae052331a5b2a10f10
          assert_eq!(panel.picker.active_tab_id(), Some(section.title()));
          assert_eq!(panel.desired_height(/*width*/ 140), height);
          let narrow_height = panel.desired_height(/*width*/ 50);
-@@ -88,6 +92,59 @@ fn config_panel_renders_each_group_at_a_stable_height() {
+@@ -88,6 +92,91 @@ fn config_panel_renders_each_group_at_a_stable_height() {
      }
  }
  
@@ -3890,7 +3932,7 @@ index 32e1c67c9f1224d03604ffeaa36ed321735e5d50..6446b56468d2c3ae052331a5b2a10f10
 +    let (tx, mut rx) = unbounded_channel();
 +    let mut status = STATUS;
 +    status.custom = Some(custom::CustomRetryStatus {
-+        provider_id: "openai".into(),
++        provider_id: "retry-test".into(),
 +        stream_retries: Some(42),
 +        delay: CustomRetrySettings::default(),
 +    });
@@ -3906,7 +3948,7 @@ index 32e1c67c9f1224d03604ffeaa36ed321735e5d50..6446b56468d2c3ae052331a5b2a10f10
 +    let screen = render(&panel, 140);
 +    assert!(screen.contains("Custom"));
 +    assert!(screen.contains("Retry delay mode"));
-+    assert!(screen.contains("openai · 42"));
++    assert!(screen.contains("retry-test · 42"));
 +    assert!(!screen.contains("Retry delay (ms)"));
 +    panel.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 +    assert!(matches!(
@@ -3935,15 +3977,47 @@ index 32e1c67c9f1224d03604ffeaa36ed321735e5d50..6446b56468d2c3ae052331a5b2a10f10
 +    );
 +}
 +
++#[test]
++fn builtin_stream_retries_are_unavailable_while_delay_remains_editable() {
++    let mut status = STATUS;
++    for provider_id in codex_model_provider_info::built_in_model_providers(None).keys() {
++        status.custom = Some(custom::CustomRetryStatus {
++            provider_id: provider_id.clone(),
++            stream_retries: None,
++            delay: Default::default(),
++        });
++        let (tx, mut rx) = unbounded_channel();
++        let mut panel = ConfigPanel::new(
++            &Tui::default(),
++            AppEventSender::new(tx),
++            RuntimeKeymap::defaults().list,
++            status.clone(),
++        );
++        for _ in 0..5 {
++            panel.handle_key_event(KeyCode::Right.into());
++        }
++        panel.handle_key_event(KeyCode::Down.into());
++        panel.handle_key_event(KeyCode::Enter.into());
++        assert!(rx.try_recv().is_err());
++        assert!(render(&panel, 140).contains("Use a custom provider"));
++        panel.handle_key_event(KeyCode::Up.into());
++        panel.handle_key_event(KeyCode::Enter.into());
++        assert!(matches!(
++            rx.try_recv().unwrap(),
++            AppEvent::OpenConfigEditor(_)
++        ));
++    }
++}
++
  #[test]
  fn effects_picker_groups_animation_settings() {
      let (tx, mut rx) = unbounded_channel();
 diff --git a/codex-rs/tui/src/config_panel/custom.rs b/codex-rs/tui/src/config_panel/custom.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..e9504be0c6cbb1e32505ae82da3713f22ce54aaf
+index 0000000000000000000000000000000000000000..322007e2297f952b9f4edba12d7d7b39838d76b8
 --- /dev/null
 +++ b/codex-rs/tui/src/config_panel/custom.rs
-@@ -0,0 +1,271 @@
+@@ -0,0 +1,279 @@
 +//! Editors for the patch delay preference and the official provider retry count.
 +
 +use super::ConfigEditor;
@@ -3978,6 +4052,14 @@ index 0000000000000000000000000000000000000000..e9504be0c6cbb1e32505ae82da3713f2
 +        provider_id: String,
 +        count: Option<u64>,
 +    },
++}
++
++pub(crate) const STREAM_RETRY_UNAVAILABLE: &str =
++    "Use a custom provider to edit stream retries; built-in providers use Default";
++
++pub(crate) fn stream_retries_editable(provider_id: &str) -> bool {
++    // 与上游内置目录保持一致，避免写出下次启动无法加载的 provider 配置。
++    !codex_model_provider_info::built_in_model_providers(None).contains_key(provider_id)
 +}
 +
 +#[derive(Clone, Debug)]
@@ -4198,7 +4280,7 @@ index 0000000000000000000000000000000000000000..e9504be0c6cbb1e32505ae82da3713f2
 +        let (tx, mut rx) = unbounded_channel();
 +        let state = CustomRetryStatus {
 +            delay: CustomRetrySettings::default(),
-+            provider_id: "openai".into(),
++            provider_id: "retry-test".into(),
 +            stream_retries: Some(5),
 +        };
 +        let mut editor =
@@ -4229,7 +4311,7 @@ index a3202b8b1b0eed4656f5d4a7f210630cf52381e0..b5b6af851e0994568979ae9694a5ed3e
          self.picker = super::render::picker(
              &self.settings,
 diff --git a/codex-rs/tui/src/config_panel/mod.rs b/codex-rs/tui/src/config_panel/mod.rs
-index 7b2bd712c4832d73ff77c7258ab1853bb4f1800a..783bac6dd98880087ed8e1a1f552e283290c1bb7 100644
+index 7b2bd712c4832d73ff77c7258ab1853bb4f1800a..65ddd2e757bf3075a2ac46776cd4a3c58ba91f71 100644
 --- a/codex-rs/tui/src/config_panel/mod.rs
 +++ b/codex-rs/tui/src/config_panel/mod.rs
 @@ -3,6 +3,7 @@
@@ -4264,12 +4346,22 @@ index 7b2bd712c4832d73ff77c7258ab1853bb4f1800a..783bac6dd98880087ed8e1a1f552e283
  }
  
  /// State shared by the panel that queued an editor and the event that will open it.
-@@ -136,8 +141,38 @@ impl ConfigEditorHandoff {
+@@ -136,8 +141,48 @@ impl ConfigEditorHandoff {
  }
  
  impl ConfigEditor {
 -    fn value(self, tui: &Tui, status: ConfigPanelStatus) -> ConfigSettingValue {
 +    fn value(self, tui: &Tui, status: &ConfigPanelStatus) -> ConfigSettingValue {
++        if self == Self::StreamRetries
++            && status
++                .custom
++                .as_ref()
++                .is_some_and(|state| !custom::stream_retries_editable(&state.provider_id))
++        {
++            return ConfigSettingValue::Unavailable {
++                reason: custom::STREAM_RETRY_UNAVAILABLE,
++            };
++        }
          let label = match self {
 +            Self::RetryDelayMode => format!(
 +                "{:?}",
@@ -4304,7 +4396,7 @@ index 7b2bd712c4832d73ff77c7258ab1853bb4f1800a..783bac6dd98880087ed8e1a1f552e283
              Self::Theme => tui.theme.clone().unwrap_or_else(|| "Automatic".to_string()),
              Self::SessionPickerLayout => match tui.session_picker_view.unwrap_or_default() {
                  codex_config::types::SessionPickerViewMode::Comfortable => "Comfortable",
-@@ -195,15 +230,17 @@ enum ConfigSection {
+@@ -195,15 +240,17 @@ enum ConfigSection {
      Input,
      Sessions,
      TextSelection,
@@ -4323,7 +4415,7 @@ index 7b2bd712c4832d73ff77c7258ab1853bb4f1800a..783bac6dd98880087ed8e1a1f552e283
      ];
  
      fn title(self) -> &'static str {
-@@ -213,6 +250,7 @@ impl ConfigSection {
+@@ -213,6 +260,7 @@ impl ConfigSection {
              Self::Input => "Input",
              Self::Sessions => "Sessions",
              Self::TextSelection => "Text selection",
@@ -4331,7 +4423,7 @@ index 7b2bd712c4832d73ff77c7258ab1853bb4f1800a..783bac6dd98880087ed8e1a1f552e283
          }
      }
  }
-@@ -266,12 +304,33 @@ impl ConfigSettingValue {
+@@ -266,12 +314,33 @@ impl ConfigSettingValue {
      }
  }
  
@@ -4366,7 +4458,7 @@ index 7b2bd712c4832d73ff77c7258ab1853bb4f1800a..783bac6dd98880087ed8e1a1f552e283
          ConfigSetting {
              section: ConfigSection::Appearance,
              label: "Theme",
-@@ -437,6 +496,15 @@ fn settings(tui: &Tui, status: ConfigPanelStatus) -> Vec<ConfigSetting> {
+@@ -437,6 +506,15 @@ fn settings(tui: &Tui, status: ConfigPanelStatus) -> Vec<ConfigSetting> {
              value: ConfigEditor::RightClickPaste.value(tui, status),
          },
      ]
@@ -4382,7 +4474,7 @@ index 7b2bd712c4832d73ff77c7258ab1853bb4f1800a..783bac6dd98880087ed8e1a1f552e283
  }
  
  pub(crate) struct ConfigPanel {
-@@ -454,7 +522,7 @@ impl ConfigPanel {
+@@ -454,7 +532,7 @@ impl ConfigPanel {
          keymap: ListKeymap,
          status: ConfigPanelStatus,
      ) -> Self {

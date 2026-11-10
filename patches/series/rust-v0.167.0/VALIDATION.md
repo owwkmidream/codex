@@ -47,6 +47,14 @@ gh run view RUN_ID --log-failed
 - 上一轮 [CI 42749759334](https://github.com/owwkmidream/codex/actions/runs/42749759334) 的重试集成命令 `cargo test --locked --profile ci-test -p codex-core --test all retry_after::` 在 Windows 以 `0xc00000fd / STATUS_STACK_OVERFLOW` 退出；本次将重试和 TUI 回归的 `RUST_MIN_STACK` 设为 16 MiB，并加入 Custom 回归及受影响文件格式检查。
 - 本修订需由推送后的新 dispatch 验证；状态为“实现已提交，集成验证未完成”。真实终端操作及独立 daemon 的下轮生效仍需构建产物验收。
 
+## Custom CI 修复：0020
+
+- 源码提交 `ee379ef`：补齐 `app-server-client::legacy_core::custom_retry` 导出，修复 TUI 的 5 处 E0432/E0433；重试回归使用合法的自定义 provider，保留其定义以验证清空次数恢复默认值。
+- 失败证据：[CI 42753862665](https://github.com/owwkmidream/codex/actions/runs/42753862665)，维护提交 `d8aec05`。build 在 TUI 编译阶段失败；test 的 `custom_retry::tests::saves_take_effect_next_turn_and_default_restores_official_count` 因覆盖内置 `openai` 被官方配置校验拒绝。此前 4 项重试测试与 Custom 独立文件用例通过；重试集成及后续 TUI 回归未执行，release 跳过。
+- 内置 provider 不支持次数覆盖：Custom 显示不可编辑，保存端同时拒绝该写入；全局 Delay 保持可用。增加保存不改动原配置、内置 provider 禁用次数但仍可编辑 Delay 的回归。
+- 20 个 series 补丁在官方提交 `086ccc8` 的干净 worktree 重放成功，与 `ee379ef` 对照无差异；合并补丁在官方提交的独立 index 应用成功，与 `ee379ef` 对照无差异。本地同名 tag 指向旧提交，校验使用完整官方提交 ID。
+- 本机 rustfmt 1.95.0 与空白检查通过；未运行本地 Cargo 构建或测试。CI 格式检查新增 `app-server-client/src/lib.rs`；行为回归由现有 Custom 过滤器执行。状态为“实现已提交，集成验证未完成”，需新 dispatch 验证。
+
 ## 验收缺口
 
 - `0017` 需实际成功的 build/test；完成前状态为“实现已提交，集成验证未完成”。

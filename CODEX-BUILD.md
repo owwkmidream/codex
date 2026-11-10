@@ -23,10 +23,16 @@
 
 `/config → Custom` 提供快捷编辑，自动保存后下一轮生效，当前轮重试保持原设置。
 
-**Stream Max Retry** 直接读写当前 provider 的官方字段，页面显示 provider ID；次数为 `0～1,000,000`，清空输入恢复 Default。仍可在现有 provider 表中手动设置：
+**Stream Max Retry** 直接读写当前自定义 provider 的官方字段，页面显示 provider ID；次数为 `0～1,000,000`，清空输入恢复 Default。内置 provider 使用官方默认次数，界面禁用次数编辑；Delay 仍可编辑。仍可在现有自定义 provider 表中手动设置：
 
 ```toml
-[model_providers.openai]
+model_provider = "openai-custom"
+
+[model_providers.openai-custom]
+name = "OpenAI custom"
+base_url = "https://api.openai.com/v1"
+wire_api = "responses"
+requires_openai_auth = true
 request_max_retries = 1000000
 stream_max_retries = 1000000
 ```
