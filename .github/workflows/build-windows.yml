@@ -706,7 +706,7 @@ jobs:
           cargo test --locked --profile ci-test -p codex-client --lib configured_retry_tests
           cargo test --locked --profile ci-test -p codex-model-provider-info --lib retry_configuration
           cargo test --locked --profile ci-test -p codex-core --lib responses_retry::tests
-          cargo test --locked --profile ci-test -p codex-core --test suite retry_after::
+          cargo test --locked --profile ci-test -p codex-core --test all retry_after::
 
       - name: 本地链接回归
         working-directory: upstream/codex-rs

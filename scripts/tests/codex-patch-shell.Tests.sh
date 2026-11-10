@@ -46,8 +46,9 @@ touch "$prefix/npm.cmd" "$prefix/node_modules/npm/bin/npm-cli.js" "$prefix/codex
 chmod +x "$prefix/npm.cmd" "$prefix/codex"
 printf official > "$fixture/package/vendor/$target/bin/codex.exe"
 printf patched > "$fixture/zip/codex.exe"
-tar.exe -czf "$(cygpath -w "$fixture/official.tgz")" -C "$(cygpath -w "$fixture")" package
-tar.exe -a -cf "$(cygpath -w "$fixture/patched.zip")" -C "$(cygpath -w "$fixture/zip")" codex.exe
+archive_tool="$(cygpath -u "$SYSTEMROOT")/System32/tar.exe"
+"$archive_tool" -czf "$(cygpath -w "$fixture/official.tgz")" -C "$(cygpath -w "$fixture")" package
+"$archive_tool" -a -cf "$(cygpath -w "$fixture/patched.zip")" -C "$(cygpath -w "$fixture/zip")" codex.exe
 printf '{"version":"0.167.0","target":"%s","official_sha256":"%s","patched_sha256":"%s"}' \
   "$target" "$(hash "$fixture/package/vendor/$target/bin/codex.exe")" "$(hash "$fixture/zip/codex.exe")" > "$fixture/remote.json"
 node -e 'const fs=require("fs"),c=require("crypto");console.log(JSON.stringify({dist:{tarball:"https://registry.npmjs.org/fixture.tgz",integrity:"sha512-"+c.createHash("sha512").update(fs.readFileSync(process.argv[1])).digest("base64")}}))' \

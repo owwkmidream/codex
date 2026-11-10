@@ -58,6 +58,8 @@ esac
 [[ ${OSTYPE:-} == msys* ]] || fail '请在 Windows x64 Git Bash 中运行。'
 for tool in node curl cygpath sha256sum tar.exe powershell.exe; do command -v "$tool" >/dev/null || fail "缺少命令：$tool"; done
 [[ $(node -p 'process.platform+"/"+process.arch') == win32/x64 ]] || fail '需要 Windows x64 Node.js。'
+archive_tool="$(cygpath -u "$SYSTEMROOT")/System32/tar.exe"
+[[ -f "$archive_tool" ]] || fail '缺少 Windows 系统 tar.exe。'
 npm_cmd=$(command -v npm.cmd) || fail '找不到 npm.cmd，请先安装 Node.js/npm 和 Codex。'
 npm_cli="$(dirname "$npm_cmd")/node_modules/npm/bin/npm-cli.js"
 [[ -f "$npm_cli" ]] || fail "找不到 npm 入口：$npm_cli"
@@ -135,7 +137,7 @@ if [[ $action == install ]]; then
   step "获取 $version 补丁摘要"
   manifest "$version" "$summary" || fail "没有可用的 $version 补丁或摘要；请等待对应 Release。"
   http "$release_base/rust-v$version/codex-rust-v$version-windows-x64.zip" "$work/patched.zip"
-  tar.exe -xOf "$(cygpath -w "$work/patched.zip")" codex.exe > "$work/codex.exe"
+  "$archive_tool" -xOf "$(cygpath -w "$work/patched.zip")" codex.exe > "$work/codex.exe"
   [[ $(hash "$work/codex.exe") == "$(json patched_sha256 < "$summary")" ]] || fail '补丁二进制 SHA-256 不匹配。'
 elif [[ $action == restore ]]; then
   step "获取 npm 官方二进制 $version"
@@ -145,7 +147,7 @@ elif [[ $action == restore ]]; then
   http "$url" "$work/official.tgz"
   # npm integrity 校验整个包，恢复无需依赖我们的 Release 是否存在。
   node -e 'const fs=require("fs"),c=require("crypto"),m=JSON.parse(fs.readFileSync(process.argv[1]));const [a,h]=m.dist.integrity.split("-");if(a!=="sha512"||c.createHash(a).update(fs.readFileSync(process.argv[2])).digest("base64")!==h)throw Error("npm integrity 不匹配")' "$(cygpath -w "$work/npm.json")" "$(cygpath -w "$work/official.tgz")"
-  tar.exe -xOf "$(cygpath -w "$work/official.tgz")" "package/vendor/$target/bin/codex.exe" > "$work/codex.exe"
+  "$archive_tool" -xOf "$(cygpath -w "$work/official.tgz")" "package/vendor/$target/bin/codex.exe" > "$work/codex.exe"
 fi
 
 if [[ $action != sync ]]; then
