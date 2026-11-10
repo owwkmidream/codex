@@ -1,0 +1,83 @@
+From d83a5cfd5952d0714b058d4d1cfa968ca41a22b3 Mon Sep 17 00:00:00 2001
+From: owwkmidream <159dreaml@gmail.com>
+Date: Tue, 10 Nov 2026 16:26:19 +0800
+Subject: [PATCH] test: respect capped jitter in stream retry assertions
+
+---
+ codex-rs/core/tests/suite/retry_after.rs | 20 +++++++++++++++-----
+ 1 file changed, 15 insertions(+), 5 deletions(-)
+
+diff --git a/codex-rs/core/tests/suite/retry_after.rs b/codex-rs/core/tests/suite/retry_after.rs
+index 6d9077317e27b823a5d7b92db1787acc6030afe1..b1cc58ad4f75eaadf933c36215df206553f15e08 100644
+--- a/codex-rs/core/tests/suite/retry_after.rs
++++ b/codex-rs/core/tests/suite/retry_after.rs
+@@ -50,6 +50,14 @@ const FIRST_RETRY_MAX_DELAY: Duration = Duration::from_millis(220);
+ const SECOND_RETRY_MIN_DELAY: Duration = Duration::from_millis(360);
+ const SECOND_RETRY_MAX_DELAY: Duration = Duration::from_millis(440);
+ 
++fn assert_capped_first_retry_delay(delay: Duration) {
++    // 首次退避带有 0.9～1.1 的抖动，200ms 上限保留原本更短的等待。
++    assert!(
++        (FIRST_RETRY_MIN_DELAY..=Duration::from_millis(200)).contains(&delay),
++        "unexpected capped first retry delay: {delay:?}"
++    );
++}
++
+ #[derive(Debug, PartialEq, Eq)]
+ pub(super) struct RetryTelemetryEvent {
+     attempt: u64,
+@@ -1129,7 +1137,7 @@ async fn sse_failure_uses_local_backoff_despite_retry_after() -> Result<()> {
+ 
+     submit_user_input(&test, "retry the rate-limited stream").await?;
+     let retry = telemetry.next_retry().await;
+-    assert_eq!(retry.delay, Duration::from_millis(200));
++    assert_capped_first_retry_delay(retry.delay);
+     assert_eq!(
+         retry,
+         RetryTelemetryEvent {
+@@ -1186,7 +1194,7 @@ async fn sse_failure_without_retry_after_exhausts_stream_retries(code: &str) ->
+ 
+     submit_user_input(&test, "exhaust the headerless rate-limited stream").await?;
+     let retry = telemetry.next_retry().await;
+-    assert!(retry.delay == Duration::from_millis(200), "{retry:?}",);
++    assert_capped_first_retry_delay(retry.delay);
+     assert_eq!(
+         retry,
+         RetryTelemetryEvent {
+@@ -1338,11 +1346,12 @@ async fn sse_overload_retries_with_configured_delay(header: Option<&str>) -> Res
+         .await?;
+     submit_user_input(&test, "retry the streamed overload").await?;
+     let retry = telemetry.next_retry().await;
++    assert_capped_first_retry_delay(retry.delay);
+     assert_eq!(
+         retry,
+         RetryTelemetryEvent {
+             attempt: 1,
+-            delay: Duration::from_millis(200),
++            delay: retry.delay,
+             layer: "stream".into(),
+             operation: "sampling".into(),
+         }
+@@ -1649,7 +1658,7 @@ async fn websocket_connection_limit_retries_with_local_backoff() -> Result<()> {
+     assert_eq!(warmup.body_json()["generate"].as_bool(), Some(false));
+     submit_user_input(&test, "retry after reaching the websocket connection limit").await?;
+     let retry = telemetry.next_retry().await;
+-    assert_eq!(retry.delay, Duration::from_millis(200));
++    assert_capped_first_retry_delay(retry.delay);
+     assert_eq!(
+         retry,
+         RetryTelemetryEvent {
+@@ -1941,11 +1950,12 @@ async fn websocket_headerless_errors_retry(code: &str, status: u16) -> Result<()
+         .await;
+     submit_user_input(&test, "retry the headerless websocket error").await?;
+     let retry = telemetry.next_retry().await;
++    assert_capped_first_retry_delay(retry.delay);
+     assert_eq!(
+         retry,
+         RetryTelemetryEvent {
+             attempt: 1,
+-            delay: Duration::from_millis(200),
++            delay: retry.delay,
+             layer: "stream".into(),
+             operation: "sampling".into(),
+         }

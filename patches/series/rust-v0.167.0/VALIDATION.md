@@ -61,6 +61,13 @@ gh run view RUN_ID --log-failed
 - 最终 21 个补丁在官方基线上顺序重放，与 `2361d1f` 源码一致；最终合并补丁在官方基线的独立 index 应用，与 `2361d1f` 同样无差异。变更文件的 rustfmt 1.95.0 和空白检查通过，未运行本地 Cargo 测试。
 - [CI 42760149697](https://github.com/owwkmidream/codex/actions/runs/42760149697) 对应维护提交 `17e659a`，因测试修订被替代，已申请取消；最终提交需启动新 dispatch，状态仍为“实现已提交，集成验证未完成”。
 
+## Capped 重试断言修复：0022
+
+- 源码提交 `d83a5cf`：修正 5 个 SSE/WebSocket 集成测试的等待断言。首次原版退避为带抖动的 180～220ms，Capped 200ms 的正确结果为 180～200ms；保留次数、事件、请求和重连结果检查。
+- 失败证据：[CI 42760278588](https://github.com/owwkmidream/codex/actions/runs/42760278588)，维护提交 `933543d`。build 成功；重试集成回归 42 项通过、5 项失败，实际等待 185～199ms 与固定 200ms 断言不符。此前重试与 Custom 单元测试通过；后续 TUI 回归未执行，release 跳过。
+- 22 个 series 补丁在官方提交 `086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a` 的干净 worktree 重放，与 `d83a5cf` 对照无差异；合并补丁在独立 index 应用，与该源码对照同样通过。
+- rustfmt 1.95.0 格式检查和源码空白检查通过；未在本机运行 Cargo 构建或测试。状态为“实现已提交，集成验证未完成”，需新 dispatch 验证。
+
 ## 验收缺口
 
 - `0017` 需实际成功的 build/test；完成前状态为“实现已提交，集成验证未完成”。
