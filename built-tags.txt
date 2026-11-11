@@ -14,3 +14,4 @@ rust-v0.162.1
 rust-v0.163.0
 rust-v0.166.0
 rust-v0.167.0
+rust-v0.167.1
