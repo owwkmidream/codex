@@ -380,6 +380,30 @@ index 9c12aaed2101a843a7808acd0110ac8b09b200f7..60e7195e28329a45ef0bcb1808964b03
              idle_timeout(),
              /*telemetry*/ None,
              /*turn_state*/ None,
+diff --git a/codex-rs/codex-api/src/sse/responses_error_tests.rs b/codex-rs/codex-api/src/sse/responses_error_tests.rs
+index 4c31832ea05572d92c0bb0ee31e880f53ae5c6de..06a3292e989a0c72e86d923acb60e54e619f4d5a 100644
+--- a/codex-rs/codex-api/src/sse/responses_error_tests.rs
++++ b/codex-rs/codex-api/src/sse/responses_error_tests.rs
+@@ -150,13 +150,18 @@ async fn terminal_failure_with_retry_header_ends_stream_immediately() {
+                     headers: HeaderMap::new(),
+                     bytes: Box::pin(bytes),
+                 },
++                /*request_bytes*/ 0,
+                 Duration::from_secs(60),
+                 /*telemetry*/ None,
+                 /*turn_state*/ None,
+             );
+             let error = loop {
+                 match stream.next().await {
+-                    Some(Ok(ResponseEvent::RateLimits(_))) => {}
++                    Some(Ok(
++                        ResponseEvent::RateLimits(_)
++                        | ResponseEvent::RequestBytesSent(_)
++                        | ResponseEvent::ResponseBytesReceived(_),
++                    )) => {}
+                     Some(Err(error)) => break map_api_error(error),
+                     event => panic!("expected a terminal error for {code}, got {event:?}"),
+                 }
 diff --git a/codex-rs/codex-api/tests/clients.rs b/codex-rs/codex-api/tests/clients.rs
 index fc96b300c5c243847e1020f72e660b5cba8c2e45..33009fcfa80b69512725de2346d55e0cb82ec8c4 100644
 --- a/codex-rs/codex-api/tests/clients.rs

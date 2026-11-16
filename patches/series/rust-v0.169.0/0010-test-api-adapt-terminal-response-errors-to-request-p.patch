@@ -1,0 +1,33 @@
+From 1b2b620e41d41a0fc943ba9e6bf2933505623c65 Mon Sep 17 00:00:00 2001
+From: Codex patches <patches@localhost>
+Date: Tue, 17 Nov 2026 02:14:55 +0800
+Subject: [PATCH] test(api): adapt terminal response errors to request progress
+
+---
+ codex-rs/codex-api/src/sse/responses_error_tests.rs | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/codex-rs/codex-api/src/sse/responses_error_tests.rs b/codex-rs/codex-api/src/sse/responses_error_tests.rs
+index 4c31832ea05572d92c0bb0ee31e880f53ae5c6de..06a3292e989a0c72e86d923acb60e54e619f4d5a 100644
+--- a/codex-rs/codex-api/src/sse/responses_error_tests.rs
++++ b/codex-rs/codex-api/src/sse/responses_error_tests.rs
+@@ -150,13 +150,18 @@ async fn terminal_failure_with_retry_header_ends_stream_immediately() {
+                     headers: HeaderMap::new(),
+                     bytes: Box::pin(bytes),
+                 },
++                /*request_bytes*/ 0,
+                 Duration::from_secs(60),
+                 /*telemetry*/ None,
+                 /*turn_state*/ None,
+             );
+             let error = loop {
+                 match stream.next().await {
+-                    Some(Ok(ResponseEvent::RateLimits(_))) => {}
++                    Some(Ok(
++                        ResponseEvent::RateLimits(_)
++                        | ResponseEvent::RequestBytesSent(_)
++                        | ResponseEvent::ResponseBytesReceived(_),
++                    )) => {}
+                     Some(Err(error)) => break map_api_error(error),
+                     event => panic!("expected a terminal error for {code}, got {event:?}"),
+                 }

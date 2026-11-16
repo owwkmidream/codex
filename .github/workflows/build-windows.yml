@@ -710,6 +710,7 @@ jobs:
             rustfmt --edition 2024 --config skip_children=true --check "${rust_files[@]}"
           fi
           cargo test --locked --profile ci-test -p codex-api --lib realtime_websocket::methods::auth_tests
+          cargo test --locked --profile ci-test -p codex-api --lib sse::responses::error_tests
           cargo test --locked --profile ci-test -p codex-client --lib configured_retry_tests
           cargo test --locked --profile ci-test -p codex-model-provider-info --lib retry_configuration
           cargo test --locked --profile ci-test -p codex-core --lib responses_retry::tests
