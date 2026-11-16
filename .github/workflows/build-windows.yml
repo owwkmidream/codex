@@ -711,6 +711,7 @@ jobs:
           fi
           cargo test --locked --profile ci-test -p codex-api --lib realtime_websocket::methods::auth_tests
           cargo test --locked --profile ci-test -p codex-api --lib sse::responses::error_tests
+          cargo test --locked --profile ci-test -p codex-api --lib api_bridge::tests::http_policy_capacity_preserves_retry_advice_and_terminal_behavior
           cargo test --locked --profile ci-test -p codex-client --lib configured_retry_tests
           cargo test --locked --profile ci-test -p codex-model-provider-info --lib retry_configuration
           cargo test --locked --profile ci-test -p codex-core --lib responses_retry::tests

@@ -1,0 +1,66 @@
+From 88b75bd902f0e75254899c529e2265c794b97dce Mon Sep 17 00:00:00 2001
+From: Codex patches <patches@localhost>
+Date: Tue, 17 Nov 2026 04:33:07 +0800
+Subject: [PATCH] test(api): expect overload backoff without server advice
+
+---
+ codex-rs/codex-api/src/api_bridge_tests.rs          | 10 +++++++++-
+ codex-rs/codex-api/src/sse/responses_error_tests.rs | 10 +++++++++-
+ 2 files changed, 18 insertions(+), 2 deletions(-)
+
+diff --git a/codex-rs/codex-api/src/api_bridge_tests.rs b/codex-rs/codex-api/src/api_bridge_tests.rs
+index 99bd0bc148828987b4e309a2adbae334fe4f1dfe..a0657b45b78ef74e5713b5608b717b3931528390 100644
+--- a/codex-rs/codex-api/src/api_bridge_tests.rs
++++ b/codex-rs/codex-api/src/api_bridge_tests.rs
+@@ -38,7 +38,7 @@ async fn http_policy_capacity_preserves_retry_advice_and_terminal_behavior() {
+                 (
+                     error.to_codex_protocol_error(),
+                     error.retry_after(),
+-                    error.retry_delay(/*retry_count*/ 1)
++                    error.server_retry_delay()
+                 ),
+                 (
+                     expected.clone(),
+@@ -46,6 +46,14 @@ async fn http_policy_capacity_preserves_retry_advice_and_terminal_behavior() {
+                     advice.map(|_| Duration::from_secs(3))
+                 )
+             );
++            let delay = error
++                .retry_delay(/*retry_count*/ 1)
++                .expect("retryable overload");
++            if advice.is_some() {
++                assert_eq!(delay, Duration::from_secs(3));
++            } else {
++                assert!((180..220).contains(&delay.as_millis()));
++            }
+         }
+     }
+ }
+diff --git a/codex-rs/codex-api/src/sse/responses_error_tests.rs b/codex-rs/codex-api/src/sse/responses_error_tests.rs
+index 06a3292e989a0c72e86d923acb60e54e619f4d5a..35b6fe8b6eef6e788274b833062e82e4efa9532d 100644
+--- a/codex-rs/codex-api/src/sse/responses_error_tests.rs
++++ b/codex-rs/codex-api/src/sse/responses_error_tests.rs
+@@ -91,7 +91,7 @@ async fn policy_capacity_classification_preserves_overload_retry_behavior() {
+             assert_eq!(
+                 (
+                     error.to_codex_protocol_error(),
+-                    error.retry_delay(/*retry_count*/ 1),
++                    error.server_retry_delay(),
+                     error.to_string()
+                 ),
+                 (
+@@ -105,6 +105,14 @@ async fn policy_capacity_classification_preserves_overload_retry_behavior() {
+                     .to_string()
+                 )
+             );
++            let delay = error
++                .retry_delay(/*retry_count*/ 1)
++                .expect("retryable overload");
++            if retry_after.is_some() {
++                assert_eq!(delay, Duration::from_secs(3));
++            } else {
++                assert!((180..220).contains(&delay.as_millis()));
++            }
+         }
+     }
+ }

@@ -1,6 +1,6 @@
 # rust-v0.169.0 验证证据
 
-官方基线：`d32063f96c2dff1dc96af839b3952abb6acfeda4`。最终源码提交：`1b2b620e41d41a0fc943ba9e6bf2933505623c65`。功能约定见 [CODEX-BUILD.md](../../../CODEX-BUILD.md)。
+官方基线：`d32063f96c2dff1dc96af839b3952abb6acfeda4`。最终源码提交：`88b75bd902f0e75254899c529e2265c794b97dce`。功能约定见 [CODEX-BUILD.md](../../../CODEX-BUILD.md)。
 
 ## 迁移范围
 
@@ -27,3 +27,12 @@
 - CI 增加 `cargo test --locked --profile ci-test -p codex-api --lib sse::responses::error_tests`，直接执行受影响测试模块；格式检查沿用实际变更 Rust 文件清单。
 - 10 个 series 补丁在官方基线的干净 worktree 顺序重放，与 `1b2b620` 的 `git diff --exit-code` 对照通过；更新后的合并补丁在官方基线独立 index 应用，与该源码的 `git diff --cached --exit-code` 对照通过。
 - 修改文件的 rustfmt 1.95.0 检查和源码空白检查通过。本机未运行 Cargo 编译或行为测试；提交推送后启动新 dispatch，结果以该次 CI 为准。
+
+## 无服务器建议的过载退避断言修复：0011
+
+- 失败证据：[CI 43927327716](https://github.com/owwkmidream/codex/actions/runs/43927327716)，维护提交 `16602b0`。build 成功；实时鉴权 2 项通过，SSE 错误模块 7 项通过、1 项失败。0010 修复的终止错误流用例已通过，release 跳过。
+- 失败命令：`cargo test --locked --profile ci-test -p codex-api --lib sse::responses::error_tests`。`policy_capacity_classification_preserves_overload_retry_behavior` 在 `responses_error_tests.rs:91:13` 断言失败：无 `Retry-After` 时实际返回 `Some(213ms)`，旧断言期望 `None`，退出码 101；后续重试和 TUI 回归未执行。
+- 源码提交 `88b75bd`：SSE 与 HTTP 映射的过载测试分别验证服务器建议和实际退避。服务器建议缺失时保持 `None`，首次重试等待按既有协议实现验证为 180～220ms，右端不包含；有建议时仍精确验证 3 秒。保留错误分类、原始建议及提示文案检查，生产重试逻辑不变。
+- CI 增加 `api_bridge::tests::http_policy_capacity_preserves_retry_advice_and_terminal_behavior` 过滤器，覆盖同一问题的 HTTP 路径；SSE 模块沿用 0010 的过滤器。
+- 11 个 series 补丁在官方基线的干净 worktree 顺序重放，与 `88b75bd` 源码对照无差异；合并补丁在官方基线独立 index 应用，与该源码对照无差异。两处修改文件的 rustfmt 1.95.0 和源码空白检查通过。
+- 本机未运行 Cargo 编译或行为测试；需推送后新 dispatch 验证。当前状态：实现已提交，集成验证未完成。

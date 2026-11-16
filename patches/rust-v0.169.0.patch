@@ -115,6 +115,34 @@ index 1e3d3d91c1743ca1f6e4da1d4f5699fd53874807..d6086c7067ee6b65a0fd1bedea180df3
          | ServerNotification::HookStarted(_)
          | ServerNotification::TurnCompleted(_)
          | ServerNotification::HookCompleted(_)
+diff --git a/codex-rs/codex-api/src/api_bridge_tests.rs b/codex-rs/codex-api/src/api_bridge_tests.rs
+index 99bd0bc148828987b4e309a2adbae334fe4f1dfe..a0657b45b78ef74e5713b5608b717b3931528390 100644
+--- a/codex-rs/codex-api/src/api_bridge_tests.rs
++++ b/codex-rs/codex-api/src/api_bridge_tests.rs
+@@ -38,7 +38,7 @@ async fn http_policy_capacity_preserves_retry_advice_and_terminal_behavior() {
+                 (
+                     error.to_codex_protocol_error(),
+                     error.retry_after(),
+-                    error.retry_delay(/*retry_count*/ 1)
++                    error.server_retry_delay()
+                 ),
+                 (
+                     expected.clone(),
+@@ -46,6 +46,14 @@ async fn http_policy_capacity_preserves_retry_advice_and_terminal_behavior() {
+                     advice.map(|_| Duration::from_secs(3))
+                 )
+             );
++            let delay = error
++                .retry_delay(/*retry_count*/ 1)
++                .expect("retryable overload");
++            if advice.is_some() {
++                assert_eq!(delay, Duration::from_secs(3));
++            } else {
++                assert!((180..220).contains(&delay.as_millis()));
++            }
+         }
+     }
+ }
 diff --git a/codex-rs/codex-api/src/common.rs b/codex-rs/codex-api/src/common.rs
 index 455836c2b816812f2e8a85d168902ea5fbfaa0b5..dbfd6774c5b816483b1afbf6d55e472c224445cc 100644
 --- a/codex-rs/codex-api/src/common.rs
@@ -381,10 +409,34 @@ index 9c12aaed2101a843a7808acd0110ac8b09b200f7..60e7195e28329a45ef0bcb1808964b03
              /*telemetry*/ None,
              /*turn_state*/ None,
 diff --git a/codex-rs/codex-api/src/sse/responses_error_tests.rs b/codex-rs/codex-api/src/sse/responses_error_tests.rs
-index 4c31832ea05572d92c0bb0ee31e880f53ae5c6de..06a3292e989a0c72e86d923acb60e54e619f4d5a 100644
+index 4c31832ea05572d92c0bb0ee31e880f53ae5c6de..35b6fe8b6eef6e788274b833062e82e4efa9532d 100644
 --- a/codex-rs/codex-api/src/sse/responses_error_tests.rs
 +++ b/codex-rs/codex-api/src/sse/responses_error_tests.rs
-@@ -150,13 +150,18 @@ async fn terminal_failure_with_retry_header_ends_stream_immediately() {
+@@ -91,7 +91,7 @@ async fn policy_capacity_classification_preserves_overload_retry_behavior() {
+             assert_eq!(
+                 (
+                     error.to_codex_protocol_error(),
+-                    error.retry_delay(/*retry_count*/ 1),
++                    error.server_retry_delay(),
+                     error.to_string()
+                 ),
+                 (
+@@ -105,6 +105,14 @@ async fn policy_capacity_classification_preserves_overload_retry_behavior() {
+                     .to_string()
+                 )
+             );
++            let delay = error
++                .retry_delay(/*retry_count*/ 1)
++                .expect("retryable overload");
++            if retry_after.is_some() {
++                assert_eq!(delay, Duration::from_secs(3));
++            } else {
++                assert!((180..220).contains(&delay.as_millis()));
++            }
+         }
+     }
+ }
+@@ -150,13 +158,18 @@ async fn terminal_failure_with_retry_header_ends_stream_immediately() {
                      headers: HeaderMap::new(),
                      bytes: Box::pin(bytes),
                  },
