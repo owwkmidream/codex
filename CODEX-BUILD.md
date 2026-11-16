@@ -4,7 +4,7 @@
 
 ## 功能约定
 
-当前基线为官方 `rust-v0.167.0`。本节描述仓库源码；已发布附件的功能以该次构建提交的文档为准。
+当前基线为官方 `rust-v0.169.0`。本节描述仓库源码；已发布附件的功能以该次构建提交的文档为准。
 
 | 功能 | 行为 |
 |---|---|
@@ -52,7 +52,7 @@ retry_delay_ms = 10000
 - 时间只接受非负整数；`capped`、`fixed` 下零表示立即重试。未设置时为 Default，首次选择 Capped/Fixed 的时间为 10,000 毫秒。
 - 不迁移或读取旧 provider 下的 `retry_delay_ms`；有旧字段时需自行移除。
 
-等待配置适用于模型 HTTP、流重连、本地压缩和传输回退；非模型 HTTP 客户端保留原退避行为。核心层每轮读取设置，TUI、`codex exec` 和使用同一 `$CODEX_HOME` 的独立 daemon 共用；远程主机需要其自身的配置文件。Stream 次数保留官方配置层优先级，Custom 只编辑当前用户配置文件。`0019` 在保留历史补丁的基础上提供当前配置入口与持久化。
+等待配置适用于模型 HTTP、流重连、本地压缩和传输回退；非模型 HTTP 客户端保留原退避行为。核心层每轮读取设置，TUI、`codex exec` 和使用同一 `$CODEX_HOME` 的独立 daemon 共用；远程主机需要其自身的配置文件。Stream 次数保留官方配置层优先级，Custom 只编辑当前用户配置文件。当前 series 的 `0001` 包含完整重试行为、配置入口和回归。
 
 ### 选择与文件链接
 
@@ -70,7 +70,7 @@ Ctrl+C 复制；Enter 复制并跟随最新输出；Space 引用不写入剪贴�
 推荐在 Git Bash 使用单文件脚本 `bash scripts/codex-patch.sh`，安装和还原均匹配已有 npm 包版本；参数、摘要识别及 daemon 行为见 [scripts/README.md](scripts/README.md)。本机部署由用户发起。手动安装：
 
 1. 下载 Release zip，核对其中 `BUILD-INFO.txt` 的 `upstream_tag`、`patch_baseline` 和 `patch_is_exact`。
-2. 安装同版本完整 npm 包，例如 `npm install -g @openai/codex@0.167.0`，使辅助程序匹配。
+2. 安装同版本完整 npm 包，例如 `npm install -g @openai/codex@0.169.0`，使辅助程序匹配。
 3. 退出占用目标文件的 CLI 并备份；将 zip 内的 `codex.exe` 覆盖到 `npm root -g` 下的 `@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe`。
 4. 运行 `codex --version`。使用独立 daemon 时，在会话空闲后执行：
 
@@ -84,10 +84,10 @@ CLI 与 daemon 使用不同磁盘副本，daemon 路径以 `managedCodexPath` �
 
 ## CI 与失败定位
 
-Codex 二进制的构建、测试及相关重型依赖准备在 CI 执行；仓库脚本的语法检查和隔离测试优先在本机执行，授权边界见 [AGENTS.md](AGENTS.md)。CI 命令与缓存配置以 [workflow](.github/workflows/build-windows.yml) 为准，受影响行为的证据见 [VALIDATION.md](patches/series/rust-v0.167.0/VALIDATION.md)。
+Codex 二进制的构建、测试及相关重型依赖准备在 CI 执行；仓库脚本的语法检查和隔离测试优先在本机执行，授权边界见 [AGENTS.md](AGENTS.md)。CI 命令与缓存配置以 [workflow](.github/workflows/build-windows.yml) 为准，受影响行为的证据见 [VALIDATION.md](patches/series/rust-v0.169.0/VALIDATION.md)。
 
 ```powershell
-gh workflow run build-windows.yml --ref main -f tag=rust-v0.167.0 -f force=true
+gh workflow run build-windows.yml --ref main -f tag=rust-v0.169.0 -f force=true
 gh run list --workflow build-windows.yml --limit 5
 gh run view RUN_ID
 gh run view RUN_ID --log-failed
@@ -113,14 +113,16 @@ gh run view RUN_ID --log-failed
 3. 导出两种产物，并在干净基线上重放后比较源码：
 
 ```bash
-git am /path/to/patches/series/rust-v0.167.0/*.patch
-git diff --binary --full-index rust-v0.167.0 HEAD -- . ':!codex-rs/Cargo.lock' > /path/to/patches/rust-v0.167.0.patch
-git format-patch --binary --full-index --no-signature --start-number NEXT -1 HEAD -o /path/to/patches/series/rust-v0.167.0
+git am /path/to/patches/series/rust-v0.169.0/*.patch
+git diff --binary --full-index rust-v0.169.0 HEAD -- . ':!codex-rs/Cargo.lock' > /path/to/patches/rust-v0.169.0.patch
+git format-patch --binary --full-index --no-signature --start-number NEXT -1 HEAD -o /path/to/patches/series/rust-v0.169.0
 ```
 
-`NEXT` 是下一个编号；一次追加多个提交时调整提交范围。新版本写入新 tag 目录。跨版本迁移可用 `git rebase --onto <新tag> rust-v0.167.0`；上游已有等价功能时先核对配置兼容再移除对应补丁。
+`NEXT` 是下一个编号；一次追加多个提交时调整提交范围。同一版本继续追加修订，保留已导出的历史。跨版本迁移写入新 tag 目录：从旧基线与最终源码的净差异开始，按功能整理提交，把测试和修订合入所属功能；旧版本目录及补丁保持原样。上游已有等价功能时先核对配置兼容再移除对应差异。
 
-CI 入口：`bash scripts/apply-patches.sh /path/to/upstream patches/rust-v0.167.0.patch rust-v0.167.0 /tmp/codex-patch-report`。补丁流程的隔离回归命令为 `python scripts/tests/test_apply_patches.py`，可直接在本机运行，CI 同样执行。
+`rust-v0.169.0` 将旧版 25 个历史提交整理为 9 个功能补丁：重试与 Custom、压缩横幅、跨 provider 恢复、SQLite 日志、Cyber 提示、无输出 Esc、请求字节进度、Space 引用、本地链接。迁移保留上游鉴权、Guardian 响应筛选、服务器重试截止时间、配置页新增入口和 Markdown 列测量逻辑。后续新 tag 继续自动尝试最新 series；有冲突或行为回归时才进行人工适配。
+
+CI 入口：`bash scripts/apply-patches.sh /path/to/upstream patches/rust-v0.169.0.patch rust-v0.169.0 /tmp/codex-patch-report`。补丁流程的隔离回归命令为 `python scripts/tests/test_apply_patches.py`，可直接在本机运行，CI 同样执行。
 
 Cargo.lock 的 workspace 版本由 CI 对齐。协议 JSON、TypeScript 和压缩导出通过上游生成器重建，功能提交保存相关源码。源码归档包含功能历史与隐藏配置；`patched-source` 附件保留 7 天。跨机器恢复以持久保存的邮件补丁为准。
 

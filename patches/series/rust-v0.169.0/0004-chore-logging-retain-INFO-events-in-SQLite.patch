@@ -1,0 +1,22 @@
+From 8a4d6a8f54eb345ef2f2bda1e25530379708e33c Mon Sep 17 00:00:00 2001
+From: Codex patches <patches@localhost>
+Date: Mon, 16 Nov 2026 23:52:59 +0800
+Subject: [PATCH 4/9] chore(logging): retain INFO events in SQLite
+
+---
+ codex-rs/state/src/log_db.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/codex-rs/state/src/log_db.rs b/codex-rs/state/src/log_db.rs
+index ef03ad85731b25eff7e74465adeb8d8f5707c8a4..98fc40c819ef6f26c76d092f34ae123d2fb0ad20 100644
+--- a/codex-rs/state/src/log_db.rs
++++ b/codex-rs/state/src/log_db.rs
+@@ -60,7 +60,7 @@ const SQLX_LOG_TARGETS: [&str; 3] = ["sqlx", "sqlx_core", "sqlx_sqlite"];
+ 
+ pub fn default_filter() -> Targets {
+     Targets::new()
+-        .with_default(LevelFilter::TRACE)
++        .with_default(LevelFilter::INFO)
+         .with_target("h2", LevelFilter::WARN)
+         .with_target("hyper_util", LevelFilter::WARN)
+         .with_target("log", LevelFilter::OFF)

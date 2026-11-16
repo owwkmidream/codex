@@ -1,0 +1,166 @@
+From 673670b3ca2e4efbfbf56d9f73b6fc160fe37725 Mon Sep 17 00:00:00 2001
+From: Codex patches <patches@localhost>
+Date: Mon, 16 Nov 2026 23:53:17 +0800
+Subject: [PATCH 5/9] fix(tui): keep Cyber policy notices as warnings
+
+---
+ .../tui/src/chatwidget/safety_recourse.rs     | 19 ++++----
+ .../tui/src/chatwidget/tests/app_server.rs    |  5 +-
+ codex-rs/tui/src/chatwidget/turn_runtime.rs   |  7 +--
+ codex-rs/tui/src/history_cell/notices.rs      | 48 ++++++-------------
+ 4 files changed, 31 insertions(+), 48 deletions(-)
+
+diff --git a/codex-rs/tui/src/chatwidget/safety_recourse.rs b/codex-rs/tui/src/chatwidget/safety_recourse.rs
+index 8126459a265f36f2664885a1a1b66bdbd5fbba5a..63b5ad067e73eae3afe695f6d29e12f78db6a91f 100644
+--- a/codex-rs/tui/src/chatwidget/safety_recourse.rs
++++ b/codex-rs/tui/src/chatwidget/safety_recourse.rs
+@@ -101,8 +101,14 @@ pub(super) fn render_failure(
+             ..Default::default()
+         });
+     }
+-    let mut cell = match pending.domain {
+-        Domain::Bio => history_cell::new_safety_access_block_event(),
++    match pending.domain {
++        Domain::Bio => {
++            let mut cell = history_cell::new_safety_access_block_event();
++            cell.explanation = Some(result.explanation);
++            chat.input_queue.submit_pending_steers_after_interrupt = false;
++            chat.finalize_turn();
++            chat.add_to_history(cell);
++        }
+         Domain::Cyber => {
+             let notice = chat.cyber_policy_notice();
+             if notice == crate::daybreak::Notice::Disabled {
+@@ -118,9 +124,10 @@ pub(super) fn render_failure(
+                     ..Default::default()
+                 });
+             }
+-            history_cell::new_cyber_policy_error_event(notice)
++            // Cybersecurity refusals only surface as a warning: the turn is not force-ended.
++            chat.add_to_history(history_cell::new_cyber_policy_error_event(notice));
+         }
+-    };
++    }
+     if chat.config.feedback_enabled {
+         items.push(SelectionItem {
+             name: "Give feedback".into(),
+@@ -132,10 +139,6 @@ pub(super) fn render_failure(
+             ..Default::default()
+         });
+     }
+-    cell.explanation = Some(result.explanation);
+-    chat.input_queue.submit_pending_steers_after_interrupt = false;
+-    chat.finalize_turn();
+-    chat.add_to_history(cell);
+     if !items.is_empty() {
+         chat.bottom_pane.show_selection_view(SelectionViewParams {
+             view_id: Some(VIEW_ID),
+diff --git a/codex-rs/tui/src/chatwidget/tests/app_server.rs b/codex-rs/tui/src/chatwidget/tests/app_server.rs
+index f617e1032dcd7b228c5258aa3e6b4063a9aeb38e..caece7717007d2bea141ed7769697e1a7b4a8af2 100644
+--- a/codex-rs/tui/src/chatwidget/tests/app_server.rs
++++ b/codex-rs/tui/src/chatwidget/tests/app_server.rs
+@@ -2037,7 +2037,7 @@ async fn live_app_server_server_overloaded_error_renders_error() {
+ }
+ 
+ #[tokio::test]
+-async fn live_app_server_cyber_policy_error_renders_dedicated_notice() {
++async fn live_app_server_cyber_policy_warning_keeps_turn_running() {
+     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+ 
+     chat.handle_server_notification(
+@@ -2080,7 +2080,8 @@ async fn live_app_server_cyber_policy_error_renders_dedicated_notice() {
+     assert!(rendered.contains("This content can’t be shown"));
+     assert!(rendered.contains("We take extra care with some cybersecurity requests"));
+     assert!(!rendered.contains("server fallback message"));
+-    assert!(!chat.bottom_pane.is_task_running());
++    // 警告保持当前轮运行，结束状态由后端的 TurnCompleted 通知推进。
++    assert!(chat.bottom_pane.is_task_running());
+ }
+ 
+ #[tokio::test]
+diff --git a/codex-rs/tui/src/chatwidget/turn_runtime.rs b/codex-rs/tui/src/chatwidget/turn_runtime.rs
+index d1acdfcc5d72a61807d10c7c115435b6358d17a9..0d5e787fc91cbdf9611e5a3cc852253642abbdcf 100644
+--- a/codex-rs/tui/src/chatwidget/turn_runtime.rs
++++ b/codex-rs/tui/src/chatwidget/turn_runtime.rs
+@@ -445,8 +445,8 @@ impl ChatWidget {
+ 
+     pub(super) fn on_cyber_policy_error(&mut self) {
+         let notice = self.cyber_policy_notice();
+-        self.input_queue.submit_pending_steers_after_interrupt = false;
+-        self.finalize_turn();
++        // Cybersecurity refusals only surface as a warning: the turn is not force-ended
++        // here, and no extra follow-up prompt is forced on the user.
+         self.add_to_history(history_cell::new_cyber_policy_error_event(notice));
+         if notice == crate::daybreak::Notice::Disabled
+             && !self.thread_usage.replaying_turn_completion
+@@ -478,9 +478,6 @@ impl ChatWidget {
+             self.defer_input_until_settings_applied();
+         }
+         self.request_redraw();
+-
+-        // After an error ends the turn, try sending the next queued input.
+-        self.maybe_send_next_queued_input();
+     }
+ 
+     pub(super) fn on_rate_limit_error(&mut self, error_kind: RateLimitErrorKind, message: String) {
+diff --git a/codex-rs/tui/src/history_cell/notices.rs b/codex-rs/tui/src/history_cell/notices.rs
+index 8c2dce8f95829c082c24196c5a7c989194234756..1e3936b4f2e21aca3e50b9bc1191bbdcacc29354 100644
+--- a/codex-rs/tui/src/history_cell/notices.rs
++++ b/codex-rs/tui/src/history_cell/notices.rs
+@@ -167,41 +167,23 @@ pub(crate) fn new_safety_access_block_event() -> SafetyAccessBlockCell {
+     }
+ }
+ 
+-pub(crate) fn new_cyber_policy_error_event(
+-    notice: crate::daybreak::Notice,
+-) -> SafetyAccessBlockCell {
++pub(crate) fn new_cyber_policy_error_event(notice: crate::daybreak::Notice) -> WarningHistoryCell {
+     use crate::daybreak::Notice;
+-    let (body, actions): (_, &'static [(&str, &str)]) = match notice {
+-        Notice::Apply => (
+-            "If you’re doing authorized security work, apply for Daybreak to get broader access.",
+-            &[
+-                ("Learn more", SAFETY_ACCESS_BLOCK_LEARN_MORE_URL),
+-                (
+-                    "Apply for Daybreak",
+-                    "https://openai.com/form/enterprise-trusted-access-for-cyber/",
+-                ),
+-            ],
+-        ),
+-        Notice::Disabled => (
+-            "Daybreak is currently off. If you’re doing authorized security work, turn it on and try your request again.",
+-            &[("Learn more", SAFETY_ACCESS_BLOCK_LEARN_MORE_URL)],
+-        ),
+-        Notice::Astra => (
+-            "Daybreak isn’t available for Astra. Some cybersecurity requests may still be limited.",
+-            &[("Learn more", SAFETY_ACCESS_BLOCK_LEARN_MORE_URL)],
+-        ),
+-        Notice::Enabled => (
+-            "Some cybersecurity requests are still limited, even when Daybreak is on.",
+-            &[("Learn more", SAFETY_ACCESS_BLOCK_LEARN_MORE_URL)],
+-        ),
++    let message = match notice {
++        Notice::Apply => {
++            "We take extra precaution with cybersecurity requests. If you’re doing authorized security work, you may be able to apply for Trusted Access: https://openai.com/form/enterprise-trusted-access-for-cyber/"
++        }
++        Notice::Disabled => {
++            "Daybreak is currently off. If you’re doing authorized security work, turn it on and try your request again."
++        }
++        Notice::Astra => {
++            "Daybreak isn’t available for Astra. Some cybersecurity requests may still be limited."
++        }
++        Notice::Enabled => {
++            "Some cybersecurity requests are still limited, even when Daybreak is on."
++        }
+     };
+-    SafetyAccessBlockCell {
+-        title: "This content can’t be shown",
+-        explanation: (notice == Notice::Apply)
+-            .then(|| "We take extra care with some cybersecurity requests.".into()),
+-        body,
+-        actions,
+-    }
++    new_warning_event(message.to_string())
+ }
+ 
+ impl SafetyAccessBlockCell {

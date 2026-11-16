@@ -1,0 +1,31 @@
+From 068c1f1c30b9fb836081d06e6e938cd24b1d779d Mon Sep 17 00:00:00 2001
+From: Codex patches <patches@localhost>
+Date: Mon, 16 Nov 2026 23:52:58 +0800
+Subject: [PATCH 3/9] fix(resume): include sessions from all providers
+
+---
+ codex-rs/tui/src/resume_picker.rs | 10 ++++------
+ 1 file changed, 4 insertions(+), 6 deletions(-)
+
+diff --git a/codex-rs/tui/src/resume_picker.rs b/codex-rs/tui/src/resume_picker.rs
+index 42bcbfbead119683ff5a6d068b48b9d7318617cb..a8395dc5871682567f0f5705c19c8073a90418e4 100644
+--- a/codex-rs/tui/src/resume_picker.rs
++++ b/codex-rs/tui/src/resume_picker.rs
+@@ -869,13 +869,11 @@ fn local_picker_cwd_filter(
+ }
+ 
+ async fn picker_provider_filter(
+-    config: &Config,
+-    app_server: &AppServerSession,
++    _config: &Config,
++    _app_server: &AppServerSession,
+ ) -> Result<ProviderFilter> {
+-    Ok(app_server
+-        .history_model_provider(config)
+-        .await?
+-        .map_or(ProviderFilter::Any, ProviderFilter::MatchDefault))
++    // 显式请求所有 provider；保留目录过滤以及其他调用方的原过滤能力。
++    Ok(ProviderFilter::All)
+ }
+ 
+ fn picker_runtime_keymap(config: &crate::local_settings::LocalSettings) -> Result<RuntimeKeymap> {

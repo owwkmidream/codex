@@ -1,0 +1,667 @@
+From 29928a15e6a85e353d5f54d78624cc61d479afed Mon Sep 17 00:00:00 2001
+From: Codex patches <patches@localhost>
+Date: Mon, 16 Nov 2026 23:54:27 +0800
+Subject: [PATCH 8/9] feat(tui): insert Space quotes at the preserved prompt
+ cursor
+
+---
+ codex-rs/tui/src/app/owned_transcript.rs      |  6 ++
+ .../tui/src/app/tests/transcript_selection.rs | 58 +++++++++++++++++++
+ codex-rs/tui/src/app_backtrack.rs             |  5 ++
+ codex-rs/tui/src/bottom_pane/chat_composer.rs |  2 +
+ .../chat_composer/blockquote_paste_tests.rs   | 41 +++++++++++++
+ .../bottom_pane/chat_composer/paste_input.rs  | 17 ++++++
+ codex-rs/tui/src/bottom_pane/mod.rs           |  5 ++
+ codex-rs/tui/src/chatwidget/input_restore.rs  |  8 +++
+ codex-rs/tui/src/chatwidget/slash_dispatch.rs |  6 +-
+ codex-rs/tui/src/pager_overlay/transcript.rs  | 10 +++-
+ .../tui/src/pager_overlay/transcript_tests.rs |  2 +-
+ codex-rs/tui/src/transcript_view/footer.rs    | 22 ++++---
+ .../tui/src/transcript_view/footer_tests.rs   | 16 ++---
+ codex-rs/tui/src/transcript_view/input.rs     | 17 +++++-
+ .../tui/src/transcript_view/select_mode.rs    |  7 +++
+ .../src/transcript_view/select_mode_tests.rs  | 16 +++++
+ codex-rs/tui/src/transcript_view/selection.rs |  5 +-
+ .../src/transcript_view/selection_tests.rs    | 32 ++++++++++
+ ...n_and_search_keep_complete_exit_hints.snap |  4 +-
+ ...oter__tests__selection_hint_threshold.snap |  4 +-
+ ...ers_cursor_and_scannable_footer_hints.snap |  4 +-
+ 21 files changed, 260 insertions(+), 27 deletions(-)
+
+diff --git a/codex-rs/tui/src/app/owned_transcript.rs b/codex-rs/tui/src/app/owned_transcript.rs
+index 37e406c141e0fac87c80e2aa261ccae22dc445e8..5b8ef88392419b18ba9476eb47ad5b44681b0d92 100644
+--- a/codex-rs/tui/src/app/owned_transcript.rs
++++ b/codex-rs/tui/src/app/owned_transcript.rs
+@@ -1157,6 +1157,12 @@ impl App {
+             return self.handle_owned_backtrack_event(tui, event);
+         };
+         let resume_following = matches!(action, ViewAction::CopyAndFollow(_));
++        if let ViewAction::Quote(text) = &action {
++            self.chat_widget.append_transcript_quote(text);
++            // 退出选择时保留阅读锚点，不进入 Enter 的跟随最新输出分支。
++            self.transcript_view.end_select_mode();
++            self.transcript_view.end_selection(&self.transcript_cells);
++        }
+         if !matches!(action, ViewAction::ExitSelectMode) {
+             if let Some((characters, result)) = self.transcript_view.copy_action(
+                 tui,
+diff --git a/codex-rs/tui/src/app/tests/transcript_selection.rs b/codex-rs/tui/src/app/tests/transcript_selection.rs
+index 75462d38ed1346a499f335b20f95486ba319f4ab..c9490cd408a8ca50d577190dd95abd7cb1541ed5 100644
+--- a/codex-rs/tui/src/app/tests/transcript_selection.rs
++++ b/codex-rs/tui/src/app/tests/transcript_selection.rs
+@@ -4,6 +4,64 @@ use super::*;
+ use crate::chatwidget::UserMessage;
+ use pretty_assertions::assert_eq;
+ 
++#[tokio::test]
++async fn transcript_quote_inserts_at_cursor_and_preserves_attachments() {
++    let (mut app, _, mut operations) = make_test_app_with_channels().await;
++    app.chat_widget
++        .restore_user_message_to_composer(UserMessage {
++            text: "draft".into(),
++            remote_image_urls: vec!["https://example.com/image.png".into()],
++            local_images: Vec::new(),
++            text_elements: Vec::new(),
++            mention_bindings: Vec::new(),
++        });
++    app.chat_widget.handle_key_event(KeyCode::Left.into());
++    app.chat_widget
++        .append_transcript_quote("引用\n\n  第二行\n");
++    assert_eq!(
++        app.chat_widget.composer_text_with_pending(),
++        "draf\n> 引用\n> \n>   第二行\n> \n\nt"
++    );
++    assert_eq!(
++        app.chat_widget.remote_image_urls(),
++        vec!["https://example.com/image.png".to_string()]
++    );
++    assert!(operations.try_recv().is_err());
++    app.chat_widget.insert_str("继续");
++    assert_eq!(
++        app.chat_widget.composer_text_with_pending(),
++        "draf\n> 引用\n> \n>   第二行\n> \n继续\nt"
++    );
++}
++
++#[tokio::test]
++async fn transcript_quote_cursor_boundaries_and_repeated_quotes() {
++    for (draft, left, prefix, suffix) in [
++        ("前文后文", 2, "前文", "后文"),
++        ("后文", 2, "", "后文"),
++        ("前文", 0, "前文", ""),
++        ("", 0, "", ""),
++    ] {
++        let (mut app, _, mut operations) = make_test_app_with_channels().await;
++        app.chat_widget.apply_external_edit(draft.into());
++        for _ in 0..left {
++            app.chat_widget.handle_key_event(KeyCode::Left.into());
++        }
++        app.chat_widget.append_transcript_quote("引用");
++        assert_eq!(
++            app.chat_widget.composer_text_with_pending(),
++            format!("{prefix}\n> 引用\n\n{suffix}")
++        );
++        app.chat_widget.append_transcript_quote("再次引用");
++        app.chat_widget.insert_str("继续");
++        assert_eq!(
++            app.chat_widget.composer_text_with_pending(),
++            format!("{prefix}\n> 引用\n\n> 再次引用\n继续\n\n{suffix}")
++        );
++        assert!(operations.try_recv().is_err());
++    }
++}
++
+ #[tokio::test]
+ async fn text_selection_temporarily_replaces_the_rendered_backtrack_highlight() -> Result<()> {
+     let (mut app, mut events, mut operations) = make_test_app_with_channels().await;
+diff --git a/codex-rs/tui/src/app_backtrack.rs b/codex-rs/tui/src/app_backtrack.rs
+index 42cdbe0439b9c5a5cf109365e11a66fb81cecbd7..8e1e3b45f9c2fe986328eefa87141b5628cdd36d 100644
+--- a/codex-rs/tui/src/app_backtrack.rs
++++ b/codex-rs/tui/src/app_backtrack.rs
+@@ -457,6 +457,7 @@ impl App {
+             let close_overlay = t.is_done();
+             let select_mode_closed = was_select_mode && (!t.is_select_mode() || close_overlay);
+             let pending_follow_id = t.pending_follow_id();
++            let quote = t.pending_quote.take();
+             if !close_overlay
+                 && active_key.is_some_and(|key| key.animation_tick.is_some())
+                 && t.is_scrolled_to_bottom()
+@@ -479,6 +480,10 @@ impl App {
+                     self.backtrack.pending_select_exit_key = None;
+                 }
+             }
++            if let Some(text) = quote {
++                self.chat_widget.append_transcript_quote(&text);
++                tui.frame_requester().schedule_frame();
++            }
+             if close_overlay {
+                 self.close_transcript_overlay(tui);
+                 tui.frame_requester().schedule_frame();
+diff --git a/codex-rs/tui/src/bottom_pane/chat_composer.rs b/codex-rs/tui/src/bottom_pane/chat_composer.rs
+index db3b79fb6258432297677bc8cecd1ab76e8ade53..3917aece7115bfc6261b1bf02702bca700627f6d 100644
+--- a/codex-rs/tui/src/bottom_pane/chat_composer.rs
++++ b/codex-rs/tui/src/bottom_pane/chat_composer.rs
+@@ -20,6 +20,8 @@
+ //! so input and persistent status stay anchored when help opens or closes.
+ //! Escape dismisses visible shortcut help before editing, transcript backtracking, or interruption.
+ //! Fullscreen limits the composer height; wheel browsing preserves the caret until editor input.
++//! Transcript quotes insert at that caret, preserving suffix elements even in Vim Replace mode.
++//! The caret stays on the blank line after the quote; the original suffix starts on the next line.
+ //! Transcript interactions borrow the hint footer through `ComposerRenderOptions`;
+ //! its resolved presentation drives height, painting, and the focused cursor together.
+ //!
+diff --git a/codex-rs/tui/src/bottom_pane/chat_composer/blockquote_paste_tests.rs b/codex-rs/tui/src/bottom_pane/chat_composer/blockquote_paste_tests.rs
+index 74e4a2a445e624b0c33e03aef81dd259a6a48753..2fbae3e4d530f41fa833fffba70f8ab0295fd0bb 100644
+--- a/codex-rs/tui/src/bottom_pane/chat_composer/blockquote_paste_tests.rs
++++ b/codex-rs/tui/src/bottom_pane/chat_composer/blockquote_paste_tests.rs
+@@ -5,6 +5,47 @@ use crossterm::event::MouseEvent;
+ use crossterm::event::MouseEventKind;
+ use pretty_assertions::assert_eq;
+ 
++#[test]
++fn transcript_quote_preserves_rich_suffix_even_in_vim_replace() {
++    for replace_mode in [false, true] {
++        let (mut composer, _rx) = new_test_composer();
++        composer.set_disable_paste_burst(/*disabled*/ true);
++        composer.insert_selected_mention(0..0, "$skill", Some("/original/skill/SKILL.md"));
++        composer.attach_image(std::path::PathBuf::from("photo.png"));
++        composer.handle_paste("z".repeat(LARGE_PASTE_CHAR_THRESHOLD + 1));
++        composer.draft.textarea.set_cursor(0);
++        composer.insert_str("前文");
++        composer.popups.active = ActivePopup::None;
++        if replace_mode {
++            composer.set_vim_enabled(/*enabled*/ true);
++            composer.handle_key_event(KeyCode::Esc.into());
++            composer.handle_key_event(KeyCode::Char('R').into());
++        }
++        composer.draft.textarea.set_cursor("前文".len());
++        let before = composer.draft_snapshot();
++        let expanded = composer.current_text_with_pending();
++        composer.insert_transcript_quote("\n> 引用\n");
++        let after = composer.draft_snapshot();
++        assert_eq!(after.local_images, before.local_images);
++        assert_eq!(after.mention_bindings, before.mention_bindings);
++        assert_eq!(after.pending_pastes, before.pending_pastes);
++        assert_eq!(after.cursor, "前文\n> 引用\n".len());
++        assert_eq!(
++            composer.current_text_with_pending(),
++            expanded.replacen("前文", "前文\n> 引用\n\n", 1)
++        );
++        // 后方三类原子元素整体移动，提交展开仍保留其原始负载。
++        let shift = "\n> 引用\n\n".len();
++        let mut expected_elements = before.text_elements;
++        for element in &mut expected_elements {
++            element.byte_range.start += shift;
++            element.byte_range.end += shift;
++        }
++        assert_eq!(after.text_elements, expected_elements);
++        assert_eq!(after.text_elements.len(), 3);
++    }
++}
++
+ #[test]
+ fn blockquote_paste_continues_current_line_prefix() {
+     for (draft, pasted, expected) in [
+diff --git a/codex-rs/tui/src/bottom_pane/chat_composer/paste_input.rs b/codex-rs/tui/src/bottom_pane/chat_composer/paste_input.rs
+index df7cec291614955b4deb45200192cdd4ded00e81..741d462660da2b8b4d70814264f7dca3ce72d090 100644
+--- a/codex-rs/tui/src/bottom_pane/chat_composer/paste_input.rs
++++ b/codex-rs/tui/src/bottom_pane/chat_composer/paste_input.rs
+@@ -12,6 +12,23 @@ use crate::bottom_pane::paste_burst::FlushResult;
+ use crate::bottom_pane::textarea::EditTarget;
+ 
+ impl ChatComposer {
++    pub(crate) fn insert_transcript_quote(&mut self, text: &str) {
++        self.flush_pending_paste_burst();
++        self.dismiss_sparkle();
++        let started_vim_edit = self.begin_direct_vim_edit();
++        let cursor = self.draft.textarea.cursor();
++        // 直接插入以保留后文及元素 ID，避开选区替换和 Vim Replace。
++        self.draft
++            .textarea
++            .insert_str_at(cursor, &format!("{text}\n"));
++        // 引用后的空行用于继续输入，原后文从下一行开始。
++        self.draft.textarea.set_cursor(cursor + text.len());
++        self.sync_popups();
++        if started_vim_edit {
++            self.finish_vim_edit();
++        }
++    }
++
+     pub(crate) fn insert_str(&mut self, text: &str) {
+         self.insert_str_at_target(
+             self.draft.textarea.edit_target(),
+diff --git a/codex-rs/tui/src/bottom_pane/mod.rs b/codex-rs/tui/src/bottom_pane/mod.rs
+index 098697c47c8414afbb63a80b9e75a9de6407f3ae..06796d2d0a176d452de5e83b59c1ea0a9430e32f 100644
+--- a/codex-rs/tui/src/bottom_pane/mod.rs
++++ b/codex-rs/tui/src/bottom_pane/mod.rs
+@@ -1132,6 +1132,11 @@ impl BottomPane {
+         self.request_redraw();
+     }
+ 
++    pub(crate) fn insert_transcript_quote(&mut self, text: &str) {
++        self.composer.insert_transcript_quote(text);
++        self.request_redraw();
++    }
++
+     pub(crate) fn pre_draw_tick(&mut self) {
+         self.pre_draw_tick_at(Instant::now());
+     }
+diff --git a/codex-rs/tui/src/chatwidget/input_restore.rs b/codex-rs/tui/src/chatwidget/input_restore.rs
+index 2944ee3b57245f318e79a2075573a979c8a0a338..0a8374f8aa7e78588bc5917fddca8c30871f3a35 100644
+--- a/codex-rs/tui/src/chatwidget/input_restore.rs
++++ b/codex-rs/tui/src/chatwidget/input_restore.rs
+@@ -698,6 +698,14 @@ impl ChatWidget {
+         self.bottom_pane.set_composer_pending_pastes(pending_pastes);
+     }
+ 
++    pub(crate) fn append_transcript_quote(&mut self, text: &str) {
++        // 每一行（含空行）都添加引用前缀，保留原文的换行和缩进。
++        let quote = text.replace('\n', "\n> ");
++        self.bottom_pane
++            .insert_transcript_quote(&format!("\n> {quote}\n"));
++        self.request_redraw();
++    }
++
+     fn composer_state_from_user_message(
+         user_message: UserMessage,
+         pending_pastes: Vec<(String, String)>,
+diff --git a/codex-rs/tui/src/chatwidget/slash_dispatch.rs b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
+index d28b12f6e300052df3cbc72784a577fafcb3975f..8b0ec91b02167fe7f4bf06c8cb46ced17b6fe0c5 100644
+--- a/codex-rs/tui/src/chatwidget/slash_dispatch.rs
++++ b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
+@@ -342,8 +342,12 @@ impl ChatWidget {
+                     self.bottom_pane.set_task_running(/*running*/ true);
+                 }
+                 self.bottom_pane.ensure_status_indicator();
++                let compaction_kind = compaction::CompactionStatusKind::resolve(
++                    &self.config.features,
++                    &self.config.model_provider,
++                );
+                 self.set_status(
+-                    compaction::COMPACTION_HEADER.to_string(),
++                    compaction_kind.header().to_string(),
+                     Some(compaction::COMPACTION_DETAILS.to_string()),
+                     StatusDetailsCapitalization::Preserve,
+                     STATUS_DETAILS_DEFAULT_MAX_LINES,
+diff --git a/codex-rs/tui/src/pager_overlay/transcript.rs b/codex-rs/tui/src/pager_overlay/transcript.rs
+index ebd4d84d84d5816c9a143a3caf338878855c2d3e..7a3ac0647e697618a4812d7bd4e0d05b7a462f8c 100644
+--- a/codex-rs/tui/src/pager_overlay/transcript.rs
++++ b/codex-rs/tui/src/pager_overlay/transcript.rs
+@@ -28,6 +28,7 @@ pub(crate) struct TranscriptOverlay {
+     find_transcript: Vec<crate::key_hint::KeyBinding>,
+     select_transcript: Vec<crate::key_hint::KeyBinding>,
+     pub(super) pending_follow_close: Option<(u64, bool)>,
++    pub(crate) pending_quote: Option<String>,
+     pending_select_mode: bool,
+     is_done: bool,
+ }
+@@ -68,6 +69,7 @@ impl TranscriptOverlay {
+             find_transcript: Vec::new(),
+             select_transcript: Vec::new(),
+             pending_follow_close: None,
++            pending_quote: None,
+             pending_select_mode: false,
+             is_done: false,
+         }
+@@ -510,7 +512,11 @@ impl TranscriptOverlay {
+         self.notice = None;
+         let resume_following = matches!(action, ViewAction::CopyAndFollow(_));
+         let close_overlay = self.view.is_select_mode() || self.browsing_footer.is_some();
+-        if matches!(action, ViewAction::ExitSelectMode) {
++        if let ViewAction::Quote(text) = &action {
++            self.pending_quote = Some(text.clone());
++            self.view.end_select_mode();
++            self.view.end_selection(&self.cells);
++        } else if matches!(action, ViewAction::ExitSelectMode) {
+             self.is_done = true;
+         } else if let Some((_, result)) = self.view.copy_action(
+             tui,
+@@ -539,7 +545,7 @@ impl TranscriptOverlay {
+                 Err(error) => error,
+             });
+         } else if let ViewAction::OpenLink(url) = action
+-            && let Err(error) = webbrowser::open(&url)
++            && let Err(error) = crate::terminal_hyperlinks::open_link(&url)
+         {
+             self.notice = Some(format!("Could not open link: {error}"));
+         }
+diff --git a/codex-rs/tui/src/pager_overlay/transcript_tests.rs b/codex-rs/tui/src/pager_overlay/transcript_tests.rs
+index 1853aff3abd5704ac65d7aa44854c2215aa98df9..817066c9851e6b229982d6f4b65e452ccd56c38a 100644
+--- a/codex-rs/tui/src/pager_overlay/transcript_tests.rs
++++ b/codex-rs/tui/src/pager_overlay/transcript_tests.rs
+@@ -323,7 +323,7 @@ async fn focus_loss_stops_edge_drag_and_preserves_selection_after_focus_returns(
+     row 05
+     row 06
+     row 07
+-    enter copy & follow · esc clear
++    enter copy · space quote · esc
+     ");
+     overlay.view.jump_to_latest();
+     overlay.render(area, &mut Buffer::empty(area));
+diff --git a/codex-rs/tui/src/transcript_view/footer.rs b/codex-rs/tui/src/transcript_view/footer.rs
+index addb462eb1cf30bcee9b24cd1287c3fb22eb6eb5..741025dd403d064bddb0362f0909220c4703c624 100644
+--- a/codex-rs/tui/src/transcript_view/footer.rs
++++ b/codex-rs/tui/src/transcript_view/footer.rs
+@@ -57,13 +57,15 @@ impl TranscriptView {
+                 let copy = crate::key_hint::ctrl(KeyCode::Char('c')).display_label();
+                 [
+                     format!(
+-                        "arrows/hjkl/w/b/e/shift+arrows move · home/end/0/$/g/G/⌃home/⌃end ends · pgup/pgdn/⌃b/⌃f/⌃u/⌃d page · v/space/V mark · o swap · / find · y/{copy} copy · enter copy & latest · esc clear · q close"
++                        "arrows/hjkl/w/b/e/shift+arrows move · home/end/0/$/g/G/⌃home/⌃end ends · pgup/pgdn/⌃b/⌃f/⌃u/⌃d page · v/V mark · o swap · / find · y/{copy} copy · enter copy & latest · space quote · esc clear · q close"
+                     ),
+                     format!(
+-                        "arrows/hjkl move · o swap · y/{copy} copy · enter copy & latest · esc clear · q close"
++                        "arrows/hjkl move · o swap · y/{copy} copy · enter copy & latest · space quote · esc clear · q close"
+                     ),
+-                    format!("y/{copy} copy · enter copy & latest · esc clear · q close"),
+-                    "enter copy · q close".to_owned(),
++                    format!(
++                        "y/{copy} copy · enter copy & latest · space quote · esc clear · q close"
++                    ),
++                    "space quote · q close".to_owned(),
+                 ]
+             } else {
+                 [
+@@ -95,11 +97,15 @@ impl TranscriptView {
+                         [
+                             self.status_line_with_navigation(
+                                 &format!(
+-                                    "{} copy · enter copy & follow · esc clear",
++                                    "{} copy · enter copy & follow · space quote · esc clear",
+                                     crate::key_hint::ctrl(KeyCode::Char('c')).display_label()
+                                 ),
+                                 motion,
+                             ),
++                            self.status_line_with_navigation(
++                                "enter copy & follow · space quote · esc clear",
++                                motion,
++                            ),
+                             selection_hint(width),
+                         ],
+                         width,
+@@ -247,10 +253,11 @@ fn selection_hint(width: u16) -> Line<'static> {
+     first_fitting_line(
+         [
+             &format!(
+-                "{} copy · enter copy & follow · esc clear",
++                "{} copy · enter copy & follow · space quote · esc clear",
+                 crate::key_hint::ctrl(KeyCode::Char('c')).display_label()
+             ),
+-            "enter copy & follow · esc clear",
++            "enter copy & follow · space quote · esc clear",
++            "enter copy · space quote · esc",
+             "enter copy+↓ · esc",
+             "esc clear",
+         ]
+@@ -271,6 +278,7 @@ pub(super) fn navigation_line(navigation: &str) -> Line<'static> {
+         }
+         let action = [
+             " copy & follow",
++            " quote",
+             " copy & latest",
+             " clear selection",
+             " copy+↓",
+diff --git a/codex-rs/tui/src/transcript_view/footer_tests.rs b/codex-rs/tui/src/transcript_view/footer_tests.rs
+index ed5605c3a5779f299f8f6d69b5f2e204fd01ff2d..fe36fad6ac9b65e3a61893e63428e84f713b22d9 100644
+--- a/codex-rs/tui/src/transcript_view/footer_tests.rs
++++ b/codex-rs/tui/src/transcript_view/footer_tests.rs
+@@ -102,14 +102,14 @@ fn selection_at_bottom_restores_footer_without_resuming_following() {
+         ));
+     }
+     insta::assert_snapshot!(observations.join("\n"), @"
+-    Partial, selected at bottom: ⌃c copy · enter copy & follow · esc clear
++    Partial, selected at bottom: ⌃c copy · enter copy & follow · space quote · esc clear
+     Partial, clicked away: <composer hints>
+     Partial, scrolled down at bottom: <composer hints>
+-    Partial, selected above bottom: Earlier messages available.  ⌃c copy · enter copy & follow · esc clear
+-    Complete, selected at bottom: ⌃c copy · enter copy & follow · esc clear
++    Partial, selected above bottom: Earlier messages available.  ⌃c copy · enter copy & follow · space quote · esc clear
++    Complete, selected at bottom: ⌃c copy · enter copy & follow · space quote · esc clear
+     Complete, clicked away: <composer hints>
+     Complete, scrolled down at bottom: <composer hints>
+-    Complete, selected above bottom: ⌃c copy · enter copy & follow · esc clear
++    Complete, selected above bottom: ⌃c copy · enter copy & follow · space quote · esc clear
+     ");
+ }
+ 
+@@ -191,7 +191,7 @@ fn loading_preserves_selected_content_and_copy_action() {
+             .expect("loading selection footer");
+         assert_eq!((footer.cursor_column, footer.is_interactive), (None, true));
+         insta::allow_duplicates! {
+-            insta::assert_snapshot!(footer.text.to_string(), @"↑ Loading earlier messages… · ⌃c copy · enter copy & follow · esc clear");
++            insta::assert_snapshot!(footer.text.to_string(), @"↑ Loading earlier messages… · enter copy & follow · space quote · esc clear");
+         }
+         let Some(ViewAction::Copy(copied)) = view.handle_key(
+             KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+@@ -209,7 +209,7 @@ fn loading_preserves_selected_content_and_copy_action() {
+     let footer = view
+         .footer(/*width*/ 80, MotionMode::Reduced)
+         .expect("selection footer after loading");
+-    insta::assert_snapshot!(footer.text.to_string(), @"⌃c copy · enter copy & follow · esc clear");
++    insta::assert_snapshot!(footer.text.to_string(), @"⌃c copy · enter copy & follow · space quote · esc clear");
+     assert_eq!(
+         view.selected_text(&cells),
+         Some("selected words".to_string())
+@@ -221,12 +221,12 @@ fn loading_preserves_selected_content_and_copy_action() {
+             .text
+             .to_string(),
+         format!(
+-            "⌃c copy · enter copy & follow · esc clear · Retry: {}",
++            "⌃c copy · enter copy & follow · space quote · esc clear · Retry: {}",
+             JumpTarget::Beginning.hint_label(),
+         ),
+     );
+     insta::assert_snapshot!(view.footer(/*width*/ 38, MotionMode::Reduced).unwrap().text.to_string(),
+-        @"enter copy & follow · esc clear");
++        @"enter copy · space quote · esc");
+ }
+ 
+ #[test]
+diff --git a/codex-rs/tui/src/transcript_view/input.rs b/codex-rs/tui/src/transcript_view/input.rs
+index 59183c42acf7a1395f6a3edddf41b951c566384d..f2e44ed9428d9b1b1d4eb3f8761109961dc003c5 100644
+--- a/codex-rs/tui/src/transcript_view/input.rs
++++ b/codex-rs/tui/src/transcript_view/input.rs
+@@ -26,6 +26,7 @@ pub(crate) enum ViewAction {
+     CopyOnSelect(String),
+     PrimarySelection(String),
+     CopyAndFollow(String),
++    Quote(String),
+     OpenLink(String),
+ }
+ 
+@@ -106,6 +107,7 @@ impl TranscriptView {
+             | ViewAction::ExitSelectMode
+             | ViewAction::Copy(_)
+             | ViewAction::CopyAndFollow(_)
++            | ViewAction::Quote(_)
+             | ViewAction::OpenLink(_) => SelectionCopy::EXPLICIT,
+         }
+     }
+@@ -169,10 +171,14 @@ impl TranscriptView {
+         if self.select_mode.is_some() {
+             return true;
+         }
+-        if self.selection.is_some() {
++        if let Some(selection) = &self.selection {
+             return crate::text_selection::is_copy_key(key)
+                 || code == KeyCode::Esc
+                 || (code == KeyCode::Enter && modifiers == KeyModifiers::NONE)
++                || (code == KeyCode::Char(' ')
++                    && modifiers == KeyModifiers::NONE
++                    && (selection.start.key, selection.start.offset)
++                        != (selection.end.key, selection.end.offset))
+                 || (matches!(modifiers, KeyModifiers::NONE | KeyModifiers::SHIFT)
+                     && matches!(
+                         code,
+@@ -435,6 +441,15 @@ impl TranscriptView {
+         key: KeyEvent,
+         cells: &[Arc<dyn HistoryCell>],
+     ) -> Option<ViewAction> {
++        if key.kind == KeyEventKind::Press
++            && key.modifiers == KeyModifiers::NONE
++            && key.code == KeyCode::Char(' ')
++        {
++            return self
++                .selected_text(cells)
++                .filter(|text| !text.is_empty())
++                .map(ViewAction::Quote);
++        }
+         if crate::text_selection::is_copy_key(key)
+             || (key.modifiers == KeyModifiers::NONE && key.code == KeyCode::Enter)
+         {
+diff --git a/codex-rs/tui/src/transcript_view/select_mode.rs b/codex-rs/tui/src/transcript_view/select_mode.rs
+index 1cdc1df87884d79e3b27329763add704e55010bd..b9dc12ed911f834e4a05bfa4ee94b717d62c9d0c 100644
+--- a/codex-rs/tui/src/transcript_view/select_mode.rs
++++ b/codex-rs/tui/src/transcript_view/select_mode.rs
+@@ -170,6 +170,13 @@ impl TranscriptView {
+         }
+         let (code, modifiers) = crate::key_hint::normalize_key_parts(key.code, key.modifiers);
+         let pressed = key.kind == KeyEventKind::Press;
++        if pressed
++            && code == KeyCode::Char(' ')
++            && modifiers == KeyModifiers::NONE
++            && let Some(text) = self.selected_text(cells).filter(|text| !text.is_empty())
++        {
++            return Some(ViewAction::Quote(text));
++        }
+         if crate::text_selection::is_copy_key(key)
+             || (code == KeyCode::Char('y') && modifiers == KeyModifiers::NONE)
+             || (code == KeyCode::Enter
+diff --git a/codex-rs/tui/src/transcript_view/select_mode_tests.rs b/codex-rs/tui/src/transcript_view/select_mode_tests.rs
+index 457a2a2a7d0ac67dffdc1c28e35718542bc845e0..c88e7bc1bd405610b931415ca2a54eaadd891553 100644
+--- a/codex-rs/tui/src/transcript_view/select_mode_tests.rs
++++ b/codex-rs/tui/src/transcript_view/select_mode_tests.rs
+@@ -33,6 +33,22 @@ fn press(view: &mut TranscriptView, cells: &[Arc<dyn HistoryCell>], code: KeyCod
+     ));
+ }
+ 
++#[test]
++fn space_starts_selection_then_quotes_in_select_mode() {
++    let cells = vec![cell(&["abc"])];
++    let mut view = TranscriptView::default();
++    render(&mut view, &cells);
++    assert!(view.begin_select_mode(&cells));
++    press(&mut view, &cells, KeyCode::Char(' '));
++    assert!(
++        matches!(view.handle_key(KeyCode::Char(' ').into(), &cells), Some(ViewAction::Quote(text)) if text == "a")
++    );
++    let position = view.position;
++    view.end_select_mode();
++    assert_eq!(view.position, position);
++    assert!(view.selection.is_none());
++}
++
+ #[test]
+ fn entry_starts_on_the_last_selectable_visible_line() {
+     for (cells, expected) in [
+diff --git a/codex-rs/tui/src/transcript_view/selection.rs b/codex-rs/tui/src/transcript_view/selection.rs
+index 9cd97930341d31f6b3fc93efe0a636d44174e486..a1df8defa209f6f93181ecc71fbd3dfc8634e4b3 100644
+--- a/codex-rs/tui/src/transcript_view/selection.rs
++++ b/codex-rs/tui/src/transcript_view/selection.rs
+@@ -449,7 +449,10 @@ impl TranscriptView {
+             | ViewAction::CopyOnSelect(text)
+             | ViewAction::PrimarySelection(text)
+             | ViewAction::CopyAndFollow(text) => text.as_str(),
+-            ViewAction::Changed | ViewAction::ExitSelectMode | ViewAction::OpenLink(_) => {
++            ViewAction::Changed
++            | ViewAction::ExitSelectMode
++            | ViewAction::OpenLink(_)
++            | ViewAction::Quote(_) => {
+                 return None;
+             }
+         };
+diff --git a/codex-rs/tui/src/transcript_view/selection_tests.rs b/codex-rs/tui/src/transcript_view/selection_tests.rs
+index 17ef0b03e3d24a2e67a41b161e7c0c6156b3f57e..0c9d0c86ded16f7193a7744a40314eb75409c87b 100644
+--- a/codex-rs/tui/src/transcript_view/selection_tests.rs
++++ b/codex-rs/tui/src/transcript_view/selection_tests.rs
+@@ -18,6 +18,38 @@ use crossterm::event::MouseEventKind;
+ use pretty_assertions::assert_eq;
+ use std::time::Instant;
+ 
++#[test]
++fn space_quotes_a_selection_and_is_unhandled_without_one() {
++    let cells: Vec<Arc<dyn HistoryCell>> = vec![Arc::new(PlainHistoryCell::new(vec![
++        "selected".into(),
++        "two".into(),
++        "three".into(),
++        "four".into(),
++        "five".into(),
++        "six".into(),
++    ]))];
++    let mut view = TranscriptView::default();
++    render(&mut view, &cells, 32, 3);
++    let space = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE);
++    assert!(!view.owns_interaction_key(space));
++    assert!(view.handle_key(space, &cells).is_none());
++    view.begin_selection(&cells, 0, 0, 1);
++    assert!(!view.owns_interaction_key(space));
++    assert!(view.handle_key(space, &cells).is_none());
++    view.end_selection(&cells);
++    view.scroll(&cells, -3);
++    render(&mut view, &cells, 32, 3);
++    view.begin_selection(&cells, 0, 0, 3);
++    assert!(view.owns_interaction_key(space));
++    assert!(
++        matches!(view.handle_key(space, &cells), Some(ViewAction::Quote(text)) if text == "selected")
++    );
++    let position = view.position;
++    view.end_selection(&cells);
++    assert_eq!(view.position, position);
++    assert!(view.selection.is_none());
++}
++
+ #[test]
+ fn selection_highlights_hard_breaks_within_and_between_entries() {
+     let mut frames = Vec::new();
+diff --git a/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__footer__tests__narrow_selection_and_search_keep_complete_exit_hints.snap b/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__footer__tests__narrow_selection_and_search_keep_complete_exit_hints.snap
+index 56398918e693b423a9bd32ed9e52facbabe35327..4003f9998a79d134cfbbff505b22656d527b284d 100644
+--- a/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__footer__tests__narrow_selection_and_search_keep_complete_exit_hints.snap
++++ b/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__footer__tests__narrow_selection_and_search_keep_complete_exit_hints.snap
+@@ -4,8 +4,8 @@ expression: "snapshots.join(\"\\n\")"
+ ---
+ search=false, 12 columns: esc clear
+ search=false, 20 columns: enter copy+↓ · esc
+-search=false, 32 columns: enter copy & follow · esc clear
+-search=false, 80 columns: ⌃c copy · enter copy & follow · esc clear
++search=false, 32 columns: enter copy · space quote · esc
++search=false, 80 columns: ⌃c copy · enter copy & follow · space quote · esc clear
+ search=true, 12 columns: esc cancel
+ search=true, 20 columns: enter accept · esc
+ search=true, 32 columns: enter accept · esc cancel
+diff --git a/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__footer__tests__selection_hint_threshold.snap b/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__footer__tests__selection_hint_threshold.snap
+index 2c65d8bf160cde5fc0e45555102d6ebcb66fb030..87a86ba3c1950d54641da210fb15da58b884ae48 100644
+--- a/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__footer__tests__selection_hint_threshold.snap
++++ b/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__footer__tests__selection_hint_threshold.snap
+@@ -6,7 +6,7 @@ searching=false · mouse down
+ <composer hints>
+ 
+ searching=false · one character
+-⌃c copy · enter copy & follow · esc clear
++⌃c copy · enter copy & follow · space quote · esc clear
+ 
+ searching=false · back to anchor
+ <composer hints>
+@@ -20,7 +20,7 @@ Searching… · full transcript · esc cancel
+ 
+ searching=true · one character
+ Find:
+-⌃c copy · enter copy & follow · esc clear
++⌃c copy · enter copy & follow · space quote · esc clear
+ 
+ searching=true · back to anchor
+ Find:
+diff --git a/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__select_mode__tests__select_mode_renders_cursor_and_scannable_footer_hints.snap b/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__select_mode__tests__select_mode_renders_cursor_and_scannable_footer_hints.snap
+index 2c0e63cbf15fa3bbb66478e32bebd25e857729b0..7585c8b74fede1f30c37df066f6b56369e9b8e4e 100644
+--- a/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__select_mode__tests__select_mode_renders_cursor_and_scannable_footer_hints.snap
++++ b/codex-rs/tui/src/transcript_view/snapshots/codex_tui__transcript_view__select_mode__tests__select_mode_renders_cursor_and_scannable_footer_hints.snap
+@@ -56,8 +56,8 @@ Buffer {
+         x: 6, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+     ]
+ }
+-marked wide: arrows/hjkl/w/b/e/shift+arrows move · home/end/0/$/g/G/⌃home/⌃end ends · pgup/pgdn/⌃b/⌃f/⌃u/⌃d page · v/space/V mark · o swap · / find · y/⌃c copy · enter copy & latest · esc clear · q close
+-marked: y/⌃c copy · enter copy & latest · esc clear · q close
++marked wide: arrows/hjkl/w/b/e/shift+arrows move · home/end/0/$/g/G/⌃home/⌃end ends · pgup/pgdn/⌃b/⌃f/⌃u/⌃d page · v/V mark · o swap · / find · y/⌃c copy · enter copy & latest · space quote · esc clear · q close
++marked: space quote · q close
+ find:
+ Buffer {
+     area: Rect { x: 0, y: 0, width: 32, height: 6 },
