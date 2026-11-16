@@ -16,5 +16,6 @@
 - rustfmt 1.95.0 检查全部 111 个受影响 Rust 文件通过；源码空白检查通过。
 - 补丁脚本隔离回归 `python scripts/tests/test_apply_patches.py`：7 项通过，16.886 秒。本机未运行 Cargo 编译或行为测试。
 - workflow YAML 解析通过，21 个 Bash 步骤语法检查通过；动态格式检查列表在 `codex-rs` 下解析出 111 个现存 Rust 文件。
-- Rust 编译、协议导出重建及行为回归由新 CI 验证。当前状态：实现已提交，集成验证未完成。
+- 构建提交：`962fff22d448d1bfed054292f9263907addc1a02`；[CI 43903342391](https://github.com/owwkmidream/codex/actions/runs/43903342391) 使用 `tag=rust-v0.169.0`、`force=true`。prepare 实际应用补丁、源码上传及 script-test 已成功；build/test 已启动，尚未取得成功证据。
+- Rust 编译、协议导出重建及行为回归由上述 CI 验证。当前状态：实现已提交，集成验证未完成；Issue #14 保持开放，待 build/test/release 及附件验收。
 - 真实 Windows Terminal 点击、Space 操作及独立 daemon 下轮生效仍需构建产物验收；本次未部署本机。
