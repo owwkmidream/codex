@@ -3972,7 +3972,7 @@ index f7b465df85cbb41a9a05c15246cfdb9f5c25697c..aa22ee531f894d57f719ec311a0c133b
 +    }
  }
 diff --git a/codex-rs/tui/src/chatwidget/tests/app_server.rs b/codex-rs/tui/src/chatwidget/tests/app_server.rs
-index f10acfc397d464af2bd03d9b129378a2fc7c3062..02529f87cee4f617a7d593ee3d50a6c57c58d19c 100644
+index f10acfc397d464af2bd03d9b129378a2fc7c3062..07a38a15c7c795e31d75c93e45707856b6bb1df9 100644
 --- a/codex-rs/tui/src/chatwidget/tests/app_server.rs
 +++ b/codex-rs/tui/src/chatwidget/tests/app_server.rs
 @@ -2037,7 +2037,7 @@ async fn live_app_server_server_overloaded_error_renders_error() {
@@ -3984,9 +3984,13 @@ index f10acfc397d464af2bd03d9b129378a2fc7c3062..02529f87cee4f617a7d593ee3d50a6c5
      let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
  
      chat.handle_server_notification(
-@@ -2080,7 +2080,8 @@ async fn live_app_server_cyber_policy_error_renders_dedicated_notice() {
-     assert!(rendered.contains("This content can’t be shown"));
-     assert!(rendered.contains("We take extra care with some cybersecurity requests"));
+@@ -2077,10 +2077,10 @@ async fn live_app_server_cyber_policy_error_renders_dedicated_notice() {
+     let cells = drain_insert_history(&mut rx);
+     assert_eq!(cells.len(), 1);
+     let rendered = lines_to_single_string(&cells[0]);
+-    assert!(rendered.contains("This content can’t be shown"));
+-    assert!(rendered.contains("We take extra care with some cybersecurity requests"));
++    assert!(rendered.contains("We take extra precaution with cybersecurity requests"));
      assert!(!rendered.contains("server fallback message"));
 -    assert!(!chat.bottom_pane.is_task_running());
 +    // 警告保持当前轮运行，结束状态由后端的 TurnCompleted 通知推进。
@@ -4057,10 +4061,10 @@ index 291dc844f40957af725f78dee245815e81c161b2..f567b34f8830ab30e8a273bb645d0c76
      );
  }
 diff --git a/codex-rs/tui/src/chatwidget/tests/exec_flow.rs b/codex-rs/tui/src/chatwidget/tests/exec_flow.rs
-index 735e01f04cdec5bad4a75f4249ba008ee6276d1f..de6309c300c6895b39065f50708b31251dcd19fc 100644
+index 735e01f04cdec5bad4a75f4249ba008ee6276d1f..700e69ba9d0b67f7d43b75e6f07f4060d4bea78f 100644
 --- a/codex-rs/tui/src/chatwidget/tests/exec_flow.rs
 +++ b/codex-rs/tui/src/chatwidget/tests/exec_flow.rs
-@@ -2,6 +2,42 @@ use super::*;
+@@ -2,6 +2,44 @@ use super::*;
  use codex_app_server_protocol::ThreadItem;
  use pretty_assertions::assert_eq;
  
@@ -4091,7 +4095,9 @@ index 735e01f04cdec5bad4a75f4249ba008ee6276d1f..de6309c300c6895b39065f50708b3125
 +        }
 +        while events.try_recv().is_ok() {}
 +        chat.handle_key_event(KeyCode::Esc.into());
-+        next_interrupt_op(&mut operations);
++        let interrupted = std::iter::from_fn(|| events.try_recv().ok())
++            .any(|event| matches!(event, AppEvent::CodexOp(Op::Interrupt)));
++        assert!(interrupted);
 +        handle_turn_interrupted(&mut chat, "turn-1");
 +        let rollback = std::iter::from_fn(|| events.try_recv().ok()).any(|event| matches!(
 +            event, AppEvent::RollbackOutputFreeTurnForPromptRestore { turn_id, .. } if turn_id == "turn-1"

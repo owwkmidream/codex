@@ -36,3 +36,7 @@
 - CI 增加 `api_bridge::tests::http_policy_capacity_preserves_retry_advice_and_terminal_behavior` 过滤器，覆盖同一问题的 HTTP 路径；SSE 模块沿用 0010 的过滤器。
 - 11 个 series 补丁在官方基线的干净 worktree 顺序重放，与 `88b75bd` 源码对照无差异；合并补丁在官方基线独立 index 应用，与该源码对照无差异。两处修改文件的 rustfmt 1.95.0 和源码空白检查通过。
 - 本机未运行 Cargo 编译或行为测试；需推送后新 dispatch 验证。当前状态：实现已提交，集成验证未完成。
+
+## 0012 TUI 回归
+
+[Windows 运行](https://github.com/owwkmidream/codex/actions/runs/44294022902) 的协议导出和 Guardian 回归通过。TUI 回归 128 项通过，2 项失败。源码 `c50f9fca` 更新警告文案断言，并从 AppEvent 通道验证 Esc 中断。12 个补丁及合并补丁已各自从官方基线重放，与该源码比较均无差异。

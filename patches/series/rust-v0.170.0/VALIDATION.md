@@ -6,3 +6,7 @@
 - 在官方基线的干净 worktree 中使用 `git am --3way` 重放 9 个补丁；合并补丁在独立 index 从同一基线重放。两者与迁移源码的 Git 差异均为空。
 - [0.169.0 失败运行](https://github.com/owwkmidream/codex/actions/runs/44114762731)：协议导出在重编时达到 20 分钟上限；Guardian 快照实际输出为宿主缺失。CI 将协议步骤上限改为 45 分钟，给 Guardian 安装同 tag 的官方宿主，保留快照断言。
 - 本机未运行 Cargo 构建或测试；重放不等于 Windows 集成验证。发布须核对新运行的 build、test、release 和附件。
+
+## 0010 TUI 回归
+
+源码 `86522c3b` 将 Esc 中断断言接到按键实际使用的 AppEvent 通道，并核对当前警告文案。保留各自的回滚和运行状态断言。10 个补丁及合并补丁已各自从官方基线重放，与该源码比较均无差异。
