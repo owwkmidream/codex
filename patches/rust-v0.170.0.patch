@@ -653,6 +653,34 @@ index fd616daa271de69d8a56f23cd281120abd278314..52c49bb7bd97c70410983fb003c775bb
          stream_idle_timeout_ms,
          websocket_connect_timeout_ms,
          requires_openai_auth,
+diff --git a/codex-rs/config/src/types.rs b/codex-rs/config/src/types.rs
+index e23e9764f8b4a0f0f3e1efcdc1728304bd43fd93..288f9f813b6059bf19d9d9e99e5f0f68de61d538 100644
+--- a/codex-rs/config/src/types.rs
++++ b/codex-rs/config/src/types.rs
+@@ -215,6 +215,9 @@ pub enum UriBasedFileOpener {
+     #[serde(rename = "cursor")]
+     Cursor,
+ 
++    #[serde(rename = "system")]
++    System,
++
+     /// Option to disable the URI-based file opener.
+     #[serde(rename = "none")]
+     None,
+diff --git a/codex-rs/core/config.schema.json b/codex-rs/core/config.schema.json
+index bfbd2b7300d39ae93044595c4976c52aff62226c..fc1a2fff092e1eb68759e05fae6d331d49fb7473 100644
+--- a/codex-rs/core/config.schema.json
++++ b/codex-rs/core/config.schema.json
+@@ -7589,7 +7589,8 @@
+             "vscode",
+             "vscode-insiders",
+             "windsurf",
+-            "cursor"
++            "cursor",
++            "system"
+           ],
+           "type": "string"
+         },
 diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
 index 5913d07c70efe46806837a1266a43ca4b9d3f844..426b8729f8d0a58ffe425c453a6f74e3ab2cea20 100644
 --- a/codex-rs/core/src/client.rs
@@ -2959,6 +2987,22 @@ index 411a476707afccbee531ea011e99f44d86ee7c01..3048642cb8e669eb7ea072432eeeef64
                  }
              }
          }
+diff --git a/codex-rs/tui/src/app/link_hover.rs b/codex-rs/tui/src/app/link_hover.rs
+index 7e8e776c10fd7c331b3efc8b21a4fa4162d9a9b7..b328a777674fa8ef23d176a7eb3b43d46530812f 100644
+--- a/codex-rs/tui/src/app/link_hover.rs
++++ b/codex-rs/tui/src/app/link_hover.rs
+@@ -72,7 +72,10 @@ impl App {
+         ) {
+             self.transcript_view.show_copy_feedback(&result, count);
+         } else if let ViewAction::OpenLink(url) = action {
+-            self.open_url_in_browser(url);
++            if let Err(err) = crate::terminal_hyperlinks::open_link(&url) {
++                self.chat_widget
++                    .add_error_message(format!("Could not open link: {err}"));
++            }
+         }
+         tui.frame_requester().schedule_frame();
+         true
 diff --git a/codex-rs/tui/src/app/owned_transcript.rs b/codex-rs/tui/src/app/owned_transcript.rs
 index ea97361ad00804e534524e0a619b5691e2a9383b..6621cce3a83195175753ba19752dd06f9914fecf 100644
 --- a/codex-rs/tui/src/app/owned_transcript.rs
@@ -4982,7 +5026,7 @@ index 97ece6e64f7241924d004dd34c100e4f16ff424c..590ebb0957d25806ef55f91eaf713a1d
      );
      if normalized != markdown_source {
 diff --git a/codex-rs/tui/src/markdown_render.rs b/codex-rs/tui/src/markdown_render.rs
-index d06cd5c05e2c734f87ea081f0ab219ef313462e0..9e4108d8834e8ec8f996f6875534f8a79f63653d 100644
+index d06cd5c05e2c734f87ea081f0ab219ef313462e0..45e6ea72df66e4c14afd72ab2352d116b5077e7b 100644
 --- a/codex-rs/tui/src/markdown_render.rs
 +++ b/codex-rs/tui/src/markdown_render.rs
 @@ -90,6 +90,7 @@ mod table_key_value;
@@ -5134,17 +5178,14 @@ index d06cd5c05e2c734f87ea081f0ab219ef313462e0..9e4108d8834e8ec8f996f6875534f8a7
          {
              link.has_visible_label |=
                  !span.content.trim().is_empty() && display_width(&span.content) > 0;
-@@ -2244,16 +2264,35 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+@@ -2244,16 +2264,36 @@ impl<'a, 'policy> Writer<'a, 'policy> {
      }
  
      fn push_link(&mut self, dest_url: String) {
 -        let style_label = (self.is_hidden_link_destination)(&dest_url);
 +        let local = is_local_path_like_link(&dest_url);
-+        let editor_target = local_links::editor_link_target(
-+            &dest_url,
-+            self.cwd.as_deref(),
-+            preferences::file_opener(),
-+        );
++        let opener = preferences::file_opener();
++        let editor_target = local_links::editor_link_target(&dest_url, self.cwd.as_deref(), opener);
 +        let style_label =
 +            (self.is_hidden_link_destination)(&dest_url) && (!local || editor_target.is_some());
 +        let editor_link = if style_label {
@@ -5153,7 +5194,11 @@ index d06cd5c05e2c734f87ea081f0ab219ef313462e0..9e4108d8834e8ec8f996f6875534f8a7
 +                if let Some(inline) = self.copy_inline.last_mut() {
 +                    *inline = crate::markdown_copy::Inline::Link(copy_target.into());
 +                }
-+                TerminalHyperlink::editor_file(0..0, &destination)
++                if opener == codex_config::types::UriBasedFileOpener::System {
++                    Some(TerminalHyperlink::system_document(0..0, destination))
++                } else {
++                    TerminalHyperlink::editor_file(0..0, &destination)
++                }
 +            })
 +        } else {
 +            None
@@ -5172,7 +5217,7 @@ index d06cd5c05e2c734f87ea081f0ab219ef313462e0..9e4108d8834e8ec8f996f6875534f8a7
                  Some(
                      render_local_link_target(&dest_url, self.cwd.as_deref())
                          .unwrap_or_else(|| dest_url.clone()),
-@@ -2273,7 +2312,8 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+@@ -2273,7 +2313,8 @@ impl<'a, 'policy> Writer<'a, 'policy> {
                  self.pop_inline_style();
              }
              if link.show_destination
@@ -5182,7 +5227,7 @@ index d06cd5c05e2c734f87ea081f0ab219ef313462e0..9e4108d8834e8ec8f996f6875534f8a7
              {
                  // Link destinations are rendered as " (url)" suffixes. When parsing table cells,
                  // append the suffix into the active cell buffer rather than the outer paragraph
-@@ -2285,6 +2325,11 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+@@ -2285,6 +2326,11 @@ impl<'a, 'policy> Writer<'a, 'policy> {
                          Span::styled(link.destination.clone(), self.styles.link),
                          web_destination(&link.destination).as_deref(),
                      );
@@ -5194,7 +5239,7 @@ index d06cd5c05e2c734f87ea081f0ab219ef313462e0..9e4108d8834e8ec8f996f6875534f8a7
                      if let Some(table_state) = self.table_state.as_mut()
                          && let Some(cell) = table_state.current_cell.as_mut()
                      {
-@@ -2298,6 +2343,11 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+@@ -2298,6 +2344,11 @@ impl<'a, 'policy> Writer<'a, 'policy> {
                          Span::styled(link.destination.clone(), self.styles.link),
                          web_destination(&link.destination).as_deref(),
                      );
@@ -5206,7 +5251,7 @@ index d06cd5c05e2c734f87ea081f0ab219ef313462e0..9e4108d8834e8ec8f996f6875534f8a7
                      self.push_annotated(destination);
                      self.push_span(")".into());
                  }
-@@ -2532,13 +2582,23 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+@@ -2532,13 +2583,23 @@ impl<'a, 'policy> Writer<'a, 'policy> {
          }
          if let Some(line) = self.current_line_content.as_mut() {
              self.copy_line.push(span.content.len(), &self.copy_inline);
@@ -5233,7 +5278,7 @@ index d06cd5c05e2c734f87ea081f0ab219ef313462e0..9e4108d8834e8ec8f996f6875534f8a7
                  line.push_linked_span(span, start, destination);
              } else {
                  line.line.push_span(span);
-@@ -2546,6 +2606,24 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+@@ -2546,6 +2607,24 @@ impl<'a, 'policy> Writer<'a, 'policy> {
          }
      }
  
@@ -5258,7 +5303,7 @@ index d06cd5c05e2c734f87ea081f0ab219ef313462e0..9e4108d8834e8ec8f996f6875534f8a7
      fn push_annotated(&mut self, appended: HyperlinkLine) {
          if self.current_line_content.is_none() {
              self.push_line(Line::default());
-@@ -2566,15 +2644,9 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+@@ -2566,15 +2645,9 @@ impl<'a, 'policy> Writer<'a, 'policy> {
  
      fn push_text_spans(&mut self, text: &str, style: Style) {
          let span = self.style_link_label(Span::styled(text.to_string(), style));
@@ -5278,7 +5323,7 @@ index d06cd5c05e2c734f87ea081f0ab219ef313462e0..9e4108d8834e8ec8f996f6875534f8a7
          } else {
              style_bare_web_urls(span, self.styles.link)
 diff --git a/codex-rs/tui/src/markdown_render/local_links.rs b/codex-rs/tui/src/markdown_render/local_links.rs
-index 70c30b763d11c7d59606f0cd70b7e71eddf1854e..8de2b218cbe4cdbab9128180aeadedd6d69ba0da 100644
+index 70c30b763d11c7d59606f0cd70b7e71eddf1854e..bf240ee09cef242a115837c4f8c14917f3c26ed9 100644
 --- a/codex-rs/tui/src/markdown_render/local_links.rs
 +++ b/codex-rs/tui/src/markdown_render/local_links.rs
 @@ -1,10 +1,9 @@
@@ -5295,7 +5340,7 @@ index 70c30b763d11c7d59606f0cd70b7e71eddf1854e..8de2b218cbe4cdbab9128180aeadedd6
  use codex_utils_path_uri::PathUri;
  use codex_utils_string::normalize_markdown_hash_location_suffix;
  use regex_lite::Regex;
-@@ -38,6 +37,64 @@ pub(super) fn is_local_path_like_link(dest_url: &str) -> bool {
+@@ -38,6 +37,72 @@ pub(super) fn is_local_path_like_link(dest_url: &str) -> bool {
              [drive, b':', separator, ..]
                  if drive.is_ascii_alphabetic() && matches!(separator, b'/' | b'\\')
          )
@@ -5310,13 +5355,6 @@ index 70c30b763d11c7d59606f0cd70b7e71eddf1854e..8de2b218cbe4cdbab9128180aeadedd6
 +    cwd: Option<&Path>,
 +    opener: UriBasedFileOpener,
 +) -> Option<(String, String)> {
-+    let scheme = match opener {
-+        UriBasedFileOpener::VsCode => "vscode",
-+        UriBasedFileOpener::VsCodeInsiders => "vscode-insiders",
-+        UriBasedFileOpener::Windsurf => "windsurf",
-+        UriBasedFileOpener::Cursor => "cursor",
-+        UriBasedFileOpener::None => return None,
-+    };
 +    if !is_local_path_like_link(destination) || destination.chars().any(char::is_control) {
 +        return None;
 +    }
@@ -5347,10 +5385,25 @@ index 70c30b763d11c7d59606f0cd70b7e71eddf1854e..8de2b218cbe4cdbab9128180aeadedd6
 +    file.set_path(&if drive { format!("/{path}") } else { path }.replace('%', "%25"));
 +    PathUri::parse(file.as_str()).ok()?;
 +    let mut copy_target = file.to_string();
++    if let Some(location) = &location {
++        copy_target.push_str(location);
++    }
++    let scheme = match opener {
++        UriBasedFileOpener::VsCode => "vscode",
++        UriBasedFileOpener::VsCodeInsiders => "vscode-insiders",
++        UriBasedFileOpener::Windsurf => "windsurf",
++        UriBasedFileOpener::Cursor => "cursor",
++        UriBasedFileOpener::System if cfg!(windows) => {
++            return Some((
++                crate::terminal_hyperlinks::system_document_url(&file)?,
++                copy_target,
++            ));
++        }
++        UriBasedFileOpener::System | UriBasedFileOpener::None => return None,
++    };
 +    let mut editor = Url::parse(&format!("{scheme}://file/")).ok()?;
 +    editor.set_path(file.path());
 +    if let Some(location) = location {
-+        copy_target.push_str(&location);
 +        // 编辑器定位到范围的起点；复制保留整个范围。
 +        let start = location.split(['-', '–']).next()?;
 +        editor.set_path(&format!("{}{start}", editor.path()));
@@ -5360,7 +5413,7 @@ index 70c30b763d11c7d59606f0cd70b7e71eddf1854e..8de2b218cbe4cdbab9128180aeadedd6
  }
  
  /// Parse a local link target into normalized path text plus an optional location suffix.
-@@ -66,10 +123,16 @@ fn parse_local_link_target(dest_url: &str) -> Option<(String, Option<String>)> {
+@@ -66,10 +131,16 @@ fn parse_local_link_target(dest_url: &str) -> Option<(String, Option<String>)> {
          let url = Url::parse(dest_url).ok()?;
          // Infer the path's OS from the URI, not the host running the TUI.
          let path = PathUri::parse(&url[..url::Position::AfterPath]).ok()?;
@@ -5379,7 +5432,7 @@ index 70c30b763d11c7d59606f0cd70b7e71eddf1854e..8de2b218cbe4cdbab9128180aeadedd6
          return Some((path_text, location_suffix));
      }
  
-@@ -130,6 +193,13 @@ pub(super) fn extract_colon_location_suffix(path_text: &str) -> Option<String> {
+@@ -130,6 +201,13 @@ pub(super) fn extract_colon_location_suffix(path_text: &str) -> Option<String> {
  fn normalize_local_link_path_text(path_text: &str) -> String {
      // Render all local link paths with forward slashes so display and prefix stripping are stable
      // across mixed Windows and Unix-style inputs.
@@ -5394,7 +5447,7 @@ index 70c30b763d11c7d59606f0cd70b7e71eddf1854e..8de2b218cbe4cdbab9128180aeadedd6
          format!("//{}", rest.replace('\\', "/").trim_start_matches('/'))
      } else {
 diff --git a/codex-rs/tui/src/markdown_render/local_links_tests.rs b/codex-rs/tui/src/markdown_render/local_links_tests.rs
-index c6ed70bfc9d8dbe4ffeca2e8fc35196571e32272..9039c749e70bcea99647df4b63ae7bdb2207315d 100644
+index c6ed70bfc9d8dbe4ffeca2e8fc35196571e32272..36aaf7fb24e564c76a7b2c781e7fcbd93dd4a7c4 100644
 --- a/codex-rs/tui/src/markdown_render/local_links_tests.rs
 +++ b/codex-rs/tui/src/markdown_render/local_links_tests.rs
 @@ -1,7 +1,10 @@
@@ -5408,7 +5461,7 @@ index c6ed70bfc9d8dbe4ffeca2e8fc35196571e32272..9039c749e70bcea99647df4b63ae7bdb
  
  #[test]
  fn trailing_separator_trimming_preserves_local_roots() {
-@@ -11,3 +14,194 @@ fn trailing_separator_trimming_preserves_local_roots() {
+@@ -11,3 +14,237 @@ fn trailing_separator_trimming_preserves_local_roots() {
          ["/", "//", "C:/", "dir", "//server/share", "C:/dir"]
      );
  }
@@ -5475,6 +5528,49 @@ index c6ed70bfc9d8dbe4ffeca2e8fc35196571e32272..9039c749e70bcea99647df4b63ae7bdb
 +                .starts_with(scheme)
 +        );
 +    }
++}
++
++#[test]
++#[cfg(windows)]
++fn local_links_system_opens_native_document_and_copies_location() {
++    use super::super::preferences;
++    use crate::markdown_render::render_markdown_lines_with_width_cwd_and_hidden_link_destinations as render;
++    let directory = tempfile::tempdir().unwrap();
++    let previous = preferences::file_opener();
++    preferences::init_file_opener(UriBasedFileOpener::System);
++    for name in ["中文 report.md", "O'Brien.html"] {
++        let file = directory.path().join(name);
++        std::fs::write(&file, "").unwrap();
++        let uri = url::Url::from_file_path(&file).unwrap();
++        let (destination, copy) =
++            editor_link_target(&format!("{uri}#L4C2"), None, UriBasedFileOpener::System).unwrap();
++        let terminal_uri = url::Url::parse(&destination).unwrap();
++        assert_eq!(terminal_uri.to_file_path().unwrap(), file);
++        assert_eq!(copy, format!("{destination}:4:2"));
++        let markdown = format!("[doc](<./{name}#L4C2>)");
++        let lines = render(&markdown, Some(80), Some(directory.path()), &|_| true);
++        let link = &lines[0].hyperlinks[0];
++        assert_eq!(
++            link.terminal_destination().as_deref(),
++            Some(destination.as_str())
++        );
++        assert_eq!(link.click_destination().as_deref(), file.to_str());
++    }
++    for name in ["run.exe", "run.cmd", "go.lnk"] {
++        std::fs::write(directory.path().join(name), "").unwrap();
++        assert!(
++            editor_link_target(name, Some(directory.path()), UriBasedFileOpener::System).is_none()
++        );
++    }
++    assert!(
++        editor_link_target(
++            "missing.md",
++            Some(directory.path()),
++            UriBasedFileOpener::System
++        )
++        .is_none()
++    );
++    preferences::init_file_opener(previous);
 +}
 +
 +#[test]
@@ -5980,21 +6076,42 @@ index cdd4ce4f3febee326763ab682440ede6f4befd0a..04627b0e32dac509134ef0aa203d793b
      fn renders_without_spinner_when_animations_disabled() {
          let (tx_raw, _rx) = unbounded_channel::<AppEvent>();
 diff --git a/codex-rs/tui/src/terminal_hyperlinks.rs b/codex-rs/tui/src/terminal_hyperlinks.rs
-index 9d4ef7c0ab3c14414a3f727154a86aede386b901..8fd6d86248d67b7f2698660a39c31d75a92984aa 100644
+index 9d4ef7c0ab3c14414a3f727154a86aede386b901..f3d58abffb129d0145dae49e5b04f568bf7ef6ae 100644
 --- a/codex-rs/tui/src/terminal_hyperlinks.rs
 +++ b/codex-rs/tui/src/terminal_hyperlinks.rs
-@@ -51,6 +51,7 @@ pub(crate) struct TerminalHyperlink {
+@@ -51,6 +51,8 @@ pub(crate) struct TerminalHyperlink {
  #[derive(Clone, Copy, Debug, Eq, PartialEq)]
  enum DestinationKind {
      Web,
 +    EditorFile,
++    SystemDocument,
      /// A generated visualization, validated workspace artifact, or locally viewed image.
      TrustedFile,
  }
-@@ -98,6 +99,14 @@ impl TrustedWorkspaceFile {
+@@ -98,6 +100,34 @@ impl TrustedWorkspaceFile {
  }
  
  impl TerminalHyperlink {
++    pub(crate) fn system_document(columns: Range<usize>, destination: String) -> Self {
++        Self {
++            columns,
++            destination,
++            destination_kind: DestinationKind::SystemDocument,
++        }
++    }
++
++    pub(crate) fn click_destination(&self) -> Option<String> {
++        if self.destination_kind == DestinationKind::SystemDocument {
++            return Url::parse(&self.destination)
++                .ok()?
++                .to_file_path()
++                .ok()?
++                .to_str()
++                .map(str::to_owned);
++        }
++        self.terminal_destination()
++    }
++
 +    pub(crate) fn editor_file(columns: Range<usize>, destination: &str) -> Option<Self> {
 +        Some(Self {
 +            columns,
@@ -6006,18 +6123,70 @@ index 9d4ef7c0ab3c14414a3f727154a86aede386b901..8fd6d86248d67b7f2698660a39c31d75
      pub(crate) fn web(columns: Range<usize>, destination: String) -> Self {
          Self {
              columns,
-@@ -169,6 +178,7 @@ impl TerminalHyperlink {
+@@ -169,6 +199,8 @@ impl TerminalHyperlink {
      pub(crate) fn terminal_destination(&self) -> Option<String> {
          match self.destination_kind {
              DestinationKind::Web => web_destination(&self.destination),
 +            DestinationKind::EditorFile => editor_destination(&self.destination),
++            DestinationKind::SystemDocument => Some(self.destination.clone()),
              DestinationKind::TrustedFile => trusted_file_destination(&self.destination),
          }
      }
-@@ -715,6 +725,31 @@ fn trusted_file_destination(destination: &str) -> Option<String> {
+@@ -715,6 +747,82 @@ fn trusted_file_destination(destination: &str) -> Option<String> {
      (parsed.scheme() == "file" && parsed.to_file_path().is_ok()).then_some(safe_destination)
  }
  
++/// Only existing local documents receive a file association link in the terminal.
++pub(crate) fn system_document_url(url: &Url) -> Option<String> {
++    if url.scheme() != "file" || url.host().is_some() {
++        return None;
++    }
++    let path = url.to_file_path().ok()?;
++    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
++    if !SAFE_WORKSPACE_EXTENSIONS.contains(&extension.as_str())
++        && !matches!(
++            extension.as_str(),
++            "markdown"
++                | "html"
++                | "htm"
++                | "pdf"
++                | "csv"
++                | "log"
++                | "xml"
++                | "png"
++                | "jpg"
++                | "jpeg"
++                | "gif"
++                | "webp"
++                | "docx"
++                | "xlsx"
++                | "pptx"
++        )
++    {
++        return None;
++    }
++    #[cfg(windows)]
++    {
++        use std::os::windows::fs::MetadataExt;
++        use std::path::{Component, Prefix};
++        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
++        let Some(Component::Prefix(prefix)) = path.components().next() else {
++            return None;
++        };
++        if !matches!(prefix.kind(), Prefix::Disk(_)) || !path.is_absolute() {
++            return None;
++        }
++        for ancestor in path.ancestors().collect::<Vec<_>>().into_iter().rev() {
++            if ancestor.symlink_metadata().ok()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT
++                != 0
++            {
++                return None;
++            }
++        }
++    }
++    path.is_file().then(|| url.to_string())
++}
++
 +/// 编辑器链接只接受固定协议和 file authority，保持通用 OSC 8 的 Web 白名单。
 +pub(crate) fn editor_destination(destination: &str) -> Option<String> {
 +    if destination.chars().any(char::is_control) {
@@ -6046,11 +6215,49 @@ index 9d4ef7c0ab3c14414a3f727154a86aede386b901..8fd6d86248d67b7f2698660a39c31d75
  fn sanitized_destination(destination: &str) -> Option<String> {
      if destination.len() > MAX_HYPERLINK_DESTINATION_BYTES {
          return None;
-@@ -722,6 +757,55 @@ fn sanitized_destination(destination: &str) -> Option<String> {
+@@ -722,6 +830,93 @@ fn sanitized_destination(destination: &str) -> Option<String> {
      Some(destination.chars().filter(|ch| !ch.is_control()).collect())
  }
  
 +pub(crate) fn open_link(destination: &str) -> std::io::Result<()> {
++    #[cfg(windows)]
++    if Path::new(destination).is_absolute() {
++        use std::os::windows::ffi::OsStrExt;
++        use windows_sys::Win32::UI::Shell::ShellExecuteW;
++        use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
++        let path = Path::new(destination);
++        if Url::from_file_path(path)
++            .ok()
++            .as_ref()
++            .and_then(system_document_url)
++            .is_none()
++        {
++            return Err(std::io::Error::other("Could not open this local document"));
++        }
++        let file: Vec<u16> = path
++            .as_os_str()
++            .encode_wide()
++            .chain(std::iter::once(0))
++            .collect();
++        // SAFETY: file is NUL-terminated and lives through the ShellExecuteW call.
++        let status = unsafe {
++            ShellExecuteW(
++                std::ptr::null_mut(),
++                std::ptr::null(),
++                file.as_ptr(),
++                std::ptr::null(),
++                std::ptr::null(),
++                SW_SHOWNORMAL,
++            )
++        } as isize;
++        return if status > 32 {
++            Ok(())
++        } else {
++            Err(std::io::Error::other(format!(
++                "Windows could not open {destination} (ShellExecuteW {status})"
++            )))
++        };
++    }
 +    #[cfg(windows)]
 +    if let Some(script) = editor_launch_script(destination) {
 +        use std::os::windows::process::CommandExt;
@@ -6102,7 +6309,7 @@ index 9d4ef7c0ab3c14414a3f727154a86aede386b901..8fd6d86248d67b7f2698660a39c31d75
  pub(crate) fn osc8_hyperlink(destination: &str, text: &str) -> String {
      let Some(safe_destination) = web_destination(destination) else {
          return text.to_string();
-@@ -979,6 +1063,51 @@ mod tests {
+@@ -979,6 +1174,51 @@ mod tests {
      use pretty_assertions::assert_eq;
      use ratatui::style::Style;
  
@@ -6340,7 +6547,7 @@ index ed5605c3a5779f299f8f6d69b5f2e204fd01ff2d..fe36fad6ac9b65e3a61893e63428e84f
  
  #[test]
 diff --git a/codex-rs/tui/src/transcript_view/input.rs b/codex-rs/tui/src/transcript_view/input.rs
-index 59183c42acf7a1395f6a3edddf41b951c566384d..f2e44ed9428d9b1b1d4eb3f8761109961dc003c5 100644
+index 59183c42acf7a1395f6a3edddf41b951c566384d..8f2c1b2ca650be5dd92b4906e9b48e83cc1b283d 100644
 --- a/codex-rs/tui/src/transcript_view/input.rs
 +++ b/codex-rs/tui/src/transcript_view/input.rs
 @@ -26,6 +26,7 @@ pub(crate) enum ViewAction {
@@ -6375,6 +6582,15 @@ index 59183c42acf7a1395f6a3edddf41b951c566384d..f2e44ed9428d9b1b1d4eb3f876110996
                  || (matches!(modifiers, KeyModifiers::NONE | KeyModifiers::SHIFT)
                      && matches!(
                          code,
+@@ -329,7 +335,7 @@ impl TranscriptView {
+                 .hyperlinks
+                 .iter()
+                 .find(|link| link.columns.contains(&column))?
+-                .terminal_destination()
++                .click_destination()
+                 .map(ViewAction::OpenLink);
+         }
+         let inside = self.area.contains(point);
 @@ -435,6 +441,15 @@ impl TranscriptView {
          key: KeyEvent,
          cells: &[Arc<dyn HistoryCell>],
@@ -6547,3 +6763,16 @@ index 2c0e63cbf15fa3bbb66478e32bebd25e857729b0..7585c8b74fede1f30c37df066f6b5636
  find:
  Buffer {
      area: Rect { x: 0, y: 0, width: 32, height: 6 },
+diff --git a/codex-rs/tui/src/transcript_view/text.rs b/codex-rs/tui/src/transcript_view/text.rs
+index 93c50c8b6bc2035c8fdab6aeb8aecba68a999ab9..293413a0bb8b5b7c7320ec3e7638b82e71774f36 100644
+--- a/codex-rs/tui/src/transcript_view/text.rs
++++ b/codex-rs/tui/src/transcript_view/text.rs
+@@ -579,7 +579,7 @@ impl TextLayout {
+             .hyperlinks
+             .iter()
+             .find(|link| link.columns.contains(&column))?
+-            .terminal_destination()
++            .click_destination()
+     }
+ 
+     fn visible_rows(&self, area: Rect, start_row: usize) -> impl Iterator<Item = (u16, &TextRow)> {

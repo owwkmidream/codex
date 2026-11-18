@@ -1,0 +1,368 @@
+From 80e6f42654c47837bf47d4b1ba1d9d36f3f25283 Mon Sep 17 00:00:00 2001
+From: Codex patches <patches@localhost>
+Date: Wed, 18 Nov 2026 21:35:15 +0800
+Subject: [PATCH] feat(tui): open local documents with Windows file
+ associations
+
+---
+ codex-rs/config/src/types.rs                  |   3 +
+ codex-rs/core/config.schema.json              |   3 +-
+ codex-rs/tui/src/app/link_hover.rs            |   5 +-
+ codex-rs/tui/src/markdown_render.rs           |  13 +-
+ .../tui/src/markdown_render/local_links.rs    |  24 ++--
+ .../src/markdown_render/local_links_tests.rs  |  43 +++++++
+ codex-rs/tui/src/terminal_hyperlinks.rs       | 111 ++++++++++++++++++
+ codex-rs/tui/src/transcript_view/input.rs     |   2 +-
+ codex-rs/tui/src/transcript_view/text.rs      |   2 +-
+ 9 files changed, 188 insertions(+), 18 deletions(-)
+
+diff --git a/codex-rs/config/src/types.rs b/codex-rs/config/src/types.rs
+index e23e9764f8b4a0f0f3e1efcdc1728304bd43fd93..288f9f813b6059bf19d9d9e99e5f0f68de61d538 100644
+--- a/codex-rs/config/src/types.rs
++++ b/codex-rs/config/src/types.rs
+@@ -215,6 +215,9 @@ pub enum UriBasedFileOpener {
+     #[serde(rename = "cursor")]
+     Cursor,
+ 
++    #[serde(rename = "system")]
++    System,
++
+     /// Option to disable the URI-based file opener.
+     #[serde(rename = "none")]
+     None,
+diff --git a/codex-rs/core/config.schema.json b/codex-rs/core/config.schema.json
+index bfbd2b7300d39ae93044595c4976c52aff62226c..fc1a2fff092e1eb68759e05fae6d331d49fb7473 100644
+--- a/codex-rs/core/config.schema.json
++++ b/codex-rs/core/config.schema.json
+@@ -7589,7 +7589,8 @@
+             "vscode",
+             "vscode-insiders",
+             "windsurf",
+-            "cursor"
++            "cursor",
++            "system"
+           ],
+           "type": "string"
+         },
+diff --git a/codex-rs/tui/src/app/link_hover.rs b/codex-rs/tui/src/app/link_hover.rs
+index 7e8e776c10fd7c331b3efc8b21a4fa4162d9a9b7..b328a777674fa8ef23d176a7eb3b43d46530812f 100644
+--- a/codex-rs/tui/src/app/link_hover.rs
++++ b/codex-rs/tui/src/app/link_hover.rs
+@@ -72,7 +72,10 @@ impl App {
+         ) {
+             self.transcript_view.show_copy_feedback(&result, count);
+         } else if let ViewAction::OpenLink(url) = action {
+-            self.open_url_in_browser(url);
++            if let Err(err) = crate::terminal_hyperlinks::open_link(&url) {
++                self.chat_widget
++                    .add_error_message(format!("Could not open link: {err}"));
++            }
+         }
+         tui.frame_requester().schedule_frame();
+         true
+diff --git a/codex-rs/tui/src/markdown_render.rs b/codex-rs/tui/src/markdown_render.rs
+index 9e4108d8834e8ec8f996f6875534f8a79f63653d..45e6ea72df66e4c14afd72ab2352d116b5077e7b 100644
+--- a/codex-rs/tui/src/markdown_render.rs
++++ b/codex-rs/tui/src/markdown_render.rs
+@@ -2265,11 +2265,8 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+ 
+     fn push_link(&mut self, dest_url: String) {
+         let local = is_local_path_like_link(&dest_url);
+-        let editor_target = local_links::editor_link_target(
+-            &dest_url,
+-            self.cwd.as_deref(),
+-            preferences::file_opener(),
+-        );
++        let opener = preferences::file_opener();
++        let editor_target = local_links::editor_link_target(&dest_url, self.cwd.as_deref(), opener);
+         let style_label =
+             (self.is_hidden_link_destination)(&dest_url) && (!local || editor_target.is_some());
+         let editor_link = if style_label {
+@@ -2278,7 +2275,11 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+                 if let Some(inline) = self.copy_inline.last_mut() {
+                     *inline = crate::markdown_copy::Inline::Link(copy_target.into());
+                 }
+-                TerminalHyperlink::editor_file(0..0, &destination)
++                if opener == codex_config::types::UriBasedFileOpener::System {
++                    Some(TerminalHyperlink::system_document(0..0, destination))
++                } else {
++                    TerminalHyperlink::editor_file(0..0, &destination)
++                }
+             })
+         } else {
+             None
+diff --git a/codex-rs/tui/src/markdown_render/local_links.rs b/codex-rs/tui/src/markdown_render/local_links.rs
+index 8de2b218cbe4cdbab9128180aeadedd6d69ba0da..bf240ee09cef242a115837c4f8c14917f3c26ed9 100644
+--- a/codex-rs/tui/src/markdown_render/local_links.rs
++++ b/codex-rs/tui/src/markdown_render/local_links.rs
+@@ -48,13 +48,6 @@ pub(super) fn editor_link_target(
+     cwd: Option<&Path>,
+     opener: UriBasedFileOpener,
+ ) -> Option<(String, String)> {
+-    let scheme = match opener {
+-        UriBasedFileOpener::VsCode => "vscode",
+-        UriBasedFileOpener::VsCodeInsiders => "vscode-insiders",
+-        UriBasedFileOpener::Windsurf => "windsurf",
+-        UriBasedFileOpener::Cursor => "cursor",
+-        UriBasedFileOpener::None => return None,
+-    };
+     if !is_local_path_like_link(destination) || destination.chars().any(char::is_control) {
+         return None;
+     }
+@@ -85,10 +78,25 @@ pub(super) fn editor_link_target(
+     file.set_path(&if drive { format!("/{path}") } else { path }.replace('%', "%25"));
+     PathUri::parse(file.as_str()).ok()?;
+     let mut copy_target = file.to_string();
++    if let Some(location) = &location {
++        copy_target.push_str(location);
++    }
++    let scheme = match opener {
++        UriBasedFileOpener::VsCode => "vscode",
++        UriBasedFileOpener::VsCodeInsiders => "vscode-insiders",
++        UriBasedFileOpener::Windsurf => "windsurf",
++        UriBasedFileOpener::Cursor => "cursor",
++        UriBasedFileOpener::System if cfg!(windows) => {
++            return Some((
++                crate::terminal_hyperlinks::system_document_url(&file)?,
++                copy_target,
++            ));
++        }
++        UriBasedFileOpener::System | UriBasedFileOpener::None => return None,
++    };
+     let mut editor = Url::parse(&format!("{scheme}://file/")).ok()?;
+     editor.set_path(file.path());
+     if let Some(location) = location {
+-        copy_target.push_str(&location);
+         // 编辑器定位到范围的起点；复制保留整个范围。
+         let start = location.split(['-', '–']).next()?;
+         editor.set_path(&format!("{}{start}", editor.path()));
+diff --git a/codex-rs/tui/src/markdown_render/local_links_tests.rs b/codex-rs/tui/src/markdown_render/local_links_tests.rs
+index 9039c749e70bcea99647df4b63ae7bdb2207315d..36aaf7fb24e564c76a7b2c781e7fcbd93dd4a7c4 100644
+--- a/codex-rs/tui/src/markdown_render/local_links_tests.rs
++++ b/codex-rs/tui/src/markdown_render/local_links_tests.rs
+@@ -79,6 +79,49 @@ fn local_links_encode_paths_and_preserve_ranges_in_copy() {
+     }
+ }
+ 
++#[test]
++#[cfg(windows)]
++fn local_links_system_opens_native_document_and_copies_location() {
++    use super::super::preferences;
++    use crate::markdown_render::render_markdown_lines_with_width_cwd_and_hidden_link_destinations as render;
++    let directory = tempfile::tempdir().unwrap();
++    let previous = preferences::file_opener();
++    preferences::init_file_opener(UriBasedFileOpener::System);
++    for name in ["中文 report.md", "O'Brien.html"] {
++        let file = directory.path().join(name);
++        std::fs::write(&file, "").unwrap();
++        let uri = url::Url::from_file_path(&file).unwrap();
++        let (destination, copy) =
++            editor_link_target(&format!("{uri}#L4C2"), None, UriBasedFileOpener::System).unwrap();
++        let terminal_uri = url::Url::parse(&destination).unwrap();
++        assert_eq!(terminal_uri.to_file_path().unwrap(), file);
++        assert_eq!(copy, format!("{destination}:4:2"));
++        let markdown = format!("[doc](<./{name}#L4C2>)");
++        let lines = render(&markdown, Some(80), Some(directory.path()), &|_| true);
++        let link = &lines[0].hyperlinks[0];
++        assert_eq!(
++            link.terminal_destination().as_deref(),
++            Some(destination.as_str())
++        );
++        assert_eq!(link.click_destination().as_deref(), file.to_str());
++    }
++    for name in ["run.exe", "run.cmd", "go.lnk"] {
++        std::fs::write(directory.path().join(name), "").unwrap();
++        assert!(
++            editor_link_target(name, Some(directory.path()), UriBasedFileOpener::System).is_none()
++        );
++    }
++    assert!(
++        editor_link_target(
++            "missing.md",
++            Some(directory.path()),
++            UriBasedFileOpener::System
++        )
++        .is_none()
++    );
++    preferences::init_file_opener(previous);
++}
++
+ #[test]
+ fn local_links_fall_back_for_disabled_or_unsafe_destinations() {
+     for target in [
+diff --git a/codex-rs/tui/src/terminal_hyperlinks.rs b/codex-rs/tui/src/terminal_hyperlinks.rs
+index 8fd6d86248d67b7f2698660a39c31d75a92984aa..f3d58abffb129d0145dae49e5b04f568bf7ef6ae 100644
+--- a/codex-rs/tui/src/terminal_hyperlinks.rs
++++ b/codex-rs/tui/src/terminal_hyperlinks.rs
+@@ -52,6 +52,7 @@ pub(crate) struct TerminalHyperlink {
+ enum DestinationKind {
+     Web,
+     EditorFile,
++    SystemDocument,
+     /// A generated visualization, validated workspace artifact, or locally viewed image.
+     TrustedFile,
+ }
+@@ -99,6 +100,26 @@ impl TrustedWorkspaceFile {
+ }
+ 
+ impl TerminalHyperlink {
++    pub(crate) fn system_document(columns: Range<usize>, destination: String) -> Self {
++        Self {
++            columns,
++            destination,
++            destination_kind: DestinationKind::SystemDocument,
++        }
++    }
++
++    pub(crate) fn click_destination(&self) -> Option<String> {
++        if self.destination_kind == DestinationKind::SystemDocument {
++            return Url::parse(&self.destination)
++                .ok()?
++                .to_file_path()
++                .ok()?
++                .to_str()
++                .map(str::to_owned);
++        }
++        self.terminal_destination()
++    }
++
+     pub(crate) fn editor_file(columns: Range<usize>, destination: &str) -> Option<Self> {
+         Some(Self {
+             columns,
+@@ -179,6 +200,7 @@ impl TerminalHyperlink {
+         match self.destination_kind {
+             DestinationKind::Web => web_destination(&self.destination),
+             DestinationKind::EditorFile => editor_destination(&self.destination),
++            DestinationKind::SystemDocument => Some(self.destination.clone()),
+             DestinationKind::TrustedFile => trusted_file_destination(&self.destination),
+         }
+     }
+@@ -725,6 +747,57 @@ fn trusted_file_destination(destination: &str) -> Option<String> {
+     (parsed.scheme() == "file" && parsed.to_file_path().is_ok()).then_some(safe_destination)
+ }
+ 
++/// Only existing local documents receive a file association link in the terminal.
++pub(crate) fn system_document_url(url: &Url) -> Option<String> {
++    if url.scheme() != "file" || url.host().is_some() {
++        return None;
++    }
++    let path = url.to_file_path().ok()?;
++    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
++    if !SAFE_WORKSPACE_EXTENSIONS.contains(&extension.as_str())
++        && !matches!(
++            extension.as_str(),
++            "markdown"
++                | "html"
++                | "htm"
++                | "pdf"
++                | "csv"
++                | "log"
++                | "xml"
++                | "png"
++                | "jpg"
++                | "jpeg"
++                | "gif"
++                | "webp"
++                | "docx"
++                | "xlsx"
++                | "pptx"
++        )
++    {
++        return None;
++    }
++    #[cfg(windows)]
++    {
++        use std::os::windows::fs::MetadataExt;
++        use std::path::{Component, Prefix};
++        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
++        let Some(Component::Prefix(prefix)) = path.components().next() else {
++            return None;
++        };
++        if !matches!(prefix.kind(), Prefix::Disk(_)) || !path.is_absolute() {
++            return None;
++        }
++        for ancestor in path.ancestors().collect::<Vec<_>>().into_iter().rev() {
++            if ancestor.symlink_metadata().ok()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT
++                != 0
++            {
++                return None;
++            }
++        }
++    }
++    path.is_file().then(|| url.to_string())
++}
++
+ /// 编辑器链接只接受固定协议和 file authority，保持通用 OSC 8 的 Web 白名单。
+ pub(crate) fn editor_destination(destination: &str) -> Option<String> {
+     if destination.chars().any(char::is_control) {
+@@ -758,6 +831,44 @@ fn sanitized_destination(destination: &str) -> Option<String> {
+ }
+ 
+ pub(crate) fn open_link(destination: &str) -> std::io::Result<()> {
++    #[cfg(windows)]
++    if Path::new(destination).is_absolute() {
++        use std::os::windows::ffi::OsStrExt;
++        use windows_sys::Win32::UI::Shell::ShellExecuteW;
++        use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
++        let path = Path::new(destination);
++        if Url::from_file_path(path)
++            .ok()
++            .as_ref()
++            .and_then(system_document_url)
++            .is_none()
++        {
++            return Err(std::io::Error::other("Could not open this local document"));
++        }
++        let file: Vec<u16> = path
++            .as_os_str()
++            .encode_wide()
++            .chain(std::iter::once(0))
++            .collect();
++        // SAFETY: file is NUL-terminated and lives through the ShellExecuteW call.
++        let status = unsafe {
++            ShellExecuteW(
++                std::ptr::null_mut(),
++                std::ptr::null(),
++                file.as_ptr(),
++                std::ptr::null(),
++                std::ptr::null(),
++                SW_SHOWNORMAL,
++            )
++        } as isize;
++        return if status > 32 {
++            Ok(())
++        } else {
++            Err(std::io::Error::other(format!(
++                "Windows could not open {destination} (ShellExecuteW {status})"
++            )))
++        };
++    }
+     #[cfg(windows)]
+     if let Some(script) = editor_launch_script(destination) {
+         use std::os::windows::process::CommandExt;
+diff --git a/codex-rs/tui/src/transcript_view/input.rs b/codex-rs/tui/src/transcript_view/input.rs
+index f2e44ed9428d9b1b1d4eb3f8761109961dc003c5..8f2c1b2ca650be5dd92b4906e9b48e83cc1b283d 100644
+--- a/codex-rs/tui/src/transcript_view/input.rs
++++ b/codex-rs/tui/src/transcript_view/input.rs
+@@ -335,7 +335,7 @@ impl TranscriptView {
+                 .hyperlinks
+                 .iter()
+                 .find(|link| link.columns.contains(&column))?
+-                .terminal_destination()
++                .click_destination()
+                 .map(ViewAction::OpenLink);
+         }
+         let inside = self.area.contains(point);
+diff --git a/codex-rs/tui/src/transcript_view/text.rs b/codex-rs/tui/src/transcript_view/text.rs
+index 93c50c8b6bc2035c8fdab6aeb8aecba68a999ab9..293413a0bb8b5b7c7320ec3e7638b82e71774f36 100644
+--- a/codex-rs/tui/src/transcript_view/text.rs
++++ b/codex-rs/tui/src/transcript_view/text.rs
+@@ -579,7 +579,7 @@ impl TextLayout {
+             .hyperlinks
+             .iter()
+             .find(|link| link.columns.contains(&column))?
+-            .terminal_destination()
++            .click_destination()
+     }
+ 
+     fn visible_rows(&self, area: Rect, start_row: usize) -> impl Iterator<Item = (u16, &TextRow)> {

@@ -60,12 +60,20 @@ Ctrl+C 复制；Enter 复制并跟随最新输出；Space 引用不写入剪贴�
 
 已发送的用户消息按原文区分引用和回复。例如，`> 123` 的下一行输入 `456` 时，历史区将 `456` 显示为正文。复制整条消息保留原文，单独复制引用只取引用部分。
 
-顶层配置 `file_opener` 支持 `vscode`（默认）、`vscode-insiders`、`windsurf`、`cursor`；`none` 禁用编辑器链接。它独立于 Ctrl+G 的 `$VISUAL`/`$EDITOR`。
+要让 Markdown 和 HTML 文件分别使用 Windows 已关联的应用，在 `$CODEX_HOME/config.toml` 顶层设置：
+
+```toml
+file_opener = "system"
+```
+
+`system` 适用于已存在的本地文档，包括 Markdown、HTML、文本、PDF、Office 文档、常见图片和源码。普通点击向 Windows 提交文件路径，Windows Terminal 的 Ctrl+点击使用文件 URI。行号和范围保留在复制的 Markdown 链接中，系统应用打开文件时不指定行号。目录、可执行文件、快捷方式和经过重解析点的路径以文本显示。
+
+其他可选值为 `vscode`（默认）、`vscode-insiders`、`windsurf`、`cursor` 和 `none`。指定编辑器时支持行列定位，`none` 禁用编辑器链接。此设置独立于 Ctrl+G 的 `$VISUAL`/`$EDITOR`。
 
 - 支持盘符路径、`/c:/…`、`file:///…` 和相对路径；相对路径固定基于该消息的会话 cwd，与 `/pwd` 同源。复制 Markdown 保留绝对文件 URI，切换目录不改写已有链接。
 - 支持空格、中文、百分号及 `:行[:列]`、`#L行[C列]`、范围后缀；范围定位到起点。Markdown 目标含空格时用 `<...>` 包裹。
 - `~/`、UNC、无 cwd、控制字符或转换失败时保留路径。未知终端、复用器、重定向输出沿用显示回退。
-- 普通点击使用白名单编辑器协议处理器，Windows Terminal 的 Ctrl+左键由终端处理 OSC 8。普通 Markdown 不获得 `TrustedFile` 能力，通用链接仍只接受 HTTP/HTTPS。
+- 指定编辑器时，普通点击使用编辑器协议处理器，Windows Terminal 的 Ctrl+左键由终端处理 OSC 8。通用网页链接只接受 HTTP/HTTPS。
 
 ## 安装与 daemon 更新
 

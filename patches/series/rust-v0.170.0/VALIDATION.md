@@ -18,3 +18,7 @@
 ## 0012 用户消息引用边界
 
 源码 `f21863e9` 修复显式引用后的回复被显示成引用的问题。12 个功能补丁和合并补丁已分别从官方基线重放，最终树与源码一致。新增回归 `transcript_quote_user_reply_remains_outside_quote` 由 CI 的 `transcript_quote` 过滤器覆盖。该提交的渲染与复制仍待 Windows CI 验证。
+
+## 0013 Windows 文件关联
+
+源码 `80e6f426` 增加 `file_opener = "system"`。13 个补丁顺序重放和合并补丁独立重放的最终源码均与该提交一致。Windows 回归用例 `local_links_system_opens_native_document_and_copies_location` 覆盖 Markdown 和 HTML 的普通点击路径、OSC 8 目标、复制定位后缀和不支持的文件类型。应用实际启动由本机文件关联决定。
