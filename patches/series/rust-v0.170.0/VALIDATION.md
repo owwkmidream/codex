@@ -14,3 +14,7 @@
 ## 0011 实时警告
 
 [CI 44298418637](https://github.com/owwkmidream/codex/actions/runs/44298418637) 的 TUI 回归 129 项通过，1 项失败。Esc 中断用例通过。普通警告在实时历史区渲染为空，源码 `847ffed1` 改用已有的可见警告构造函数。series 和合并补丁从官方基线重放后均与该提交一致。
+
+## 0012 用户消息引用边界
+
+源码 `f21863e9` 修复显式引用后的回复被显示成引用的问题。12 个功能补丁和合并补丁已分别从官方基线重放，最终树与源码一致。新增回归 `transcript_quote_user_reply_remains_outside_quote` 由 CI 的 `transcript_quote` 过滤器覆盖。该提交的渲染与复制仍待 Windows CI 验证。

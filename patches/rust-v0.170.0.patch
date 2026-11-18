@@ -4780,6 +4780,19 @@ index d4d9aed1318c368bf62cc1139221e0595f455702..7d0276f3cad49c9a316fec011110620c
              .map(|section| {
                  let title = section.title();
                  SelectionTab {
+diff --git a/codex-rs/tui/src/history_cell/messages.rs b/codex-rs/tui/src/history_cell/messages.rs
+index 84f5a863732c7a4e3dc96f49dc70d05f60a57b64..6efd5baf3e45f46331c9a5b8f71959254a6b17e9 100644
+--- a/codex-rs/tui/src/history_cell/messages.rs
++++ b/codex-rs/tui/src/history_cell/messages.rs
+@@ -288,7 +288,7 @@ impl HistoryCell for UserHistoryCell {
+                     "› ".bold().dim()
+                 };
+                 let markdown = if self.uses_markdown() {
+-                    crate::markdown::render_markdown_for_viewport(message, wrap_width)
++                    crate::markdown::render_user_markdown(message, wrap_width)
+                 } else {
+                     Vec::new()
+                 };
 diff --git a/codex-rs/tui/src/history_cell/notices.rs b/codex-rs/tui/src/history_cell/notices.rs
 index 8c2dce8f95829c082c24196c5a7c989194234756..ab804edab04f851d5680bb086e6f21b24100e00f 100644
 --- a/codex-rs/tui/src/history_cell/notices.rs
@@ -4862,19 +4875,95 @@ index c3abb0093543dda3fd01c8b139c251f7fb1ac619..85b89b72d1bd5ecb3786c6f1bbcd5121
      // and resume/fork can both reload config with a different tui_theme, so
      // this must happen after the last possible reload.
 diff --git a/codex-rs/tui/src/markdown.rs b/codex-rs/tui/src/markdown.rs
-index 97ece6e64f7241924d004dd34c100e4f16ff424c..156652c2f0b8e41cedcd8f9b440724911e4921b1 100644
+index 97ece6e64f7241924d004dd34c100e4f16ff424c..590ebb0957d25806ef55f91eaf713a1da250f0b5 100644
 --- a/codex-rs/tui/src/markdown.rs
 +++ b/codex-rs/tui/src/markdown.rs
-@@ -53,7 +53,7 @@ pub(crate) fn render_markdown_for_viewport_with_list_spacing(
+@@ -36,6 +36,35 @@ use crate::markdown_render::ListSpacing;
+ use crate::table_detect;
+ use crate::terminal_hyperlinks::HyperlinkLine;
+ 
++/// Keep lines following a user's explicit quote outside the quote in rich history.
++pub(crate) fn user_markdown_sections(input: &str) -> Vec<&str> {
++    if !input.contains('>') {
++        return vec![input];
++    }
++    let mut sections = Vec::new();
++    let mut start = 0;
++    let mut quote_end = 0;
++    for (event, span) in pulldown_cmark::Parser::new(input).into_offset_iter() {
++        if !matches!(event, Event::Start(Tag::BlockQuote)) || span.start < quote_end {
++            continue;
++        }
++        quote_end = span.end;
++        let mut offset = span.start;
++        let mut quoted = false;
++        for line in input[span].split_inclusive('\n') {
++            let marked = line.trim_start().starts_with('>');
++            if quoted && !marked && !line.trim().is_empty() {
++                sections.push(&input[start..offset]);
++                start = offset;
++            }
++            quoted = marked;
++            offset += line.len();
++        }
++    }
++    sections.push(&input[start..]);
++    sections
++}
++
+ /// Render Markdown for a widget that measures its height in terminal rows.
+ /// Split overwide tokens (such as URLs) while retaining their full hyperlink destinations.
+ pub(crate) fn render_markdown_for_viewport(input: &str, width: u16) -> Vec<HyperlinkLine> {
+@@ -47,14 +76,46 @@ pub(crate) fn render_markdown_for_viewport_with_list_spacing(
+     input: &str,
+     width: u16,
+     list_spacing: ListSpacing,
++) -> Vec<HyperlinkLine> {
++    viewport_rows(input, width, list_spacing, &[])
++}
++
++pub(crate) fn render_user_markdown(input: &str, width: u16) -> Vec<HyperlinkLine> {
++    let sections = user_markdown_sections(input);
++    if sections.len() == 1 {
++        return render_markdown_for_viewport(input, width);
++    }
++    let mut separated = String::with_capacity(input.len() + sections.len() - 1);
++    let mut adjacent_blocks = Vec::new();
++    for section in sections {
++        if !separated.is_empty() {
++            separated.push('\n');
++            adjacent_blocks.push(separated.len() + section.len() - section.trim_start().len());
++        }
++        separated.push_str(section);
++    }
++    viewport_rows(
++        &separated,
++        width,
++        ListSpacing::AfterMultiline,
++        &adjacent_blocks,
++    )
++}
++
++fn viewport_rows(
++    input: &str,
++    width: u16,
++    list_spacing: ListSpacing,
++    adjacent_blocks: &[usize],
+ ) -> Vec<HyperlinkLine> {
+     let width = usize::from(width.max(1));
+-    let lines = crate::markdown_render::render_markdown_lines_with_list_spacing(
++    let lines = crate::markdown_render::render_viewport_blocks(
          input,
          Some(width),
          /*cwd*/ None,
 -        &crate::markdown_render::hide_web_link_destination,
 +        &crate::markdown_render::hide_markdown_link_destination,
          list_spacing,
++        adjacent_blocks,
      );
      let mut rows = Vec::with_capacity(lines.len());
-@@ -140,7 +140,7 @@ pub(crate) fn render_markdown_agent_with_list_spacing(
+     for line in lines {
+@@ -140,7 +201,7 @@ pub(crate) fn render_markdown_agent_with_list_spacing(
      };
      let is_hidden_link_destination = |destination: &str| {
          rewritten.trusted_file_links.contains_key(destination)
@@ -4883,7 +4972,7 @@ index 97ece6e64f7241924d004dd34c100e4f16ff424c..156652c2f0b8e41cedcd8f9b44072491
      };
      let mut lines = crate::markdown_render::render_with_copy_sources(
          &normalized,
-@@ -175,7 +175,7 @@ pub(crate) fn render_streaming_markdown_agent_with_links_and_cwd(
+@@ -175,7 +236,7 @@ pub(crate) fn render_streaming_markdown_agent_with_links_and_cwd(
          &normalized,
          width,
          cwd,
@@ -4893,7 +4982,7 @@ index 97ece6e64f7241924d004dd34c100e4f16ff424c..156652c2f0b8e41cedcd8f9b44072491
      );
      if normalized != markdown_source {
 diff --git a/codex-rs/tui/src/markdown_render.rs b/codex-rs/tui/src/markdown_render.rs
-index d06cd5c05e2c734f87ea081f0ab219ef313462e0..81bf6633d33f03f5e53d731868f9c0a1b05534bf 100644
+index d06cd5c05e2c734f87ea081f0ab219ef313462e0..9e4108d8834e8ec8f996f6875534f8a79f63653d 100644
 --- a/codex-rs/tui/src/markdown_render.rs
 +++ b/codex-rs/tui/src/markdown_render.rs
 @@ -90,6 +90,7 @@ mod table_key_value;
@@ -4912,7 +5001,40 @@ index d06cd5c05e2c734f87ea081f0ab219ef313462e0..81bf6633d33f03f5e53d731868f9c0a1
  pub(crate) use web_links::hide_web_link_destination;
  use web_links::style_bare_web_urls;
  
-@@ -481,6 +483,7 @@ pub(crate) fn render_markdown_lines_with_list_spacing(
+@@ -460,6 +462,24 @@ pub(crate) fn render_markdown_lines_with_list_spacing(
+     cwd: Option<&Path>,
+     is_hidden_link_destination: &dyn Fn(&str) -> bool,
+     list_spacing: ListSpacing,
++) -> Vec<HyperlinkLine> {
++    render_viewport_blocks(
++        input,
++        width,
++        cwd,
++        is_hidden_link_destination,
++        list_spacing,
++        &[],
++    )
++}
++
++pub(crate) fn render_viewport_blocks(
++    input: &str,
++    width: Option<usize>,
++    cwd: Option<&Path>,
++    is_hidden_link_destination: &dyn Fn(&str) -> bool,
++    list_spacing: ListSpacing,
++    adjacent_blocks: &[usize],
+ ) -> Vec<HyperlinkLine> {
+     let mut options = Options::empty();
+     options.insert(Options::ENABLE_STRIKETHROUGH);
+@@ -472,6 +492,7 @@ pub(crate) fn render_markdown_lines_with_list_spacing(
+     ));
+     let mut w = Writer::new(input, width, cwd, is_hidden_link_destination);
+     w.list_spacing = list_spacing;
++    w.adjacent_blocks = adjacent_blocks;
+     // Drop the consumed parser before the rendering state, including on unwind.
+     let mut parser = parser;
+     w.run(&mut parser);
+@@ -481,6 +502,7 @@ pub(crate) fn render_markdown_lines_with_list_spacing(
  #[derive(Clone, Debug)]
  struct LinkState {
      destination: String,
@@ -4920,7 +5042,33 @@ index d06cd5c05e2c734f87ea081f0ab219ef313462e0..81bf6633d33f03f5e53d731868f9c0a1
      show_destination: bool,
      style_label: bool,
      has_visible_label: bool,
-@@ -1403,11 +1406,7 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+@@ -520,6 +542,7 @@ struct Writer<'a, 'policy> {
+     list_needs_blank_before_next_item: Vec<bool>,
+     list_item_start_line_counts: Vec<usize>,
+     list_spacing: ListSpacing,
++    adjacent_blocks: &'policy [usize],
+     uniform_lists: Vec<UniformList>,
+     link: Option<LinkState>,
+     needs_newline: bool,
+@@ -567,6 +590,7 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+             list_needs_blank_before_next_item: Vec::new(),
+             list_item_start_line_counts: Vec::new(),
+             list_spacing: ListSpacing::default(),
++            adjacent_blocks: &[],
+             uniform_lists: Vec::new(),
+             link: None,
+             needs_newline: false,
+@@ -695,6 +719,9 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+     where
+         I: Iterator<Item = (Event<'a>, Range<usize>)>,
+     {
++        if self.adjacent_blocks.binary_search(&range.start).is_ok() {
++            self.needs_newline = false;
++        }
+         match tag {
+             Tag::Paragraph => self.start_paragraph(),
+             Tag::Heading { level, .. } => self.start_heading(level),
+@@ -1403,11 +1430,7 @@ impl<'a, 'policy> Writer<'a, 'policy> {
  
      fn push_span_to_table_cell(&mut self, span: Span<'static>) {
          let span = self.style_link_label(span);
@@ -4933,7 +5081,7 @@ index d06cd5c05e2c734f87ea081f0ab219ef313462e0..81bf6633d33f03f5e53d731868f9c0a1
          if let Some(table_state) = self.table_state.as_mut()
              && let Some(cell) = table_state.current_cell.as_mut()
          {
-@@ -1435,15 +1434,9 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+@@ -1435,15 +1458,9 @@ impl<'a, 'policy> Writer<'a, 'policy> {
  
      fn push_text_spans_to_table_cell(&mut self, text: &str, style: Style) {
          let span = self.style_link_label(Span::styled(text.to_string(), style));
@@ -4952,7 +5100,7 @@ index d06cd5c05e2c734f87ea081f0ab219ef313462e0..81bf6633d33f03f5e53d731868f9c0a1
              HyperlinkLine::new(Line::from(span))
          } else {
              style_bare_web_urls(span, self.styles.link)
-@@ -2017,17 +2010,20 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+@@ -2017,17 +2034,20 @@ impl<'a, 'policy> Writer<'a, 'policy> {
                  let mut current_text = String::new();
                  let flush = |out: &mut HyperlinkLine,
                               current_text: &mut String,
@@ -4977,7 +5125,7 @@ index d06cd5c05e2c734f87ea081f0ab219ef313462e0..81bf6633d33f03f5e53d731868f9c0a1
                      if destination != current_destination {
                          flush(&mut out, &mut current_text, current_destination);
                          current_destination = destination;
-@@ -2234,7 +2230,7 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+@@ -2234,7 +2254,7 @@ impl<'a, 'policy> Writer<'a, 'policy> {
  
      fn style_link_label(&mut self, mut span: Span<'static>) -> Span<'static> {
          if let Some(link) = self.link.as_mut()
@@ -4986,7 +5134,7 @@ index d06cd5c05e2c734f87ea081f0ab219ef313462e0..81bf6633d33f03f5e53d731868f9c0a1
          {
              link.has_visible_label |=
                  !span.content.trim().is_empty() && display_width(&span.content) > 0;
-@@ -2244,16 +2240,35 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+@@ -2244,16 +2264,35 @@ impl<'a, 'policy> Writer<'a, 'policy> {
      }
  
      fn push_link(&mut self, dest_url: String) {
@@ -5024,7 +5172,7 @@ index d06cd5c05e2c734f87ea081f0ab219ef313462e0..81bf6633d33f03f5e53d731868f9c0a1
                  Some(
                      render_local_link_target(&dest_url, self.cwd.as_deref())
                          .unwrap_or_else(|| dest_url.clone()),
-@@ -2273,7 +2288,8 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+@@ -2273,7 +2312,8 @@ impl<'a, 'policy> Writer<'a, 'policy> {
                  self.pop_inline_style();
              }
              if link.show_destination
@@ -5034,7 +5182,7 @@ index d06cd5c05e2c734f87ea081f0ab219ef313462e0..81bf6633d33f03f5e53d731868f9c0a1
              {
                  // Link destinations are rendered as " (url)" suffixes. When parsing table cells,
                  // append the suffix into the active cell buffer rather than the outer paragraph
-@@ -2285,6 +2301,11 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+@@ -2285,6 +2325,11 @@ impl<'a, 'policy> Writer<'a, 'policy> {
                          Span::styled(link.destination.clone(), self.styles.link),
                          web_destination(&link.destination).as_deref(),
                      );
@@ -5046,7 +5194,7 @@ index d06cd5c05e2c734f87ea081f0ab219ef313462e0..81bf6633d33f03f5e53d731868f9c0a1
                      if let Some(table_state) = self.table_state.as_mut()
                          && let Some(cell) = table_state.current_cell.as_mut()
                      {
-@@ -2298,6 +2319,11 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+@@ -2298,6 +2343,11 @@ impl<'a, 'policy> Writer<'a, 'policy> {
                          Span::styled(link.destination.clone(), self.styles.link),
                          web_destination(&link.destination).as_deref(),
                      );
@@ -5058,7 +5206,7 @@ index d06cd5c05e2c734f87ea081f0ab219ef313462e0..81bf6633d33f03f5e53d731868f9c0a1
                      self.push_annotated(destination);
                      self.push_span(")".into());
                  }
-@@ -2532,13 +2558,23 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+@@ -2532,13 +2582,23 @@ impl<'a, 'policy> Writer<'a, 'policy> {
          }
          if let Some(line) = self.current_line_content.as_mut() {
              self.copy_line.push(span.content.len(), &self.copy_inline);
@@ -5085,7 +5233,7 @@ index d06cd5c05e2c734f87ea081f0ab219ef313462e0..81bf6633d33f03f5e53d731868f9c0a1
                  line.push_linked_span(span, start, destination);
              } else {
                  line.line.push_span(span);
-@@ -2546,6 +2582,24 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+@@ -2546,6 +2606,24 @@ impl<'a, 'policy> Writer<'a, 'policy> {
          }
      }
  
@@ -5110,7 +5258,7 @@ index d06cd5c05e2c734f87ea081f0ab219ef313462e0..81bf6633d33f03f5e53d731868f9c0a1
      fn push_annotated(&mut self, appended: HyperlinkLine) {
          if self.current_line_content.is_none() {
              self.push_line(Line::default());
-@@ -2566,15 +2620,9 @@ impl<'a, 'policy> Writer<'a, 'policy> {
+@@ -2566,15 +2644,9 @@ impl<'a, 'policy> Writer<'a, 'policy> {
  
      fn push_text_spans(&mut self, text: &str, style: Style) {
          let span = self.style_link_label(Span::styled(text.to_string(), style));
@@ -6006,6 +6154,72 @@ index 9d4ef7c0ab3c14414a3f727154a86aede386b901..8fd6d86248d67b7f2698660a39c31d75
      #[test]
      fn only_web_destinations_receive_osc8() {
          assert!(osc8_hyperlink("https://example.com/a", "a").contains("\x1b]8;;"));
+diff --git a/codex-rs/tui/src/transcript_view/copy_mode.rs b/codex-rs/tui/src/transcript_view/copy_mode.rs
+index 0dc5c4d7a517377e18e8780b345eb6d28a35f8b8..d7f01193d36f3b32c0dd1f4c98965561858bf168 100644
+--- a/codex-rs/tui/src/transcript_view/copy_mode.rs
++++ b/codex-rs/tui/src/transcript_view/copy_mode.rs
+@@ -152,7 +152,15 @@ impl TranscriptView {
+                 .map(|user| user.message.as_str())
+                 .or_else(|| cells[index].copy_source())
+             {
+-                let targets = crate::markdown::extract_copy_targets(source);
++                let sections = if user.is_some() {
++                    crate::markdown::user_markdown_sections(source)
++                } else {
++                    vec![source]
++                };
++                let targets: Vec<_> = sections
++                    .iter()
++                    .flat_map(|section| crate::markdown::extract_copy_targets(section))
++                    .collect();
+                 let mut codes = targets
+                     .iter()
+                     .filter_map(|target| match target {
+@@ -162,7 +170,11 @@ impl TranscriptView {
+                     .collect::<Vec<_>>();
+                 let mut depth = 0;
+                 let mut quotes = Vec::new();
+-                for (event, span) in pulldown_cmark::Parser::new(source).into_offset_iter() {
++                for (source, event, span) in sections.iter().flat_map(|&section| {
++                    pulldown_cmark::Parser::new(section)
++                        .into_offset_iter()
++                        .map(move |(event, span)| (section, event, span))
++                }) {
+                     match event {
+                         pulldown_cmark::Event::Start(pulldown_cmark::Tag::BlockQuote) => {
+                             if depth == 0 {
+diff --git a/codex-rs/tui/src/transcript_view/copy_mode_tests.rs b/codex-rs/tui/src/transcript_view/copy_mode_tests.rs
+index 75391e67e074e5c7832644ad6a60c477ec1e22fb..d7fc1f65a5bda043a01c0a434ad686028a70eef9 100644
+--- a/codex-rs/tui/src/transcript_view/copy_mode_tests.rs
++++ b/codex-rs/tui/src/transcript_view/copy_mode_tests.rs
+@@ -305,6 +305,27 @@ fn whole_user_turn_highlight_includes_bottom_padding() {
+     insta::assert_snapshot!(snapshots.join("\n---\n"));
+ }
+ 
++#[test]
++fn transcript_quote_user_reply_remains_outside_quote() {
++    let message = "> 123\n456";
++    let cells: Vec<Arc<dyn HistoryCell>> = vec![Arc::new(crate::history_cell::new_user_prompt(
++        message.into(),
++        Vec::new(),
++        Vec::new(),
++        Vec::new(),
++    ))];
++    let mut view = TranscriptView::default();
++    let buffer = render(&mut view, &cells, /*width*/ 40, /*height*/ 12);
++    let visible = text(&buffer);
++    let mut lines = visible.lines().skip_while(|line| !line.contains("> 123"));
++    assert!(lines.next().is_some(), "{visible}");
++    assert_eq!(lines.next().map(str::trim), Some("456"));
++    view.begin_copy_mode(&cells, /*guard*/ None);
++    assert_eq!(payload(&mut view, &cells).trim_end(), "> 123");
++    view.move_copy_target(&cells, KeyCode::Up);
++    assert_eq!(payload(&mut view, &cells), message);
++}
++
+ #[test]
+ fn rendered_mermaid_copies_source() {
+     let cells: Vec<Arc<dyn HistoryCell>> = vec![Arc::new(AgentMarkdownCell::new(
 diff --git a/codex-rs/tui/src/transcript_view/footer.rs b/codex-rs/tui/src/transcript_view/footer.rs
 index addb462eb1cf30bcee9b24cd1287c3fb22eb6eb5..741025dd403d064bddb0362f0909220c4703c624 100644
 --- a/codex-rs/tui/src/transcript_view/footer.rs
