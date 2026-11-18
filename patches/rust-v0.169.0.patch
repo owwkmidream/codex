@@ -4764,7 +4764,7 @@ index d4d9aed1318c368bf62cc1139221e0595f455702..7d0276f3cad49c9a316fec011110620c
                  let title = section.title();
                  SelectionTab {
 diff --git a/codex-rs/tui/src/history_cell/notices.rs b/codex-rs/tui/src/history_cell/notices.rs
-index 8c2dce8f95829c082c24196c5a7c989194234756..1e3936b4f2e21aca3e50b9bc1191bbdcacc29354 100644
+index 8c2dce8f95829c082c24196c5a7c989194234756..ab804edab04f851d5680bb086e6f21b24100e00f 100644
 --- a/codex-rs/tui/src/history_cell/notices.rs
 +++ b/codex-rs/tui/src/history_cell/notices.rs
 @@ -167,41 +167,23 @@ pub(crate) fn new_safety_access_block_event() -> SafetyAccessBlockCell {
@@ -4820,7 +4820,7 @@ index 8c2dce8f95829c082c24196c5a7c989194234756..1e3936b4f2e21aca3e50b9bc1191bbdc
 -        body,
 -        actions,
 -    }
-+    new_warning_event(message.to_string())
++    new_visible_warning_event(message.to_string())
  }
  
  impl SafetyAccessBlockCell {

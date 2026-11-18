@@ -1,0 +1,22 @@
+From 63473471882136ac01ffa97c667b267a40d336ce Mon Sep 17 00:00:00 2001
+From: Codex patches <patches@localhost>
+Date: Wed, 18 Nov 2026 20:55:48 +0800
+Subject: [PATCH] fix(tui): show policy warnings in the live transcript
+
+---
+ codex-rs/tui/src/history_cell/notices.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/codex-rs/tui/src/history_cell/notices.rs b/codex-rs/tui/src/history_cell/notices.rs
+index 1e3936b4f2e21aca3e50b9bc1191bbdcacc29354..ab804edab04f851d5680bb086e6f21b24100e00f 100644
+--- a/codex-rs/tui/src/history_cell/notices.rs
++++ b/codex-rs/tui/src/history_cell/notices.rs
+@@ -183,7 +183,7 @@ pub(crate) fn new_cyber_policy_error_event(notice: crate::daybreak::Notice) -> W
+             "Some cybersecurity requests are still limited, even when Daybreak is on."
+         }
+     };
+-    new_warning_event(message.to_string())
++    new_visible_warning_event(message.to_string())
+ }
+ 
+ impl SafetyAccessBlockCell {

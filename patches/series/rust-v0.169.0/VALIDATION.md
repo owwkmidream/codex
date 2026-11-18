@@ -40,3 +40,7 @@
 ## 0012 TUI 回归
 
 [Windows 运行](https://github.com/owwkmidream/codex/actions/runs/44294022902) 的协议导出和 Guardian 回归通过。TUI 回归 128 项通过，2 项失败。源码 `c50f9fca` 更新警告文案断言，并从 AppEvent 通道验证 Esc 中断。12 个补丁及合并补丁已各自从官方基线重放，与该源码比较均无差异。
+
+## 0013 实时警告
+
+[CI 44298412308](https://github.com/owwkmidream/codex/actions/runs/44298412308) 的 TUI 回归 129 项通过，1 项失败。Esc 中断用例通过。普通警告在实时历史区渲染为空，源码 `63473471` 改用已有的可见警告构造函数。series 和合并补丁从官方基线重放后均与该提交一致。
