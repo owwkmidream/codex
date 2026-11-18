@@ -1,0 +1,8 @@
+# rust-v0.170.0 验证证据
+
+官方基线：`29eb79e9866b3262a777fdf8195c1b9e63684c91`；迁移源码：`82f514089f23260791605a0b942d7abfbbf691bc`。
+
+- 从 0.169.0 迁移 9 个功能，两个测试修订并入对应功能。保留上游 WebSocket 请求过大时切换 HTTP 的路径、收到文本帧的标记及当前步骤的遥测归属。
+- 在官方基线的干净 worktree 中使用 `git am --3way` 重放 9 个补丁；合并补丁在独立 index 从同一基线重放。两者与迁移源码的 Git 差异均为空。
+- [0.169.0 失败运行](https://github.com/owwkmidream/codex/actions/runs/44114762731)：协议导出在重编时达到 20 分钟上限；Guardian 快照实际输出为宿主缺失。CI 将协议步骤上限改为 45 分钟，给 Guardian 安装同 tag 的官方宿主，保留快照断言。
+- 本机未运行 Cargo 构建或测试；重放不等于 Windows 集成验证。发布须核对新运行的 build、test、release 和附件。

@@ -5,7 +5,7 @@
 ## 按任务读取
 
 - 修改功能、配置或补丁：读 [CODEX-BUILD.md](CODEX-BUILD.md) 的“功能约定”和“维护补丁”。
-- 验证或排查失败：读目标 series 的 `VALIDATION.md`（当前为 [0.167.0](patches/series/rust-v0.167.0/VALIDATION.md)），再查实际 CI jobs 和日志。
+- 验证或排查失败：读目标 series 的 `VALIDATION.md`（当前为 [0.170.0](patches/series/rust-v0.170.0/VALIDATION.md)），再查实际 CI jobs 和日志。
 - 修改 CI 或发布说明：读 [.github/workflows/build-windows.yml](.github/workflows/build-windows.yml)；核对目标提交、Release 附件与 `built-tags.txt`。
 - 修改安装、恢复、状态脚本或部署说明：读 [scripts/README.md](scripts/README.md)，使用其中的隔离 fixture 验证。
 
