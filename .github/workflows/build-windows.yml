@@ -456,7 +456,7 @@ jobs:
       - name: 重建并校验协议导出
         working-directory: upstream/codex-rs
         shell: bash
-        timeout-minutes: 20
+        timeout-minutes: 45
         run: |
           set -euo pipefail
           # 新版把协议导出嵌入压缩文件；从源码生成，避免二进制补丁随每版失效。
@@ -693,6 +693,22 @@ jobs:
         if: steps.sccache.outcome == 'success'
         shell: bash
         run: echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+
+      - name: 准备 Guardian 集成测试宿主
+        working-directory: upstream/codex-rs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM_TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ -f core/tests/suite/scenarios_guardian_reconsideration.rs ]]; then
+            # InstallContext searches next to the integration test executable.
+            mkdir -p target/ci-test/deps
+            gh release download "$UPSTREAM_TAG" --repo "$UPSTREAM_REPO" \
+              --pattern codex-code-mode-host-x86_64-pc-windows-msvc.exe \
+              --output target/ci-test/deps/codex-code-mode-host.exe --clobber
+          fi
 
       - name: 重试格式检查与回归
         working-directory: upstream/codex-rs
